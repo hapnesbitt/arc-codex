@@ -17,7 +17,7 @@ dasbus==1.7
 defer>=1.0
 deprecation==2.1.0
 distro==1.9.0
-distro-info==1.14
+distro-info>=1.0
 duplicity==3.0.4
 ewmh==0.1.6
 eyed3==0.9.7
