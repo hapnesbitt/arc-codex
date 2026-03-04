@@ -23,3 +23,6 @@ secret/
 
 # Ignore Next.js build/cache artifacts
 frontend/.next/
+
+# Ignore the production deployment directory
+/mnt/data/www/arc_stack_prod/
