@@ -4,14 +4,11 @@ WORKDIR /app
 
 # Install standard endemic build tools and graphic libraries.
 # Combined update, install, and list cleanup.
-RUN apt-get update &&     apt-get install -y --no-install-recommends         build-essential \
-        cmake \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends         build-essential \
         pkg-config \
         gettext \
         gcc \
-        python3-apt \
-        python3-apt \
-        python3-apt \
         librsync-dev \
         libcairo2-dev \
         libgirepository1.0-dev \
