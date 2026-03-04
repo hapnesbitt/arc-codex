@@ -5,8 +5,8 @@ WORKDIR /app
 # Install standard endemic build tools and graphic libraries.
 # Combined update, install, and list cleanup.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        build-essential \
+    apt-get install -y --no-install-recommends         build-essential \
+        pkg-config \
         gettext \
         gcc \
         librsync-dev \
