@@ -11,6 +11,7 @@ RUN apt-get update &&     apt-get install -y --no-install-recommends         bui
         gcc \
         python3-apt \
         python3-apt \
+        python3-apt \
         librsync-dev \
         libcairo2-dev \
         libgirepository1.0-dev \
