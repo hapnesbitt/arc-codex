@@ -2,7 +2,8 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install native build tools, graphical libs, and OS packages strategy (Robust Fix)
+# Install native build tools, graphical libs, and systemd-dev (Robust Fix)
+# We include 'gettext' (critical for your optimized run script).
 RUN apt-get update && \
     apt-get install -y --no-install-recommends         build-essential \
         pkg-config \
@@ -11,7 +12,8 @@ RUN apt-get update && \
         librsync-dev \
         libcairo2-dev \
         libgirepository1.0-dev \
-        libglib2.0-dev && \
+        libglib2.0-dev \
+        libsystemd-dev && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
