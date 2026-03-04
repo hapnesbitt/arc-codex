@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install standard endemic build tools and graphic libraries.
+# Install standard endemic build tools, graphic libraries, AND system packages.
 # Combined update, install, and list cleanup.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends         build-essential \
@@ -12,7 +12,9 @@ RUN apt-get update && \
         librsync-dev \
         libcairo2-dev \
         libgirepository1.0-dev \
-        libglib2.0-dev && \
+        libglib2.0-dev \
+        python3-apt \
+        python3-debian && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
