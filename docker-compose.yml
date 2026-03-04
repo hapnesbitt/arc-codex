@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  # --- Core Infrastructure with Persistent Volumes (on HDD) ---
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --requirepass 
+    volumes:
+      - /mnt/data/arc_codex/redis:/data # Persistent HDD storage for Redis 
+    networks:
+      - arc_network
+
+  solr:
+    image: solr:9
+    restart: always
+    volumes:
+      - /mnt/data/arc_codex/solr:/var/solr # Persistent HDD storage for Solr 
+    networks:
+      - arc_network
+
+  # --- Application Networks ---
+  arc_network:
+    driver: bridge
