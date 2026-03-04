@@ -2,8 +2,8 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install standard endemic build tools, graphic libraries, AND system packages.
-# Combined update, install, and list cleanup.
+# Install standard endemic build tools and graphic libraries.
+# We also include 'libsystemd-dev' to solve the current systemd-python compilation failure.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends         build-essential \
         pkg-config \
@@ -13,8 +13,7 @@ RUN apt-get update && \
         libcairo2-dev \
         libgirepository1.0-dev \
         libglib2.0-dev \
-        python3-apt \
-        python3-debian && \
+        libsystemd-dev && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
