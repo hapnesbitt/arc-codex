@@ -2,9 +2,17 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install system dependencies needed to build some Python packages
-# We combine the apt update/install/cleanup to keep the image slim.
-RUN apt-get update &&     apt-get install -y --no-install-recommends gcc gettext librsync-dev &&     rm -rf /var/lib/apt/lists/*
+# Install standard endemic build tools and graphic libraries.
+# Combined update, install, and list cleanup.
+RUN apt-get update &&     apt-get install -y --no-install-recommends         build-essential \
+        cmake \
+        pkg-config \
+        gettext \
+        gcc \
+        librsync-dev \
+        libcairo2-dev \
+        libgirepository1.0-dev \
+        libglib2.0-dev &&     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
