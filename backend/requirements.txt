@@ -42,7 +42,7 @@ launchpadlib==2.1.0
 lazr.restfulclient==0.14.6
 lazr.uri==1.0.6
 linkify-it-py==2.0.3
-louis==3.33.0
+louis>=1.0
 lxml==6.0.1
 Mako==1.3.9.dev0
 markdown-it-py==3.0.0
