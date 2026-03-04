@@ -2,8 +2,7 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install standard endemic build tools and graphic libraries.
-# Combined update, install, and list cleanup.
+# Install native build tools, graphical libs (Robust Fix)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends         build-essential \
         pkg-config \
@@ -20,8 +19,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Expose the production backend port
+# Expose production backend port
 EXPOSE 5005
 
-# Command to run the application (using your optimized script)
+# Optimized run script
 CMD ["./gunicorn_arc.sh"]
