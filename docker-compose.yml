@@ -47,6 +47,7 @@ services:
     networks:
       - arc_network
 
-  # --- Application Networks ---
+# --- Define Networks in their proper, top-level section ---
+networks:
   arc_network:
     driver: bridge
