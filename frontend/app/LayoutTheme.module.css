@@ -1,0 +1,201 @@
+/* File: LayoutTheme.module.css - v7.0 Ukraine Blue/Yellow Theme */
+/* ARCHITECTURAL FIX: 
+  - The body is now a simple, full-height flex container.
+  - `overflow: hidden` is the definitive fix for the double scrollbar bug.
+  - ✅ FONT FIX: Uses var(--font-sans) instead of hardcoded 'Inter'
+  - ✅ THEME: Dark red → Ukraine dark blue, amber → yellow
+*/
+.wrapper {
+  background: linear-gradient(135deg, #0c1e3a, #091428);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-sans);
+  color: #fff;
+  overflow: hidden;
+}
+
+/* ARCHITECTURAL FIX & LAYOUT SHIFT FIX:
+  - `mainContent` is now the designated flex child that grows `flex: 1`).
+  - It handles all scrolling `overflow-y: auto`).
+  - `scrollbar-gutter: stable` prevents the "creepy" content jumping.
+*/
+.mainContent {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.8);
+  border-radius: 1rem;
+  margin: 1rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(10px);
+  scrollbar-gutter: stable;
+}
+
+/* Card container for main content */
+.card {
+  margin: 0 auto;
+  width: 100%;
+  max-width: 1200px;
+  background: rgba(0, 0, 0, 0.8);
+  border-radius: 1rem;
+  padding: 2rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Sidebar — Ukraine dark blue */
+.sidebar {
+  border-right: 1px solid rgba(250, 204, 21, 0.15);
+  background-color: rgba(9, 20, 50, 0.95);
+  backdrop-filter: blur(8px);
+  color: #fff;
+}
+
+.button {
+  color: #fff;
+  background-color: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255,255,255,0.2);
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+}
+
+.button:hover {
+  background-color: rgba(255, 255, 255, 0.15);
+  color: #fef08a;
+}
+
+/* POLISHED: Enhanced sidebar link with glow effect — yellow accent
+*/
+.sidebarLink {
+  color: rgba(255, 255, 255, 0.8);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  text-decoration: none;
+  position: relative;
+}
+
+.sidebarLink:hover {
+  color: #facc15;
+  background-color: rgba(250, 204, 21, 0.1);
+  box-shadow: 0 0 20px rgba(250, 204, 21, 0.15);
+}
+
+/* Icon glow effect on hover */
+.sidebarLink:hover svg {
+  filter: drop-shadow(0 0 4px rgba(250, 204, 21, 0.5));
+  transition: filter 0.3s ease;
+}
+
+/* Subtle left border accent on hover — yellow gradient */
+.sidebarLink::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 0;
+  width: 3px;
+  background: linear-gradient(to bottom, #facc15, #eab308);
+  border-radius: 0 2px 2px 0;
+  opacity: 0;
+  transition: height 0.3s ease, opacity 0.3s ease;
+}
+
+.sidebarLink:hover::before {
+  height: 70%;
+  opacity: 1;
+}
+
+.sidebarText {
+  font-size: 0.75rem;
+  text-align: center;
+  margin-top: 0.25rem;
+}
+
+/* Mobile menu overlay */
+.mobileOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
+  z-index: 50;
+}
+
+/* Mobile menu — Ukraine dark blue */
+.mobileMenu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  width: 280px;
+  background: rgba(9, 20, 50, 0.97);
+  backdrop-filter: blur(10px);
+  z-index: 51;
+  padding: 2rem;
+  transform: translateX(-100%);
+  transition: transform 0.3s ease-in-out;
+}
+
+.mobileMenuOpen {
+  transform: translateX(0);
+}
+
+.mobileMenuHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+/* Menu toggle button — Ukraine dark blue */
+.menuToggle {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 52;
+  background: rgba(9, 20, 50, 0.95);
+  border: 1px solid rgba(250, 204, 21, 0.2);
+  border-radius: 0.5rem;
+  padding: 0.5rem;
+  color: #fff;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  transition: all 0.3s ease;
+}
+
+.menuToggle:hover {
+  background: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 0 12px rgba(250, 204, 21, 0.2);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .card {
+    padding: 1rem;
+  }
+  
+  .mainContent {
+    margin: 0.5rem;
+    padding: 0.5rem;
+  }
+}
+
+/* FIREFOX ENHANCEMENT:
+  - Enhanced glow effect for Firefox with improved shadow
+*/
+@supports (-moz-appearance: none) {
+  .sidebarLink:hover {
+    color: #facc15;
+    text-shadow: 0 0 12px rgba(250, 204, 21, 0.6);
+  }
+}

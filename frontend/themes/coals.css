@@ -1,0 +1,23 @@
+/* This is the default theme, defined in :root */
+:root {
+  --background: #1a1a2e;
+  --foreground: #e0e0e0;
+  --card: #2a2a3e;
+  --card-foreground: #e0e0e0;
+  --popover: #1a1a2e;
+  --popover-foreground: #e0e0e0;
+  --primary: #fca311;
+  --primary-foreground: #14213d;
+  --secondary: #4a4a6a;
+  --secondary-foreground: #e0e0e0;
+  --destructive: #e63946;
+  --destructive-foreground: #ffffff;
+  --muted: #4a4a6a;
+  --muted-foreground: #a0a0a0;
+  --accent: #fca311;
+  --accent-foreground: #ffffff;
+  --border: #4a4a6a;
+  --input: #4a4a6a;
+  --ring: #fca311;
+  --radius: 0.5rem;
+}

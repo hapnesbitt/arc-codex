@@ -1,0 +1,415 @@
+# Arc Codex Project Context
+# VERSION 7.1 - Updated Mar 1, 2026
+# Restructured into three audience sections: USER / ADMIN / DEVELOPER
+# Comprehensive reference for AI assistants working on this codebase
+#
+# QUICK NAVIGATION:
+#   USER      — What Arc Codex does for readers (line ~20)
+#   ADMIN     — Running and operating the stack (line ~110)
+#   DEVELOPER — Technical spec, API, schemas, AI notes, TODO (line ~330)
+
+# ==============================================================================
+# SECTION 1: USER
+# ==============================================================================
+
+user:
+  product: Arc Codex
+  tagline: Intelligence infrastructure for the independent mind
+  domain: arc-codex.com
+  mission: >
+    Arc Codex transforms raw information into structured intelligence using the
+    A.R.C. (Argumentative Resilience Codex) framework. It does not give you
+    conclusions — it gives you tools to think better. No ads, no tracking,
+    no paywalls.
+
+  arc_framework:
+    description: Every article is analyzed by three independent AI teams
+    red_team: Extracts verifiable facts only. Who, what, when, where. No interpretation.
+    blue_team: Balanced executive summary for educated readers. Journalistic neutrality.
+    purple_team: |
+      Watchline Operator — deep cognitive analysis:
+      1. Steelman the narrative
+      2. Scan for 48 A.R.C. anti-patterns
+      3. Root cause analysis
+      4. Practical implications for human dignity
+      5. Bridge-building questions
+      6. Counterstrike scan (hypothetical influence campaign analysis)
+
+  sentinel: >
+    Independent forensic pass detecting AI-generated or synthetic content.
+    Returns HUMAN (<20%), UNCERTAIN (20-60%), or SYNTHETIC (>80%).
+    Tuned conservative — false positives worse than false negatives.
+
+  counter_analyst: >
+    Principled devil's advocate comment auto-seeded on every article.
+    Transparently labeled (cyan styling + robot emoji). Solves the
+    "empty dance floor" problem — gives readers something to push back against.
+
+  translation:
+    languages: 68
+    groups: "English (1), European (21), Middle East (7), South Asia (11), East/SE Asia (11), Africa (8), Americas & Pacific (5)"
+    rtl_support: Arabic, Hebrew, Urdu, Persian, Pashto, Kurdish, Uyghur, Sindhi, Yiddish, Dhivehi
+    behavior: Click Translate -> goes to preferred language (no dropdown). Globe icon to change.
+    cache: 24h Redis cache per article+language pair
+    note: Does NOT overwrite canonical article — translations are always ephemeral
+    english_use_case: >
+      English is first in the dropdown to support translating foreign-language articles
+      into English. High-value use case: Aftenposten/NRC/Der Spiegel articles can be
+      read by English speakers without leaving Arc Codex.
+
+  google_sso:
+    model: Soft auth — site fully public, login optional, unlocks preferences only
+    provider: Google OAuth only (no username/password)
+    stored_fields: email, name, picture, preferred_lang, created_at, last_seen
+    privacy: No tracking, no ads, no data sales. GDPR self-service deletion available.
+
+  rss:
+    endpoints: [/api/rss, /api/feed.xml]
+    content: Full A.R.C. analysis in each item (Red/Blue/Purple + Chimera Score)
+    filters: "?category=threat_intelligence, ?limit=10"
+
+  core_principles:
+    - "I. Attack ideas, never people"
+    - "II. Model thinking, not conclusions"
+    - "III. Invite inquiry, don't command belief"
+
+  the_codex:
+    total_patterns: 48
+    foundational: [ARC-0001 Siren's Trap, ARC-0002 Deniability Decoy, ARC-0003 Wolf's Gambit, ARC-0004 Configuration Drift]
+    schopenhauer: ARC-0005 to ARC-0042 (38 stratagems)
+    modern: [ARC-0043 Motte-and-Bailey, ARC-0044 Gish Gallop, ARC-0045 Sealioning, ARC-0046 Kafka Trap, ARC-0047 Sanewashing]
+    kalisti_principle: "You cannot exclude Eris from the party. She will lob the problem into your garden regardless."
+
+# ==============================================================================
+# SECTION 2: ADMIN
+# ==============================================================================
+
+admin:
+  hardware:
+    primary: HP Z230 SFF Workstation (192.168.1.198 LAN / 38.175.170.87 WAN)
+    ai_inference: MacBook Air M1 (192.168.1.185) — ALL inference (analysis + translation)
+    os: Ubuntu 24.04 LTS
+    fd_limit: "65536 via /etc/systemd/system/itc-stack.service.d/limits.conf"
+
+  stack_root: /home/www/arc_stack
+  stack_manager: arc.sh
+
+  arc_sh_commands:
+    start:   "./arc.sh start [service]"
+    stop:    "./arc.sh stop [service]"
+    restart: "./arc.sh restart [service]"
+    status:  "./arc.sh status"
+    logs:    "./arc.sh logs"
+    build:   "./arc.sh build"
+    checkup: "./arc.sh checkup"
+    backup:  "./arc.sh backup"
+    prune:   "./arc.sh prune [dry]"
+
+  arc_env_sh:
+    file: /home/www/arc_stack/arc_env.sh
+    usage: "source /home/www/arc_stack/arc_env.sh"
+    provides: [arc (alias for ./arc.sh), arc-logs, arc-status]
+
+  services:
+    gunicorn:         {command: "./gunicorn_arc.sh", port: 5005, dir: "backend/", workers: 1, threads: 8, timeout: 600}
+    scribe:           {command: "python3 scribe.py", note: "v50.0 — BROWSER_RECYCLE_INTERVAL=20 prevents fd leak"}
+    manual_publisher: {command: "python3 manual_publisher.py", note: "v5.1"}
+    stream_consumer:  {command: "python3 stream_consumer.py"}
+    analyzer:         {command: "python3 analyzer.py"}
+    mailer:           {command: "python3 mailer.py", note: "v1.0 ACTIVE — alerts + 7am digest"}
+    frontend:         {command: "npm run start", port: 3000, dir: "frontend/"}
+    watchdog:         {command: "./watchdog.sh", note: "60s check loop, restarts crashed services"}
+
+  boot:
+    mechanism: systemd
+    unit_file: /etc/systemd/system/itc-stack.service
+    note: Unit name is legacy (itc era) — do not rename without testing
+    after: [network-online.target, redis.service]
+
+  crontab:
+    backup: "0 3 * * * /home/www/arc_stack/arc.sh backup"
+    note: Daily 3am. Keeps last 5 tarballs.
+
+  backups:
+    location: /home/www/arc_stack/backups/
+    naming: arc_backup_YYYY-MM-DD_HHMM.tar.gz
+    retention: Last 5 tarballs
+    restore: PENDING — arc.sh restore not yet implemented
+
+  log_management:
+    locations: [logs/*.log, backend/*.log]
+    rotation: Files >50MB get timestamp + gzip
+    retention: 9 days
+
+  reverse_proxy:
+    server: Caddy (automatic HTTPS)
+    config: /etc/caddy/Caddyfile
+    critical_routing: |
+      arc-codex.com block — ORDER MATTERS:
+        handle /api/auth/* { reverse_proxy localhost:3000 }
+        handle /api/user/* { reverse_proxy localhost:3000 }
+        handle /api/*      { reverse_proxy localhost:5005 }
+        handle             { reverse_proxy localhost:3000 }
+
+  redis:
+    url: "redis://:simplenes@localhost:6379/0"
+    admin_cli: "redis-cli -a simplenes"
+    translation_lock: "translation:active — TTL 300s. Prevents model thrashing on M1."
+
+  ollama:
+    host: "http://192.168.1.185:11434"
+    architecture: "ALL inference on M1 — Z230 never used for inference"
+    primary: "devstral cloud (weekly credit limit)"
+    fallback: "gemma3:4b Q4_K_M (local on M1, 3.6GB)"
+    translation_model: "MedAIBase/TranslateGemma:4b (M1, 7.8GB F16 — /api/chat required)"
+    translation_fields_local: "[title, original_text] — 2 fields, speed constraint"
+    translation_fields_pro: "[title, original_text, red_team_analysis, blue_team_analysis, purple_team_analysis]"
+
+  email:
+    mta: Postfix 3.10.2
+    dkim: "selector: mail, domain: arc-codex.com"
+    alert_to: rossnesbitt@gmail.com
+    auth_status: "SPF: PASS, DKIM: PASS, DMARC: PASS"
+
+  kasmir7:
+    file: backend/kasmir7.py
+    description: Interactive admin console v7
+    functions: ["1-Search", "2-Emergency removal", "3-Trim", "4-Inspect", "5-Solr re-index",
+                "6-Solr diagnostics", "7-Purge Solr orphans", "8-Purge Redis orphans"]
+
+  nodejs:
+    path: /home/ross/.nvm/versions/node/v22.16.0/bin
+    note: Hardcoded in arc.sh PATH export and watchdog.sh
+
+  env_files:
+    backend_env: backend/.env
+    frontend_env_local: frontend/.env.local
+    warning: >
+      NEXT_PUBLIC_BACKEND_URL must be https://arc-codex.com in BOTH .env AND .env.local.
+      .env.local has higher priority — a stale value here caused mobile to call localhost:5005.
+      BACKEND_INTERNAL_URL=http://localhost:5005 is for server-side proxy only (not NEXT_PUBLIC_).
+
+# ==============================================================================
+# SECTION 3: DEVELOPER
+# ==============================================================================
+
+developer:
+  stack:
+    backend: "Python 3.x / Flask / gunicorn (port 5005, 1 worker, 8 threads, timeout 600)"
+    frontend: "Next.js 16.1.6 / React 19 / TypeScript / Tailwind CSS / shadcn-ui"
+    database: Redis
+    search: Apache Solr
+    ai: "Ollama on M1 — devstral cloud + gemma3:4b (analysis) + TranslateGemma:4b (translation)"
+    auth: "Auth.js v5 (next-auth@5.0.0-beta.30) — Google OAuth, JWT sessions"
+    reverse_proxy: Caddy
+
+  file_tree: |
+    /home/www/arc_stack/
+    ├── arc.sh
+    ├── arc_env.sh
+    ├── watchdog.sh
+    ├── backend/
+    │   ├── .env
+    │   ├── main.py                    # Flask API (formerly app.py)
+    │   ├── scribe.py                  # v50.0 — RSS scraper + A.R.C. pipeline
+    │   ├── analyzer.py                # v1.0
+    │   ├── manual_publisher.py        # v5.1
+    │   ├── stream_consumer.py         # v1.0
+    │   ├── mailer.py                  # v1.0 ACTIVE — alerts + digest
+    │   ├── ollama_utils.py            # WARNING: ONLY Ollama implementation. Has translation lock wait.
+    │   ├── stream_utils.py
+    │   ├── rss_feed.py
+    │   ├── translation.py             # TranslateGemma:4b via /api/chat
+    │   ├── user_prefs.py              # loopback-only security
+    │   ├── prompts.yaml               # v7.0
+    │   ├── arc_benchmark.py
+    │   ├── kasmir7.py                 # Admin console v7
+    │   ├── gunicorn_arc.sh            # 1 worker, 8 threads, 600s timeout
+    │   ├── sources.json               # ~1200+ RSS sources
+    │   ├── directives.json
+    │   └── project_context.yaml      # THIS FILE
+    └── frontend/
+        ├── .env
+        ├── .env.local                 # WARNING: overrides .env — keep NEXT_PUBLIC_BACKEND_URL in sync
+        ├── .npmrc                     # legacy-peer-deps=true (permanent)
+        ├── postcss.config.js          # WARNING: CommonJS ONLY — not .mjs
+        ├── lib/
+        │   ├── auth.ts                # trustHost: true REQUIRED
+        │   ├── types.ts
+        │   ├── textUtils.ts
+        │   ├── categoryLabels.js
+        │   └── utils.js
+        ├── hooks/
+        │   └── useUserPrefs.ts        # Legacy — use UserPrefsContext instead
+        ├── components/
+        │   ├── UserPrefsContext.tsx   # WARNING: single source of truth for prefs
+        │   ├── UserMenu.tsx
+        │   ├── TranslateButton.tsx    # 68 languages, English first
+        │   ├── IntelligenceCard.tsx
+        │   ├── FeedClient.tsx         # WARNING: DO NOT RESTRUCTURE
+        │   └── CopyAllButton.tsx
+        └── app/
+            ├── layout.tsx
+            ├── ClientLayout.tsx       # SessionProvider + UserPrefsProvider
+            ├── LayoutTheme.module.css # WARNING: hardcoded colors — check here first
+            ├── globals.css
+            ├── page.tsx
+            ├── api/
+            │   ├── auth/[...nextauth]/route.ts
+            │   └── user/prefs/route.ts   # Uses BACKEND_INTERNAL_URL (server-side)
+            ├── article/[slug]/page.tsx
+            ├── publish/page.tsx           # v5.0
+            ├── search/page.tsx            # v2.1 — 4 sort options, Home pill
+            └── about/
+                ├── page.tsx
+                ├── sales/page.tsx
+                ├── support/page.tsx       # v5.2
+                ├── developer/page.tsx     # v6.0
+                ├── contact/page.tsx
+                ├── privacy/page.tsx
+                └── terms/page.tsx
+
+  api_endpoints:
+    "GET /api/articles":           "paginated feed — ?limit=N&offset=N"
+    "GET /api/articles/<id>":      "single article with full analysis"
+    "POST /api/submit":            "submit URL/text/file for processing"
+    "GET /api/search":             "Solr full-text — ?q=query&limit=N&sort=[recent|relevant|score_desc|score_asc]"
+    "GET /api/stats":              "article_count, oldest, newest — polled every 30s by search page"
+    "GET /api/translate/<id>":     "translate article — ?lang=<language name>"
+    "DELETE /api/translate/<id>/cache": "admin cache bust"
+    "GET /api/user/prefs":         "fetch prefs (via Next.js proxy)"
+    "POST /api/user/prefs":        "upsert on login (loopback only)"
+    "PATCH /api/user/prefs":       "update preferred_lang"
+    "DELETE /api/user/prefs":      "GDPR deletion"
+    "GET /api/rss":                "RSS 2.0 with full analysis"
+    "GET /api/feed.xml":           "alias for /api/rss"
+
+  blueprint_registry: |
+    app.register_blueprint(rss_blueprint)
+    from translation import translation_bp; app.register_blueprint(translation_bp)
+    from user_prefs import user_prefs_bp;   app.register_blueprint(user_prefs_bp)
+
+  redis_schemas:
+    article:      "article:{id} hash — id, title, url, source, original_text, timestamp, directive, chimera_score, red/blue/purple_team_analysis, sentinel_verdict, og_image, slug"
+    comment:      "comments:{article_id} list of JSON"
+    reaction:     "reactions:{comment_id} hash — like, dislike, heart, happy, sad, angry"
+    translation:  "translation:{article_id}:{lang} JSON TTL 24h — {title, original_text, rtl} (local) or 5-field (pro)"
+    user_sso:     "user:{google_sub} hash — email, name, picture, preferred_lang, created_at, last_seen"
+    stream:       "analysis:pending Redis Stream / consumer group: analysis_workers"
+    trans_lock:   "translation:active TTL 300s — held while TranslateGemma running"
+    mailer_dedup: "mailer:alerted:{key} TTL 3600s"
+    mailer_digest:"mailer:digest:{YYYY-MM-DD} TTL 90000s"
+
+  auth_notes:
+    library: "next-auth@5.0.0-beta.30"
+    strategy: JWT (no Redis adapter)
+    trustHost: "REQUIRED in auth.ts"
+    google_sub: "account.providerAccountId (NOT user.id)"
+    x_user_id: "Set ONLY in app/api/user/prefs/route.ts — never in browser code"
+    loopback_guard: "user_prefs.py 403 if remote_addr != 127.0.0.1"
+    backend_internal_url: "BOTH route.ts and auth.ts use BACKEND_INTERNAL_URL=http://localhost:5005 for all server-side Flask calls. NEXT_PUBLIC_ is browser only. NEVER use NEXT_PUBLIC_BACKEND_URL for server-side — it routes through Caddy/WAN and the loopback guard in user_prefs.py will 403 it."
+
+  ai_notes:
+    ollama_return: "call_ollama_with_fallback() returns TUPLE (text, duration_ms, model). Use result[0] for text."
+    translation_danger: "NEVER auto-translate on feed mount — 33 cards x Ollama = gunicorn starvation. Click-only."
+    translation_model: "TranslateGemma:4b needs /api/chat (NOT /api/generate), ISO 639-1 codes, system preamble, temp 0.2"
+    translation_lock: "translation.py sets Redis translation:active. ollama_utils waits up to 60s before analysis calls."
+    translation_fields: "Local = [title, original_text] only. Pro (devstral) = all 5 fields."
+    counter_analyst_author: "Must be exactly 'A.R.C. Counter-Analyst' — frontend styling depends on exact string"
+    sentinel_fatal: false
+    counter_analyst_fatal: false
+    stream_delivery: "Redis Streams only — no filesystem JSON writes"
+    chimera_score_caveat: "Calibrated on English. Non-English articles may score abnormally (Norwegian 100%). Language detection + badge is planned."
+
+  frontend_gotchas:
+    feedclient: "NEVER restructure — surgical deletions only"
+    layouttheme: "Check LayoutTheme.module.css first for any color issues"
+    user_prefs_import: "From @/components/UserPrefsContext — NOT @/hooks/useUserPrefs"
+    font: "Ubuntu only — variable --font-sans"
+    postcss: "postcss.config.js CommonJS only — .mjs breaks build"
+    nextjs: "v16.1.6, App Router, Turbopack"
+    ads: "FULLY REMOVED — do not re-add"
+    kafka: "NOT used — do not add"
+    markdown: "Zero-dependency built into IntelligenceCard.tsx — no react-markdown"
+    spacy: "Install via wheel URL — NOT python3 -m spacy download"
+    reactions: "Valid: like, dislike, heart, happy, sad, angry"
+    env_local_priority: "frontend/.env.local overrides .env — keep NEXT_PUBLIC_BACKEND_URL correct in both"
+    search_sort: "4 options: relevant, recent, score_desc (Tone high→low), score_asc (Tone low→high)"
+
+  playwright_notes:
+    pattern: "One browser per thread — sync_playwright, ThreadPoolExecutor, cannot share across threads"
+    recycle: "BROWSER_RECYCLE_INTERVAL=20 — browser recycled every 20 uses per thread"
+    leak_symptom: "ps aux | grep chromium | wc -l — normal <30, if 700+ restart scribe"
+
+  mailer_notes:
+    alerts: "Scans last 2min of all logs every 60s — triggers on manual intervention, fd exhaustion, scribe crash, all Ollama failed, Redis failed"
+    dedup: "1 alert per issue per hour via Redis TTL"
+    digest: "Daily 7am — top 10 articles by chimera_score, color-coded"
+    pipeline_stall: "Alerts if no new articles in 2 hours"
+
+  planned_features:
+    arc_sh_restore:
+      description: "./arc.sh restore — list tarballs, pick, confirm, extract, restart"
+
+    arc_admin_tui:
+      description: "Python curses TUI — arc_admin.py — stdlib only, no pip"
+      sections: [System, Backups, Articles, Users, Ollama]
+
+    try_pro_button:
+      description: "'Analyze with Pro' — hardcodes devstral, bypasses weekly limit check"
+      also: "Pro translation = all 5 fields"
+
+    language_detection:
+      description: "Detect non-English articles, show 'Translate to English' prominently + chimera score caveat badge"
+
+    score_sort_feed:
+      description: "Tone sort on feed page (search already has it)"
+
+    preferred_lang_auto_article:
+      description: "Auto-translate on /article/[slug] — safe (1 article). NOT on feed."
+
+    future:
+      - "arc_control.sh — configure mailer recipients, log retention, alert thresholds"
+      - "Topic/category preferences per user"
+      - "Reading history"
+      - "GitHub SSO"
+      - "Article deduplication (SimHash)"
+      - "Netdata custom metrics"
+      - "Email digest subscriber management in admin UI"
+      - "Prompt-to-Article (Write tab, grade/tone/image settings)"
+
+  changelog:
+    v7.1: |
+      Mar 1, 2026:
+      - article/[slug]/page.tsx: "Back to Feed" replaced with Home pill (lucide Home icon, pill shape)
+      - UserMenu.tsx: English added to COMMON_LANGUAGES (alphabetical, between Dutch and French)
+      - auth.ts + route.ts: fixed NEXT_PUBLIC_BACKEND_URL → BACKEND_INTERNAL_URL for all server-side
+        Flask calls. Root cause: NEXT_PUBLIC_ routed through Caddy/WAN, loopback guard 403'd silently.
+        Effect: preferred_lang now persists across sign-out/sign-in. last_seen now updates on every login.
+      - Removed root node_modules/ and package.json (npm Playwright leftovers — scribe uses venv pip version)
+    v7.0: |
+      Mar 1, 2026:
+      - mailer.py v1.0 ACTIVE — alerts + digest, DKIM/SPF/DMARC verified
+      - ALL inference on M1 (analysis + translation)
+      - Translation lock: Redis translation:active, ollama_utils backs off 60s
+      - TranslateGemma local = [title, original_text] only
+      - English added first in TranslateButton (foreign->English use case)
+      - Playwright browser recycle every 20 uses (730->6 chromium procs)
+      - fd limit 65536 via systemd override
+      - gunicorn: timeout 600s, threads 8
+      - frontend/.env.local fixed: NEXT_PUBLIC_BACKEND_URL=https://arc-codex.com
+      - BACKEND_INTERNAL_URL added for server-side proxy
+      - search page v2.1: 4 sort options + Home pill
+      - main.py /api/search: score_desc/score_asc via chimera_score Solr sort
+      - /api/stats endpoint for live article counter
+    v6.0: "Feb 28, 2026: project_context restructured, TranslateGemma:4b wired up, live article counter"
+    v5.3: "Feb 27, 2026: UserPrefsContext, auto-translate REMOVED, mobile auth"
+    v5.2: "Feb 27, 2026: Google SSO, Auth.js v5, user_prefs blueprint"
+    v5.1: "Feb 27, 2026: Translation 67 langs + RTL, Redis cache"
+    v5.0: "Feb 27, 2026: itc_stack->arc_stack, Solr orphan purge, kasmir7 v7"
+    v4.1: "Feb 26, 2026: Email infra, search v2.0, publish v5.0"
+    v4.0: "Feb 25, 2026: Arc Codex rebrand, ollama_utils extracted"
+    v3.5: "Feb 18, 2026: Solr search, zero-dependency markdown"
+    v3.4: "Feb 18, 2026: Sentinel, Counter-Analyst, reactions"
+    v3.3: "Feb 14, 2026: Redis Streams, RSS feed"
+    v3.0: "Feb 12, 2026: Initial document"

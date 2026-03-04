@@ -1,0 +1,18 @@
+# Ignore Python artifacts
+__pycache__/
+*.py[cod]
+
+# Ignore Node.js artifacts
+node_modules/
+
+# Ignore environment variables/secrets (CRITICAL)
+backend/.env
+frontend/.env.local
+.env
+
+# Ignore logs and backups
+logs/
+backups/
+
+# Ignore system-specific files
+.DS_Store

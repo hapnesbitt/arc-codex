@@ -1,0 +1,10 @@
+.theme-candy {
+  --background: #ffc2e2;
+  --foreground: #3c1e36;
+  --card: #ffd1e9;
+  --card-foreground: #3c1e36;
+  --primary: #1de9b6;
+  --primary-foreground: #004d40;
+  --secondary: #9c27b0;
+  --secondary-foreground: #ffffff;
+}

@@ -1,0 +1,1067 @@
+# Filename: /home/www/itc_stack/backend/app.py
+# Arc Codex API Engine v47 - PII REDACTION REMOVED
+# NOW INCLUDES: Anti-bot URL fetching with shared fetch_utils
+# Ollama backend for /api/stm with detailed timing and diagnostics
+# FIX: Removed unfair readability penalty that punished technical writing
+
+import io
+import pypdf
+import docx
+from rss_feed import rss_blueprint, init_rss
+import orjson
+from odf.opendocument import load as odf_load
+from odf import text as odf_text
+from pypdf import PdfReader
+import os
+import datetime
+import time
+from flask import Flask, request, jsonify, Response
+from flask_cors import CORS
+from werkzeug.utils import secure_filename
+import redis
+import re
+import logging
+import json
+import spacy
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+import nltk
+import textstat
+from textblob import TextBlob
+import uuid
+import requests
+import html2text
+import trafilatura
+import yaml
+import pysolr
+from dotenv import load_dotenv
+
+# NEW: Import anti-bot utilities
+from fetch_utils import (
+    fetch_with_anti_bot_handling,
+    is_problematic_news_site,
+    create_default_headers,
+    DEFAULT_IMAGE_URL as FETCH_UTILS_DEFAULT_IMAGE
+)
+
+load_dotenv()
+
+app = Flask(__name__)
+CORS(app)
+app.logger.setLevel(logging.INFO)
+
+# --- CONFIGURATION & INITIALIZATION ---
+SCRIBE_SECRET_KEY = os.getenv("SCRIBE_SECRET_KEY")
+REDIS_URL = os.getenv("REDIS_URL")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
+MAX_CONTENT_CHARS = 29999  # Unified truncation limit
+DEFAULT_IMAGE_URL = "https://arc-codex.com/information-warfare.jpg"
+PROMPTS = {}
+
+try:
+    with open('prompts.yaml', 'r') as f:
+        PROMPTS = yaml.safe_load(f)
+    app.logger.info("✅ Successfully loaded prompts from prompts.yaml.")
+except Exception as e:
+    app.logger.critical(f"🔥 PROMPTS FAILED TO LOAD: {e}")
+
+r = None
+if REDIS_URL:
+    try:
+        start_redis = time.perf_counter()
+        r = redis.from_url(REDIS_URL, decode_responses=True)
+        r.ping()
+        app.register_blueprint(rss_blueprint)
+        init_rss(r)
+        from translation import translation_bp
+        app.register_blueprint(translation_bp)
+        from user_prefs import user_prefs_bp
+        app.register_blueprint(user_prefs_bp)
+        redis_duration = (time.perf_counter() - start_redis) * 1000
+        app.logger.info(f"✅ Successfully connected to Redis in {redis_duration:.2f}ms")
+    except Exception as e:
+        app.logger.critical(f"🔥 REDIS FAILED TO CONNECT: {e}")
+else:
+    app.logger.critical("🔥 REDIS_URL not set in .env file.")
+
+NLP_PROCESSOR, SENTIMENT_ANALYZER, AI_BACKEND = None, None, None
+try:
+    NLP_PROCESSOR = spacy.load("en_core_web_sm")
+    try:
+        nltk.data.find('sentiment/vader_lexicon.zip')
+    except:
+        nltk.download('vader_lexicon', quiet=True)
+    SENTIMENT_ANALYZER = SentimentIntensityAnalyzer()
+    AI_BACKEND = "ollama"
+    app.logger.info(f"✅ Arc Codex API Engine: NLP initialized. AI Backend: {AI_BACKEND}, Model: {OLLAMA_MODEL}")
+except Exception as e:
+    app.logger.error(f"🔥 Model Initialization FAILED: {e}")
+
+# --- SOLR CONNECTION ---
+SOLR_URL = os.getenv("SOLR_URL", "http://localhost:8983/solr/feeds/")
+solr = None
+try:
+    solr = pysolr.Solr(SOLR_URL)
+    solr.ping()
+    app.logger.info("✅ Solr connection established.")
+except Exception as e:
+    solr = None
+    app.logger.warning(f"⚠️  Solr connection failed — search disabled: {e}")
+
+# --- HELPER: safe truncation for logging ---
+def safe_truncate(text, max_len=200):
+    """Safely truncate text for logging, handling unicode properly."""
+    if not text:
+        return ""
+    text_str = str(text)
+    if len(text_str) <= max_len:
+        return text_str
+    return text_str[:max_len] + "..."
+
+# --- HELPER: classify reading level for transparency ---
+def classify_reading_level(grade):
+    """
+    Convert Flesch-Kincaid grade level to human-readable category.
+    Provides transparency without penalizing technical writing.
+    """
+    if grade < 6:
+        return "elementary"
+    elif grade < 9:
+        return "middle_school"
+    elif grade < 13:
+        return "high_school"
+    elif grade < 16:
+        return "college"
+    elif grade < 18:
+        return "graduate"
+    else:
+        return "technical"
+
+# --- HELPER: robust URL fetching with anti-bot handling ---
+def fetch_and_process_url(url):
+    """
+    Fetches content from a URL with anti-bot handling for protected sites,
+    then extracts the main article text using trafilatura for HTML or pypdf for PDFs.
+    Returns a tuple: (success, content_or_error_message)
+    """
+    headers = create_default_headers()
+    
+    try:
+        fetch_start = time.perf_counter()
+        app.logger.info(f"⬇️  Fetching URL: {url}")
+        
+        # Check if this is a problematic site that needs anti-bot handling
+        if is_problematic_news_site(url):
+            app.logger.info(f"🛡️  Detected protected site, using anti-bot extraction: {url}")
+            # Note: app.py doesn't have Playwright initialized, so pass None
+            # This will attempt simple request then fail gracefully
+            result = fetch_with_anti_bot_handling(url, headers, playwright_browser=None)
+            
+            if result:
+                fetch_duration = (time.perf_counter() - fetch_start) * 1000
+                app.logger.info(f"✅ Anti-bot fetch complete in {fetch_duration:.0f}ms - {len(result['text'])} chars")
+                return (True, result['text'])
+            else:
+                # If anti-bot fails without Playwright, return helpful error
+                return (False, "This site requires advanced access. The URL submission system currently supports simpler sites. Try pasting the article text directly instead.")
+        
+        # Standard path for non-protected sites
+        response = requests.get(url, headers=headers, timeout=20)
+        response.raise_for_status()
+        fetch_duration = (time.perf_counter() - fetch_start) * 1000
+
+        # Check if the content is a PDF
+        content_type = response.headers.get('Content-Type', '').lower()
+        is_pdf = 'application/pdf' in content_type or url.lower().endswith('.pdf')
+
+        extract_start = time.perf_counter()
+        
+        if is_pdf:
+            # Handle PDF content
+            app.logger.info(f"📄 Detected PDF content, extracting text...")
+            try:
+                pdf_file = io.BytesIO(response.content)
+                pdf_reader = PdfReader(pdf_file)
+                
+                extracted_text = ""
+                for page_num in range(len(pdf_reader.pages)):
+                    page = pdf_reader.pages[page_num]
+                    extracted_text += page.extract_text() + "\n\n"
+                    
+                    # Stop if we've hit the size limit to prevent OOM
+                    if len(extracted_text) > MAX_CONTENT_CHARS:
+                        app.logger.warning(f"⚠️  PDF extraction stopped at page {page_num+1} - size limit reached")
+                        break
+                
+                if not extracted_text.strip():
+                    app.logger.warning(f"⚠️  PDF text extraction returned empty content")
+                    return (False, "The PDF appears to be empty or contains only images. Text extraction failed.")
+                
+                # Truncate if needed
+                if len(extracted_text) > MAX_CONTENT_CHARS:
+                    app.logger.warning(f"⚠️  PDF text truncated from {len(extracted_text)} to {MAX_CONTENT_CHARS} chars")
+                    extracted_text = extracted_text[:MAX_CONTENT_CHARS]
+                
+                extract_duration = (time.perf_counter() - extract_start) * 1000
+                total_duration = fetch_duration + extract_duration
+                
+                app.logger.info(f"✅ PDF extraction complete in {extract_duration:.0f}ms (fetch: {fetch_duration:.0f}ms, total: {total_duration:.0f}ms) - {len(extracted_text)} chars")
+                return (True, extracted_text.strip())
+                
+            except Exception as pdf_error:
+                app.logger.error(f"🔥 PDF extraction failed: {pdf_error}")
+                return (False, f"Failed to extract text from PDF: {str(pdf_error)}")
+        
+        else:
+            # Handle HTML content
+            extracted_text = trafilatura.extract(response.content, include_comments=False, deduplicate=True)
+
+            if not extracted_text:
+                app.logger.warning(f"⚠️  trafilatura failed for {url}. Falling back to html2text.")
+                h = html2text.HTML2Text()
+                h.ignore_links = True
+                h.ignore_images = True
+                extracted_text = h.handle(response.text)
+            
+            extract_duration = (time.perf_counter() - extract_start) * 1000
+            total_duration = fetch_duration + extract_duration
+            
+            app.logger.info(f"✅ URL fetch complete in {fetch_duration:.0f}ms (extract: {extract_duration:.0f}ms, total: {total_duration:.0f}ms) - {len(extracted_text)} chars")
+            return (True, extracted_text)
+
+    except requests.exceptions.HTTPError as e:
+        error_msg = f"HTTP Error fetching URL: {e.response.status_code} {e.response.reason}"
+        app.logger.error(f"🔥 {error_msg} for url: {url}")
+        
+        # Better error message for 403
+        if e.response.status_code == 403:
+            return (False, f"The website returned an error (403). They may be blocking automated access. Try copying the article text directly instead.")
+        
+        return (False, f"The website returned an error ({e.response.status_code}). They may be blocking automated access.")
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Request failed: {e}"
+        app.logger.error(f"🔥 {error_msg} for url: {url}")
+        return (False, "Could not connect to the website. It might be offline or blocking our connection.")
+
+
+# --- HELPER: call Ollama local API with detailed logging ---
+def call_ollama(prompt_text: str, model: str = None, timeout: int = 3600):
+    """
+    Send a prompt to the local Ollama HTTP API and return the response text.
+    """
+    if model is None:
+        model = OLLAMA_MODEL
+
+    # Truncate prompts before sending to prevent OOM
+    if len(prompt_text) > MAX_CONTENT_CHARS:
+        app.logger.warning(f"⚠️  PROMPT TRUNCATED from {len(prompt_text)} to {MAX_CONTENT_CHARS} chars to prevent OOM error.")
+        prompt_text = prompt_text[:MAX_CONTENT_CHARS]
+    
+    url = f"{OLLAMA_URL}/api/generate"
+    payload = {
+        "model": model,
+        "prompt": prompt_text,
+        "stream": False
+    }
+    
+    call_start = time.perf_counter()
+    try:
+        app.logger.info(f"🤖 Calling Ollama API (model: {model}, prompt: {len(prompt_text)} chars)...")
+        resp = requests.post(url, json=payload, timeout=timeout)
+    except requests.exceptions.RequestException as e:
+        duration_ms = (time.perf_counter() - call_start) * 1000
+        app.logger.error(f"🔥 Ollama connection failed after {duration_ms:.0f}ms: {e}")
+        raise Exception(f"Ollama connection failed: {e}")
+
+    duration_ms = (time.perf_counter() - call_start) * 1000
+
+    if resp.status_code != 200:
+        app.logger.error(f"🔥 Ollama API error {resp.status_code} after {duration_ms:.0f}ms: {resp.text[:200]}")
+        raise Exception(f"Ollama API error {resp.status_code}: {resp.text}")
+
+    try:
+        j = resp.json()
+        response_text = None
+        
+        # Ollama usually returns top-level 'response' with the generated text
+        if isinstance(j, dict) and "response" in j:
+            response_text = j["response"].strip()
+        # Some Ollama versions embed differently; be defensive
+        elif isinstance(j, dict) and "outputs" in j and isinstance(j["outputs"], list) and len(j["outputs"]) > 0:
+            out = j["outputs"][0]
+            if isinstance(out, dict) and "content" in out:
+                if isinstance(out["content"], list) and len(out["content"]) > 0:
+                    response_text = "".join([c.get("text", "") for c in out["content"]]).strip()
+                elif isinstance(out["content"], str):
+                    response_text = out["content"].strip()
+        # Fallback to raw text if present
+        elif isinstance(j, dict) and "text" in j:
+            response_text = j["text"].strip()
+
+        # Strip <think>...</think> reasoning blocks from thinking models (e.g. nemotron)
+        if response_text:
+            response_text = re.sub(r'^.*?</think>\s*', '', response_text, flags=re.DOTALL).strip()
+        
+        if response_text is None:
+            raise Exception("Ollama response malformed or unexpected structure.")
+        
+        app.logger.info(f"✅ Ollama response received in {duration_ms:.0f}ms ({len(response_text)} chars)")
+        return (response_text, duration_ms)
+        
+    except ValueError:
+        app.logger.error(f"🔥 Ollama returned non-JSON response after {duration_ms:.0f}ms")
+        raise Exception("Ollama returned non-JSON response.")
+
+
+# --- API ENDPOINTS ---
+@app.route('/api/publish_article', methods=['POST'])
+def publish_article():
+    if not r: 
+        app.logger.error("🔥 Redis unavailable for publish_article")
+        return jsonify({"error": "Database connection is offline."}), 503
+    
+    if request.headers.get('X-Scribe-Secret') != SCRIBE_SECRET_KEY:
+        app.logger.warning(f"⚠️  Unauthorized publish attempt. Provided key: {request.headers.get('X-Scribe-Secret')}")
+        return jsonify({"error": "Unauthorized"}), 403
+    
+    data = request.get_json()
+    required_fields = ['id', 'title', 'timestamp', 'original_text']
+    if not all(field in data for field in required_fields):
+        app.logger.warning(f"⚠️  Missing required fields in publish_article")
+        return jsonify({"error": "Missing required fields."}), 400
+    
+    article_id = data['id']
+    if r.sismember('processed_hashes', article_id):
+        app.logger.info(f"📌 Duplicate article skipped: {article_id}")
+        return jsonify({"success": True, "message": "Duplicate, skipped."}), 200
+    
+    try:
+        redis_start = time.perf_counter()
+        article_data = {k: v for k, v in data.items() if v is not None}
+        if 'dossier' in article_data and isinstance(article_data['dossier'], dict):
+            article_data['dossier'] = json.dumps(article_data['dossier'])
+        pipe = r.pipeline()
+        pipe.hset(f"article:{article_id}", mapping=article_data)
+        pipe.zadd('feed', {article_id: int(time.time())})
+        pipe.sadd('processed_hashes', article_id)
+        pipe.execute()
+        redis_duration = (time.perf_counter() - redis_start) * 1000
+        
+        app.logger.info(f"✅ Published article '{data['title']}' to Redis (ID: {article_id}) in {redis_duration:.2f}ms")
+        return jsonify({"success": True, "message": "Article published."}), 201
+    except Exception as e:
+        app.logger.error(f"🔥 Failed to publish article to Redis: {e}", exc_info=True)
+        return jsonify({"error": "Failed to save article."}), 500
+
+@app.route('/api/get_feed', methods=['GET'])
+def get_feed():
+    if not r: 
+        app.logger.error("🔥 Redis unavailable for get_feed")
+        return jsonify({"error": "Database connection is offline."}), 503
+    
+    limit = request.args.get('limit', 33, type=int)
+    offset = request.args.get('offset', 0, type=int)
+    category_filter = request.args.get('category', '', type=str).strip()
+    
+    try:
+        redis_start = time.perf_counter()
+        
+        if not category_filter:
+            # --- UNFILTERED: original fast path (unchanged) ---
+            article_ids = r.zrevrange('feed', offset, offset + limit - 1)
+            if not article_ids: 
+                app.logger.info(f"📭 Feed query returned 0 articles (offset: {offset}, limit: {limit})")
+                return jsonify([])
+            
+            pipe = r.pipeline()
+            for article_id in article_ids: 
+                pipe.hgetall(f"article:{article_id}")
+            for article_id in article_ids:
+                pipe.smembers(f"translation:langs:{article_id}")
+            pipe_results = pipe.execute()
+            feed_data = pipe_results[:len(article_ids)]
+            langs_data = pipe_results[len(article_ids):]
+        else:
+            # --- FILTERED: scan in batches, collect matches ---
+            # offset = how many matching articles to skip
+            # limit = how many matching articles to return
+            BATCH_SIZE = 100
+            matched_ids = []
+            skipped = 0
+            cursor = 0
+            total_feed = r.zcard('feed')
+            
+            while len(matched_ids) < limit and cursor < total_feed:
+                batch_ids = r.zrevrange('feed', cursor, cursor + BATCH_SIZE - 1)
+                if not batch_ids:
+                    break
+                
+                # Pipeline-fetch just the category field for this batch
+                pipe = r.pipeline()
+                for aid in batch_ids:
+                    pipe.hget(f"article:{aid}", 'category')
+                categories = pipe.execute()
+                
+                for aid, cat in zip(batch_ids, categories):
+                    if (cat or 'general') == category_filter:
+                        if skipped < offset:
+                            skipped += 1
+                        else:
+                            matched_ids.append(aid)
+                            if len(matched_ids) >= limit:
+                                break
+                
+                cursor += BATCH_SIZE
+            
+            if not matched_ids:
+                app.logger.info(f"📭 Feed query returned 0 articles (category: {category_filter}, offset: {offset})")
+                return jsonify([])
+            
+            # Fetch full data for matched articles only
+            pipe = r.pipeline()
+            for article_id in matched_ids:
+                pipe.hgetall(f"article:{article_id}")
+            for article_id in matched_ids:
+                pipe.smembers(f"translation:langs:{article_id}")
+            pipe_results = pipe.execute()
+            feed_data = pipe_results[:len(matched_ids)]
+            langs_data = pipe_results[len(matched_ids):]
+        
+        redis_duration = (time.perf_counter() - redis_start) * 1000
+        
+        formatted_feed = []
+        for item, langs in zip(feed_data, langs_data):
+            if item:
+                try: 
+                    item['dossier'] = json.loads(item.get('dossier', '{}'))
+                except (json.JSONDecodeError, ValueError):
+                    item['dossier'] = {}
+                item['cached_langs'] = list(langs) if langs else []
+                formatted_feed.append(item)
+        
+        filter_info = f", category: {category_filter}" if category_filter else ""
+        app.logger.info(f"✅ Retrieved {len(formatted_feed)} articles from feed in {redis_duration:.2f}ms{filter_info}")
+        return jsonify(formatted_feed)
+    except Exception as e:
+        app.logger.error(f"🔥 Error retrieving feed: {e}", exc_info=True)
+        return jsonify({"error": f"Could not retrieve feed: {e}"}), 500
+
+@app.route('/api/article/<article_id>', methods=['GET'])
+def get_single_article(article_id):
+    if not r:
+        app.logger.error("🔥 Redis unavailable for get_single_article")
+        return jsonify({"error": "Database connection is offline."}), 503
+    try:
+        redis_start = time.perf_counter()
+        article_data = r.hgetall(f"article:{article_id}")
+        if not article_data:
+            article_ids = r.zrevrange('feed', 0, -1)
+            for aid in article_ids:
+                temp_data = r.hgetall(f"article:{aid}")
+                if (temp_data.get('slug') == article_id or temp_data.get('id') == article_id or aid == article_id):
+                    article_data = temp_data
+                    break
+        redis_duration = (time.perf_counter() - redis_start) * 1000
+        
+        if not article_data:
+            app.logger.warning(f"⚠️  Article not found: {article_id}")
+            return jsonify({'error': 'Article not found'}), 404
+        
+        try:
+            article_data['dossier'] = json.loads(article_data.get('dossier', '{}'))
+        except (json.JSONDecodeError, ValueError):
+            article_data['dossier'] = {}
+        
+        # --- ON-DEMAND ANALYSIS TRIGGER ---
+        # If article has no red/blue/purple analysis yet, queue it for analyzer.py
+        blue_analysis = article_data.get('blue_team_analysis', '')
+        if not blue_analysis or len(blue_analysis) < 10:
+            actual_id = article_data.get('id', article_id)
+            try:
+                # Only queue if not already queued recently (simple dedup)
+                queue_key = f"analyzer:queued:{actual_id}"
+                if not r.exists(queue_key):
+                    r.lpush('analyzer:queue', actual_id)
+                    r.setex(queue_key, 300, '1')  # 5-minute dedup window
+                    app.logger.info(f"📋 Queued {actual_id} for on-demand analysis")
+            except Exception as e:
+                app.logger.warning(f"⚠️  Failed to queue analysis trigger: {e}")
+        
+        actual_id = article_data.get('id', article_id)
+        article_data['cached_langs'] = list(r.smembers(f"translation:langs:{actual_id}"))
+
+        app.logger.info(f"✅ Retrieved article {article_id} in {redis_duration:.2f}ms")
+        return jsonify(article_data)
+    except Exception as e:
+        app.logger.error(f"🔥 Error fetching article {article_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/api/search', methods=['GET'])
+def search_articles():
+    """Full-text search via Solr. Returns matching articles with highlighted snippets."""
+    global solr
+    if not solr:
+        try:
+            solr = pysolr.Solr(SOLR_URL)
+            solr.ping()
+            app.logger.info("✅ Solr reconnected (lazy)")
+        except Exception as e:
+            app.logger.error(f"🔥 Solr unavailable for search: {e}")
+            return jsonify({"error": "Search is currently unavailable."}), 503
+
+    query = request.args.get('q', '').strip()
+    limit = min(int(request.args.get('limit', 20)), 50)
+    offset = int(request.args.get('offset', 0))
+
+    if not query:
+        return jsonify({"error": "Search query is required."}), 400
+
+    try:
+        search_start = time.perf_counter()
+
+        # Sort options:
+        #   recent     = newest first
+        #   relevant   = best Solr match first
+        #   score_desc = highest chimera/tone score first
+        #   score_asc  = lowest chimera/tone score first
+        sort_param = request.args.get('sort', 'recent')
+        sort_order = {
+            'recent':     'timestamp desc, score desc',
+            'relevant':   'score desc, timestamp desc',
+            'score_desc': 'chimera_score desc, timestamp desc',
+            'score_asc':  'chimera_score asc, timestamp desc',
+        }.get(sort_param, 'timestamp desc, score desc')
+
+        # Search title and content with smart query construction:
+        # Multi-word queries: phrase match (exact) boosted highest, then AND (all words), then OR fallback
+        words = query.split()
+        if len(words) > 1:
+            phrase = f'"{query}"'
+            and_terms = ' AND '.join(words)
+            solr_query = (
+                f'title:{phrase}^10 OR content:{phrase}^5 '
+                f'OR title:({and_terms})^3 OR content:({and_terms})'
+            )
+        else:
+            solr_query = f'title:({query})^3 OR content:({query})'
+        results = solr.search(
+            solr_query,
+            rows=limit,
+            start=offset,
+            sort=sort_order,
+            fl='id,title,source,url,timestamp,directive,chimera_score,score',
+            **{
+                'hl': 'true',
+                'hl.fl': 'content,title',
+                'hl.snippets': '1',
+                'hl.fragsize': '250',
+                'hl.simple.pre': '<mark class="bg-amber-400/30 text-slate-100 px-0.5 rounded">',
+                'hl.simple.post': '</mark>',
+            }
+        )
+
+        # Build response with highlights
+        articles = []
+        highlighting = results.highlighting if hasattr(results, 'highlighting') else {}
+
+        for doc in results:
+            doc_id = doc.get('id', '')
+            highlights = highlighting.get(doc_id, {})
+            snippet = ''
+            if 'content' in highlights:
+                snippet = highlights['content'][0]
+            elif 'title' in highlights:
+                snippet = highlights['title'][0]
+
+            articles.append({
+                'id': doc_id,
+                'title': doc.get('title', [''])[0] if isinstance(doc.get('title'), list) else doc.get('title', ''),
+                'source': doc.get('source', [''])[0] if isinstance(doc.get('source'), list) else doc.get('source', ''),
+                'url': doc.get('url', [''])[0] if isinstance(doc.get('url'), list) else doc.get('url', ''),
+                'timestamp': doc.get('timestamp', [''])[0] if isinstance(doc.get('timestamp'), list) else doc.get('timestamp', ''),
+                'directive': doc.get('directive', [''])[0] if isinstance(doc.get('directive'), list) else doc.get('directive', ''),
+                'chimera_score': doc.get('chimera_score', 0),
+                'snippet': snippet,
+                'score': doc.get('score', 0),
+            })
+
+        search_duration = (time.perf_counter() - search_start) * 1000
+        app.logger.info(f"🔍 Search '{query}' returned {len(articles)} results in {search_duration:.0f}ms")
+
+        return jsonify({
+            'query': query,
+            'total': results.hits,
+            'offset': offset,
+            'limit': limit,
+            'results': articles
+        })
+
+    except Exception as e:
+        app.logger.error(f"🔥 Search error: {e}", exc_info=True)
+        return jsonify({'error': f'Search failed: {str(e)}'}), 500
+
+@app.route('/api/stats', methods=['GET'])
+def get_stats():
+    """Live archive stats — article count, oldest, newest."""
+    try:
+        keys = r.keys('article:*')
+        count = len(keys)
+        oldest = None
+        newest = None
+        if count > 0:
+            pipe = r.pipeline()
+            for key in keys:
+                pipe.hget(key, 'timestamp')
+            timestamps = [t for t in pipe.execute() if t]
+            if timestamps:
+                timestamps.sort()
+                oldest = timestamps[0]
+                newest = timestamps[-1]
+        return jsonify({'article_count': count, 'oldest': oldest, 'newest': newest})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/article/<article_id>/comments', methods=['GET'])
+def get_article_comments(article_id):
+    if not r:
+        app.logger.error("🔥 Redis unavailable for get_article_comments")
+        return jsonify({"error": "Database connection is offline."}), 503
+    try:
+        redis_start = time.perf_counter()
+        comment_ids = r.lrange(f"comments:{article_id}", 0, -1)
+        if not comment_ids:
+            app.logger.info(f"📭 No comments for article: {article_id}")
+            return jsonify([])
+        
+        pipe = r.pipeline()
+        for comment_id in comment_ids:
+            pipe.hgetall(f"comment:{comment_id}")
+        comments_data = pipe.execute()
+        
+        # Fetch reaction counts for all comments in one pipeline
+        reaction_pipe = r.pipeline()
+        for comment_id in comment_ids:
+            reaction_pipe.hgetall(f"reactions:{comment_id}")
+        reactions_data = reaction_pipe.execute()
+        
+        # Merge reactions into comment data
+        formatted_comments = []
+        for i, comment in enumerate(comments_data):
+            if comment:
+                reactions = reactions_data[i] if i < len(reactions_data) and reactions_data[i] else {}
+                comment['reactions'] = {k: int(v) for k, v in reactions.items() if int(v) > 0}
+                formatted_comments.append(comment)
+        
+        formatted_comments.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        redis_duration = (time.perf_counter() - redis_start) * 1000
+        
+        app.logger.info(f"✅ Retrieved {len(formatted_comments)} comments for article {article_id} in {redis_duration:.2f}ms")
+        return jsonify(formatted_comments)
+    except Exception as e:
+        app.logger.error(f"🔥 Error fetching comments for article {article_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/api/get_comments', methods=['GET'])
+def get_comments():
+    if not r: 
+        app.logger.error("🔥 Redis unavailable for get_comments")
+        return jsonify({"error": "Database connection is offline."}), 503
+    try:
+        redis_start = time.perf_counter()
+        # Using SCAN instead of KEYS for better performance
+        comment_keys = []
+        cursor = 0
+        while True:
+            cursor, keys = r.scan(cursor, match='comment:*', count=100)
+            comment_keys.extend(keys)
+            if cursor == 0:
+                break
+        
+        if not comment_keys: 
+            app.logger.info("📭 No comments in database")
+            return jsonify([])
+        
+        pipe = r.pipeline()
+        for key in comment_keys: 
+            pipe.hgetall(key)
+        comments_data = [comment for comment in pipe.execute() if comment]
+        redis_duration = (time.perf_counter() - redis_start) * 1000
+        
+        app.logger.info(f"✅ Retrieved {len(comments_data)} total comments in {redis_duration:.2f}ms")
+        return Response(orjson.dumps(comments_data), mimetype='application/json')
+    except Exception as e:
+        app.logger.error(f"🔥 Error retrieving comments: {e}", exc_info=True)
+        return jsonify({"error": f"Could not retrieve comments: {e}"}), 500
+
+@app.route('/api/submit_comment', methods=['POST'])
+def submit_comment():
+    if not r or not SENTIMENT_ANALYZER: 
+        app.logger.error("🔥 System unavailable for submit_comment")
+        return jsonify({"error": "System is offline."}), 503
+    
+    data = request.get_json()
+    article_id = data.get('article_id')
+    comment_text = data.get('comment_text')
+    author = data.get('author', 'User')
+    parent_id = data.get('parent_id', '')
+    
+    if not article_id or not comment_text: 
+        app.logger.warning("⚠️  Missing required fields in submit_comment")
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    # Moderation check - only reject clearly hostile/abusive comments
+    # VADER scores: -1.0 (most negative) to +1.0 (most positive)
+    # -0.7 threshold allows substantive disagreement, theological debate, etc.
+    # Only catches overtly hostile language, slurs, threats
+    sentiment_score = SENTIMENT_ANALYZER.polarity_scores(comment_text)['compound']
+    if sentiment_score < -0.7:
+        app.logger.warning(f"⚠️  Comment rejected by moderation (sentiment: {sentiment_score:.2f}, author: {author})")
+        return jsonify({'error': 'Comment rejected by moderation.'}), 400
+    elif sentiment_score < -0.3:
+        app.logger.info(f"📝 Borderline comment allowed (sentiment: {sentiment_score:.2f}, author: {author})")
+    
+    comment_id = str(uuid.uuid4())
+    new_comment = {
+        'id': comment_id, 
+        'article_id': article_id, 
+        'author': author, 
+        'text': comment_text, 
+        'timestamp': datetime.datetime.utcnow().isoformat(),
+        'parent_id': parent_id
+    }
+    
+    try:
+        redis_start = time.perf_counter()
+        pipe = r.pipeline()
+        pipe.hset(f"comment:{comment_id}", mapping=new_comment)
+        pipe.rpush(f"comments:{article_id}", comment_id)
+        pipe.execute()
+        redis_duration = (time.perf_counter() - redis_start) * 1000
+        
+        app.logger.info(f"✅ Comment submitted by '{author}' on article {article_id} (ID: {comment_id}) in {redis_duration:.2f}ms")
+        
+        # --- AI REPLY TRIGGER ---
+        # If this is a reply to an A.R.C. Counter-Analyst comment, queue an AI follow-up
+        if parent_id:
+            try:
+                parent_comment = r.hgetall(f"comment:{parent_id}")
+                parent_author = parent_comment.get('author', '')
+                if parent_author == 'A.R.C. Counter-Analyst':
+                    # Don't reply to AI replying to AI (prevent loops)
+                    if author != 'A.R.C. Counter-Analyst':
+                        reply_payload = json.dumps({
+                            'article_id': article_id,
+                            'user_comment_id': comment_id,
+                            'user_comment_text': comment_text,
+                            'ai_comment_text': parent_comment.get('text', ''),
+                            'user_author': author
+                        })
+                        r.lpush('counteranalyst:reply_queue', reply_payload)
+                        app.logger.info(f"🤖 Queued AI reply to user comment on {article_id}")
+            except Exception as e:
+                app.logger.warning(f"⚠️  AI reply trigger failed (non-fatal): {e}")
+        
+        return jsonify({"success": True, "comment": new_comment}), 201
+    except Exception as e:
+        app.logger.error(f"🔥 Error saving comment: {e}", exc_info=True)
+        return jsonify({"error": f"Server error saving comment: {e}"}), 500
+
+
+VALID_REACTIONS = {'like', 'dislike', 'heart', 'happy', 'sad', 'angry'}
+
+@app.route('/api/comment/<comment_id>/react', methods=['POST'])
+def react_to_comment(comment_id):
+    """Toggle a reaction on a comment. Increments or decrements the count."""
+    if not r:
+        app.logger.error("🔥 Redis unavailable for react_to_comment")
+        return jsonify({"error": "Database connection is offline."}), 503
+    
+    data = request.get_json()
+    reaction = data.get('reaction', '')
+    action = data.get('action', 'add')  # 'add' or 'remove'
+    
+    if reaction not in VALID_REACTIONS:
+        return jsonify({'error': f'Invalid reaction. Must be one of: {", ".join(sorted(VALID_REACTIONS))}'}), 400
+    
+    if action not in ('add', 'remove'):
+        return jsonify({'error': 'Action must be "add" or "remove"'}), 400
+    
+    try:
+        redis_start = time.perf_counter()
+        key = f"reactions:{comment_id}"
+        
+        if action == 'add':
+            new_count = r.hincrby(key, reaction, 1)
+        else:
+            new_count = r.hincrby(key, reaction, -1)
+            if new_count < 0:
+                r.hset(key, reaction, 0)
+                new_count = 0
+        
+        # Return all current counts
+        all_reactions = r.hgetall(key)
+        counts = {k: int(v) for k, v in all_reactions.items() if int(v) > 0}
+        redis_duration = (time.perf_counter() - redis_start) * 1000
+        
+        app.logger.info(f"{'➕' if action == 'add' else '➖'} Reaction '{reaction}' {action}ed on comment {comment_id[:12]}... in {redis_duration:.0f}ms")
+        return jsonify({'reactions': counts})
+    except Exception as e:
+        app.logger.error(f"🔥 Error processing reaction: {e}", exc_info=True)
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/api/pre_analyze', methods=['POST'])
+def pre_analyze():
+    """
+    Pre-analysis endpoint - Fast quality assessment with FAIR scoring.
+    
+    CHIMERA SCORE v2.0 (FAIR):
+    - Based purely on objectivity (0-100 scale)
+    - No penalty for technical writing complexity
+    - Readability grade still measured for transparency
+    - Reading level classification provided as metadata
+    """
+    if not all([NLP_PROCESSOR, SENTIMENT_ANALYZER]): 
+        app.logger.error("🔥 NLP Engine unavailable for pre_analyze")
+        return jsonify({"error": "NLP Engine is offline."}), 503
+    
+    data = request.get_json()
+    input_text = data.get('inputText', '')
+    
+    if not input_text: 
+        return jsonify({"chimera_score": 0.0, "sentiment": 0.0, "entities_found": []})
+    
+    # Use unified truncation limit
+    input_text_snippet = input_text[:MAX_CONTENT_CHARS]
+    
+    try:
+        analyze_start = time.perf_counter()
+        
+        # Calculate sentiment
+        vader_scores = SENTIMENT_ANALYZER.polarity_scores(input_text_snippet)
+        sentiment = vader_scores.get('compound', 0.0)
+        
+        # Calculate objectivity (primary quality metric)
+        subjectivity = TextBlob(input_text_snippet).sentiment.subjectivity
+        objectivity_score = (1 - subjectivity) * 100
+        
+        # Calculate readability (informational only - no penalty)
+        readability_grade = textstat.flesch_kincaid_grade(input_text_snippet)
+        reading_level = classify_reading_level(readability_grade)
+        
+        # NEW FAIR SCORING: Chimera score = pure objectivity (no readability penalty)
+        chimera_score = round(objectivity_score / 100, 4)
+        
+        # Extract PII entities for transparency
+        pii = [e.label_ for e in NLP_PROCESSOR(input_text_snippet).ents if e.label_ in ["PERSON", "ORG", "GPE", "LOC"]]
+        
+        analyze_duration = (time.perf_counter() - analyze_start) * 1000
+        
+        app.logger.info(f"✅ Pre-analysis completed in {analyze_duration:.0f}ms (score: {chimera_score}, objectivity: {objectivity_score:.0f}, grade: {readability_grade:.1f})")
+        
+        return jsonify({
+            "sentiment": sentiment,
+            "subjectivity": subjectivity,
+            "objectivity_score": round(objectivity_score, 2),
+            "readability_grade": round(readability_grade, 1),
+            "reading_level": reading_level,
+            "chimera_score": chimera_score,
+            "entities_found": list(set(pii))
+        })
+    except Exception as e:
+        app.logger.error(f"🔥 Pre-analysis failed: {e}", exc_info=True)
+        return jsonify({"chimera_score": 0.0, "sentiment": 0.0, "entities_found": []})
+
+# --- STM ENDPOINT with enhanced logging ---
+@app.route('/api/stm', methods=['POST'])
+def analyze():
+    """
+    Strategic Text Mission (STM) endpoint - AI analysis via Ollama
+    Enhanced with detailed performance logging and timing
+    """
+    endpoint_start = time.perf_counter()
+    
+    if AI_BACKEND != "ollama":
+        app.logger.warning("⚠️  AI_BACKEND is not set to 'ollama'. STM will attempt to use Ollama by default.")
+
+    data = request.get_json(force=True, silent=True)
+    if not data:
+        app.logger.error("🔥 STM: No JSON payload provided")
+        return jsonify({"error": "Invalid request: JSON payload required."}), 400
+
+    mission = data.get('mission')
+    instruction = data.get('instruction')
+    input_text = data.get('inputText', '')
+
+    if not mission:
+        app.logger.error("🔥 STM: 'mission' field missing from request")
+        return jsonify({"error": "Invalid request: mission is required."}), 400
+
+    # Log mission start with truncated input
+    app.logger.info(f"🎯 STM START: mission='{mission}' | input_length={len(input_text)} chars")
+    app.logger.info(f"   Input preview: {safe_truncate(input_text, 200)}")
+
+    # Build instruction if not provided
+    if not instruction:
+        try:
+            mission_text = PROMPTS.get("mission", "")
+            red_text = PROMPTS.get("teams", {}).get("red", {}).get("instruction", "")
+            blue_text = PROMPTS.get("teams", {}).get("blue", {}).get("instruction", "")
+            purple_text = PROMPTS.get("teams", {}).get("purple", {}).get("instruction", "")
+            constraints = PROMPTS.get("constraints", "")
+            instruction = f"{mission_text}\n\nRed Team Instruction:\n{red_text}\n\nBlue Team Instruction:\n{blue_text}\n\nPurple Team Instruction:\n{purple_text}\n\nConstraints:\n{constraints}"
+            app.logger.info(f"   Built instruction from prompts.yaml (fallback)")
+        except Exception as e:
+            app.logger.error(f"🔥 STM: Failed building instruction from prompts.yaml: {e}")
+            return jsonify({"error": "Invalid request: instruction missing and prompts.yaml unavailable."}), 400
+
+    try:
+        # Combine instruction + article into final prompt
+        # Put instruction AFTER article so it doesn't get truncated if article is too long
+        final_prompt = f"--- ARTICLE TEXT ---\n{input_text}\n\n--- ANALYSIS INSTRUCTIONS ---\n{instruction}"
+        
+        # Call Ollama with timing
+        app.logger.info(f"🤖 STM: Executing mission '{mission}' via Ollama (model: {OLLAMA_MODEL})")
+        generated, ollama_duration = call_ollama(
+            final_prompt, 
+            model=OLLAMA_MODEL, 
+            timeout=900
+        )
+        
+        clean_text = generated.strip()
+        endpoint_duration = (time.perf_counter() - endpoint_start) * 1000
+        
+        # Log completion with truncated output
+        app.logger.info(f"✅ STM COMPLETE: mission='{mission}' | ollama_time={ollama_duration:.0f}ms | total_time={endpoint_duration:.0f}ms | output_length={len(clean_text)} chars")
+        app.logger.info(f"   Output preview: {safe_truncate(clean_text, 300)}")
+        
+        return jsonify({
+            "analysis": clean_text,
+            "duration_ms": round(endpoint_duration, 2)
+        })
+        
+    except Exception as e:
+        endpoint_duration = (time.perf_counter() - endpoint_start) * 1000
+        app.logger.error(f"🔥 STM FAILED: mission='{mission}' after {endpoint_duration:.0f}ms | error: {e}", exc_info=True)
+        hint = "Ensure Ollama is installed, the chosen model is pulled, and the Ollama service is listening on the configured URL."
+        return jsonify({
+            "error": f"AI model failed: {e}", 
+            "hint": hint
+        }), 500
+
+def extract_file_text(file_storage):
+    """Extract text from uploaded files: txt, md, pdf, docx, odt"""
+    filename = file_storage.filename.lower()
+    file_storage.seek(0)
+    raw = file_storage.read()
+    
+    try:
+        if filename.endswith(('.txt', '.md')):
+            try:
+                return True, raw.decode('utf-8')
+            except UnicodeDecodeError:
+                return True, raw.decode('latin-1')
+
+        elif filename.endswith('.pdf'):
+            reader = PdfReader(io.BytesIO(raw))
+            text = '\n'.join(page.extract_text() or '' for page in reader.pages)
+            return True, text[:50000]
+
+        elif filename.endswith('.docx'):
+            doc = docx.Document(io.BytesIO(raw))
+            text = '\n'.join(p.text for p in doc.paragraphs)
+            return True, text
+
+        elif filename.endswith('.odt'):
+            odt_doc = odf_load(io.BytesIO(raw))
+            all_text = []
+            for elem in odt_doc.getElementsByType(odf_text.P):
+                t = ''
+                for node in elem.childNodes:
+                    if hasattr(node, 'data'):
+                        t += node.data
+                    elif hasattr(node, 'childNodes'):
+                        for child in node.childNodes:
+                            if hasattr(child, 'data'):
+                                t += child.data
+                all_text.append(t)
+            return True, '\n'.join(all_text)
+
+        else:
+            return False, f"Unsupported file type: {filename}"
+
+    except Exception as e:
+        return False, f"Failed to extract text: {e}"
+
+@app.route('/api/submit_content', methods=['POST'])
+def submit_content():
+    """
+    Content submission endpoint - handles text, URLs, and file uploads
+    """
+    try:
+        data = request.form
+        title = data.get('title')
+        content_type = data.get('content_type')
+        content = data.get('content')
+        category = data.get('category', 'general')
+        file = request.files.get('file')
+
+        if not title:
+            app.logger.warning("⚠️  submit_content: title missing")
+            return jsonify({'error': 'Title is required.'}), 400
+
+        app.logger.info(f"📥 Content submission: '{title}' (type: {content_type}, category: {category})")
+
+        processed_content = ''
+        source_url_for_metadata = ''
+
+        if content_type == 'text':
+            processed_content = content
+            app.logger.info(f"   Processing as direct text ({len(content)} chars)")
+
+        elif content_type == 'url':
+            source_url_for_metadata = content
+            success, result = fetch_and_process_url(content)
+            if not success:
+                app.logger.error(f"🔥 URL fetch failed for: {content}")
+                return jsonify({'error': result}), 400
+            processed_content = result
+
+        elif content_type == 'file':
+            if file and file.filename != '':
+                app.logger.info(f"   Processing uploaded file: {file.filename} ({file.mimetype})")
+                success, result = extract_file_text(file)
+                if not success:
+                    app.logger.error(f"🔥 File extraction failed: {result}")
+                    return jsonify({'error': result}), 400
+                processed_content = result
+                app.logger.info(f"   File extracted successfully ({len(processed_content)} chars)")
+            else:
+                app.logger.warning("⚠️  File content_type selected but no file provided")
+                return jsonify({'error': 'File was selected but not provided.'}), 400
+        else:
+            app.logger.warning(f"⚠️  Invalid content_type: {content_type}")
+            return jsonify({'error': 'Invalid content_type.'}), 400
+
+        safe_title = secure_filename(title) or f"submission_{uuid.uuid4().hex[:8]}"
+        filename = f"{safe_title}.txt"
+        pending_dir = os.path.join(os.path.dirname(__file__), 'upload', 'pending')
+        os.makedirs(pending_dir, exist_ok=True)
+
+        file_metadata = {'original_url': source_url_for_metadata, 'content_type': content_type, 'category': category}
+        file_content = f"---\n{json.dumps(file_metadata)}\n---\n{title}\n{processed_content}"
+        
+        file_path = os.path.join(pending_dir, filename)
+        app.logger.info(f"💾 Writing submission to: {file_path}")
+        
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(file_content)
+
+        app.logger.info(f"✅ Content submission saved: '{title}' ({len(file_content)} chars)")
+        return jsonify({'success': True, 'message': f"Content '{title}' submitted."}), 201
+
+    except Exception as e:
+        app.logger.error(f"🔥 Unhandled error in submit_content: {e}", exc_info=True)
+        return jsonify({'error': 'A critical server error occurred.'}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5005, debug=False)

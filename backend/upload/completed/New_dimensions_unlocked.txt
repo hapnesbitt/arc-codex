@@ -1,0 +1,29 @@
+---
+{"original_url": "https://www.sciencedaily.com/releases/2026/02/260226042500.htm", "content_type": "url", "category": "general"}
+---
+New dimensions unlocked
+Researchers unlock hidden dimensions inside a single photon
+Scientists are learning to sculpt quantum light into powerful new forms, opening the door to ultra-secure, high-capacity quantum technologies.
+- Date:
+- February 26, 2026
+- Source:
+- University of the Witwatersrand
+- Summary:
+- Researchers have discovered new ways to shape quantum light, creating high-dimensional states that can carry much more information per photon. Using advanced tools like on-chip photonics and ultrafast light structuring, they’re pushing quantum communication and imaging into exciting new territory. Although long-distance transmission remains tricky, innovative approaches—such as topological quantum states—could make these fragile signals far more resilient. The momentum suggests quantum optics is entering a bold new phase.
+- Share:
+Physicists at the University of the Witwatersrand in South Africa, together with colleagues from the Universitat Autònoma de Barcelona, have shown how light at the quantum level can be deliberately shaped across space and time to produce high-dimensional and multidimensional quantum states. By carefully controlling a photon's spatial pattern, timing, and spectrum, the team can design what are known as structured photons. These custom-built particles of light open new possibilities for high-capacity quantum communication and next-generation quantum technologies.
+Their findings appear in a review published in Nature Photonics, which examines the rapid advances in creating, controlling, and measuring structured quantum light. The paper highlights a growing set of powerful tools, including on-chip integrated photonics, nonlinear optics, and multiplane light conversion. Together, these methods are transforming structured quantum states from laboratory concepts into practical systems for imaging, sensing, and quantum networks.
+From Empty Toolbox to Advanced Quantum Control
+Professor Andrew Forbes of Wits University, the study's corresponding author, says the transformation in this field over the past 20 years has been remarkable. "The tailoring of quantum states, where quantum light is engineered for a particular purpose, has gathered pace of late, finally starting to show its full potential. Twenty years ago the toolkit for this was virtually empty. Today we have on-chip sources of quantum structured light that are compact and efficient, able to create and control quantum states."
+A major advantage of shaping photons is that it allows researchers to use high-dimensional encoding alphabets. In simple terms, each photon can carry more information and resist interference more effectively. That makes structured quantum light especially attractive for secure quantum communication systems.
+Challenges in Long-Distance Quantum Communication
+Despite the progress, real-world conditions still pose obstacles. Certain communication channels are not well suited for spatially structured photons, which limits how far these signals can travel compared to more traditional properties such as polarisation. "Although we have made amazing progress, there are still challenging issues," says Forbes. "The distance reach with structured light, both classical and quantum, remains very low … but this is also an opportunity, stimulating the search for more abstract degrees of freedom to exploit."
+To address this limitation, researchers are exploring ways to give quantum states topological properties. Topological features can make quantum information more stable against disturbances. "We have recently shown how quantum wave functions naturally have the potential to be topological, and this promises the preservation of quantum information even if the entanglement is fragile," says Forbes.
+Multidimensional Entanglement and Future Applications
+The review also outlines fast-moving developments in multidimensional entanglement, ultrafast temporal structuring, advanced nonlinear detection techniques, and compact on-chip devices that can generate or process higher-dimensional quantum light than ever before. These breakthroughs are paving the way for high-resolution quantum imaging, extremely precise measurement tools, and quantum networks capable of transmitting more data through multiple interconnected channels.
+Overall, the field appears to be reaching a pivotal moment. Researchers believe quantum optics based on structured light is poised for major growth, with the future looking "very bright indeed" -- but additional work is required to increase dimensionality, raise photon output, and design quantum states that can withstand realistic optical environments.
+Story Source:
+Materials provided by University of the Witwatersrand. Note: Content may be edited for style and length.
+Journal Reference:
+- Andrew Forbes, Fazilah Nothlawala, Adam Vallés. Progress in quantum structured light. Nature Photonics, 2025; 19 (12): 1291 DOI: 10.1038/s41566-025-01795-x
+Cite This Page:

@@ -1,0 +1,1 @@
+{"kind":"FETCH","data":{"headers":{"access-control-allow-origin":"*","alt-svc":"h3=\":443\"; ma=2592000","content-length":"3","content-type":"application/json","date":"Wed, 04 Mar 2026 08:57:21 GMT","server":"gunicorn","via":"1.1 Caddy"},"body":"W10K","status":200,"url":"https://arc-codex.com/api/article/3ff4f593f93f40e8f4e4ccde9f177695/comments"},"revalidate":60,"tags":[]}

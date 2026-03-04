@@ -1,0 +1,3 @@
+module.exports=[57020,a=>{"use strict";var b=a.i(7997);function c({children:a}){return(0,b.jsx)(b.Fragment,{children:a})}a.s(["default",()=>c,"metadata",0,{title:"Privacy Policy | Arc Codex",description:"Arc Codex privacy policy: commitment to user privacy, minimal data collection, and no advertising or tracking.",keywords:["Arc Codex privacy","privacy policy","data protection","user privacy","no ads","no tracking"],robots:"index, follow",openGraph:{title:"Privacy Policy | Arc Codex",description:"Our commitment to protecting your privacy and data.",type:"website"}}])}];
+
+//# sourceMappingURL=app_about_privacy_layout_tsx_30bdd6a6._.js.map
