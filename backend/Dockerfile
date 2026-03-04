@@ -2,18 +2,18 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install native build tools, graphical libs, and systemd-dev (Robust Fix)
-# We include 'gettext' (critical for your optimized run script).
+# Install standard endemic build tools and graphic libraries. (Robust Fix)
+# We include 'libsystemd-dev' and the necessary components for standard compilation.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends         build-essential \
         pkg-config \
         gettext \
         gcc \
+        libsystemd-dev \
         librsync-dev \
         libcairo2-dev \
         libgirepository1.0-dev \
-        libglib2.0-dev \
-        libsystemd-dev && \
+        libglib2.0-dev && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -24,5 +24,5 @@ COPY . .
 # Expose production backend port
 EXPOSE 5005
 
-# Optimized run script
+# Command to run the application (using your optimized script)
 CMD ["./gunicorn_arc.sh"]
