@@ -12,8 +12,7 @@ RUN apt-get update && \
         librsync-dev \
         libcairo2-dev \
         libgirepository1.0-dev \
-        libglib2.0-dev \
-        python3-apt && \
+        libglib2.0-dev && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
