@@ -9,6 +9,7 @@ RUN apt-get update &&     apt-get install -y --no-install-recommends         bui
         pkg-config \
         gettext \
         gcc \
+        python3-apt \
         librsync-dev \
         libcairo2-dev \
         libgirepository1.0-dev \
