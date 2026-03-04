@@ -93,7 +93,6 @@ ssh-import-id==5.11
 systemd-python==235
 typeguard==4.4.2
 typing_extensions==4.13.2
-ubuntu-pro-client==8001
 uc-micro-py==1.0.3
 ufw==0.36.2
 unattended-upgrades==0.1
