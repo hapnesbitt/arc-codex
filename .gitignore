@@ -16,3 +16,10 @@ backups/
 
 # Ignore system-specific files
 .DS_Store
+
+# Ignore pids and secrets
+pids/
+secret/
+
+# Ignore Next.js build/cache artifacts
+frontend/.next/

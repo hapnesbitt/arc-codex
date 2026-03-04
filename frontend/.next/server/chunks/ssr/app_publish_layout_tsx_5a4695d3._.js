@@ -1,3 +1,0 @@
-module.exports=[20698,a=>{"use strict";function b({children:a}){return a}a.s(["default",()=>b,"metadata",0,{title:"Publish | Arc Codex A.R.C.",description:"Submit a URL, text, or file for A.R.C. cognitive analysis. PII redaction enabled.",openGraph:{title:"Publish | Arc Codex A.R.C.",description:"Transform your ideas with A.R.C. cognitive analysis",type:"website"}}])}];
-
-//# sourceMappingURL=app_publish_layout_tsx_5a4695d3._.js.map

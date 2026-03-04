@@ -1,3 +1,0 @@
-module.exports=[694,a=>{"use strict";var b=a.i(7997);function c({children:a}){return(0,b.jsx)(b.Fragment,{children:a})}a.s(["default",()=>c,"metadata",0,{title:"Terms of Service | Arc Codex",description:"Arc Codex terms of service: user guidelines, content policies, intellectual property rights, and community standards.",robots:"index, follow",openGraph:{title:"Terms of Service | Arc Codex",description:"Terms and conditions for using the Arc Codex platform.",type:"website"}}])}];
-
-//# sourceMappingURL=app_about_terms_layout_tsx_83c9f710._.js.map
