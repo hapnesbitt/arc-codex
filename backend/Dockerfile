@@ -3,7 +3,7 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # Install standard endemic build tools and graphic libraries.
-# We also include 'libsystemd-dev' to solve the current systemd-python compilation failure.
+# Combined update, install, and list cleanup.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends         build-essential \
         pkg-config \
