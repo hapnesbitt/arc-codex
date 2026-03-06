@@ -26,3 +26,15 @@ frontend/.next/
 
 # Ignore the production deployment directory
 /mnt/data/www/arc_stack_prod/
+
+# Upload processing artifacts
+backend/upload/
+
+# Manual backup snapshots
+*.Mar*
+*.Feb*
+
+# Docker experiment artifacts
+DOCKERENV
+arc1.sh
+arc_backup_*.tar.gz

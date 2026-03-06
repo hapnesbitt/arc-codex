@@ -1,10 +1,9 @@
-
 services:
   # --- Core Infrastructure with Persistent Volumes (on HDD) ---
   redis:
     image: redis:7-alpine
     restart: always
-    command: redis-server --requirepass ${REDIS_PASSWORD}
+    command: redis-server --requirepass $${REDIS_PASSWORD} # ESCAPED to ensure literal passing of the REDIS_PASSWORD from your .env
     volumes:
       - /mnt/data/arc_codex/redis:/data # Persistent HDD storage for Redis
     networks:
@@ -13,12 +12,15 @@ services:
   solr:
     image: solr:9
     restart: always
+    user: "8983:8983" # FIXED: Run as the correct non-root user
+    # command: solr-foreground --force # OMITTED: Start Solr normally, not forcing as root. If you run as root, you must use this.
     volumes:
       - /mnt/data/arc_codex/solr:/var/solr # Persistent HDD storage for Solr
     networks:
       - arc_network
 
   # --- Application Components (built from source on SSD) ---
+  # FIXED: Restored complete 'backend' service definition.
   backend:
     build:
       context: ./backend # Source code on your fast SSD
@@ -32,17 +34,24 @@ services:
       - solr
     networks:
       - arc_network
+    volumes: # FIXED: Backend must have a valid, even if empty, array
+      # Since you are relying on Docker's default stdout/stderr logging,
+      # the backend does not require any host volume mounts for its immediate operations.
+      [] # Use an empty array to satisfy the requirement
 
   frontend:
     build:
       context: ./frontend # Source code on your fast SSD
       dockerfile: Dockerfile
     restart: always
-    env_file: ./frontend/.env.local
+    environment:
+      # Use the Docker service name 'backend', not localhost/127.0.0.1
+      - API_URL=http://backend:5005 # Direct environment variable set to override any misconfiguration
+    env_file: ./frontend/.env.local # Keep this for other variables, but API_URL is now forced above
     ports:
       - "3000:3000"
     depends_on:
-      - backend
+      - backend # FIXED: The dependent service 'backend' must be defined
     networks:
       - arc_network
 
