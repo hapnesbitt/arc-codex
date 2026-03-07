@@ -1,5 +1,5 @@
 # Arc Codex Project Context
-# VERSION 7.5 - Updated Mar 7, 2026
+# VERSION 7.6 - Updated Mar 7, 2026
 # Restructured into three audience sections: USER / ADMIN / DEVELOPER
 # Comprehensive reference for AI assistants working on this codebase
 #
@@ -464,6 +464,25 @@ developer:
       - "Prompt-to-Article (Write tab, grade/tone/image settings)"
 
   changelog:
+    v7.6: |
+      Mar 7, 2026:
+      - Gmail PTR relay fix:
+        - Postfix now relays outbound via [smtp.gmail.com]:587
+        - App password stored in secret/mail
+        - DKIM signing preserved end-to-end
+        - Fixes Gmail 550 5.7.25 PTR rejection
+        - Config: /etc/postfix/sasl_passwd (hashed), postfix restarted
+      - Browser changes:
+        - Chromium (snap) removed — hard lockups due to radeon UBSAN kernel bug
+        - Brave installed then removed — same radeon GPU crash
+        - Epiphany (WebKit) installed — stable, 343MB RSS vs Firefox 2.5GB/tab
+        - Root cause: AMD FirePro W2100 radeon driver UBSAN array-index-out-of-bounds
+        - All Chromium-based browsers disabled-gpu workaround insufficient for snap
+      - First Arc Codex article published by founder:
+        - "Gmail is Now Rejecting Email from Self-Hosted Servers Without PTR Records"
+        - URL: https://arc-codex.com/article/35ccc8dcac12169d0dab4d86c23818d6
+      - Memory profile: 26GB/31GB used — Firefox (7GB+), gunicorn (2.6GB), Solr (800MB), scribe (800MB)
+      - No swap configured (SSD preservation — intentional)
     v7.5: |
       Mar 7, 2026:
       - GitHub OAuth added (second sign-in provider)
