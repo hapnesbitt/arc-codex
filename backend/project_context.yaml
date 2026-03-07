@@ -1,5 +1,5 @@
 # Arc Codex Project Context
-# VERSION 7.7 - Updated Mar 7, 2026
+# VERSION 7.8 - Updated Mar 7, 2026
 # Restructured into three audience sections: USER / ADMIN / DEVELOPER
 # Comprehensive reference for AI assistants working on this codebase
 #
@@ -464,6 +464,42 @@ developer:
       - "Prompt-to-Article (Write tab, grade/tone/image settings)"
 
   changelog:
+    v7.8: |
+      Mar 7, 2026 (evening):
+      - PageWrapper duplicate resolved:
+        - layout/PageWrapper.tsx was a re-export stub pointing at components/PageWrapper.tsx
+        - Deleted root file without checking stub first — broke build
+        - Restored real component content to layout/PageWrapper.tsx from git history
+        - Lesson: always cat before rm
+        - All pages now import from @/components/layout/PageWrapper (correct)
+      - privacy/page.tsx updated:
+        - OAuth auth language (Google/GitHub/LinkedIn)
+        - Private by default added to core principles
+        - Education Workspaces coming soon section
+        - No model training commitment
+        - Date updated to March 7, 2026
+      - terms/page.tsx updated:
+        - OAuth auth language
+        - No model training clause in IP section
+        - Private Workspaces section with student confidentiality
+        - Academic integrity statement
+        - Date updated to March 7, 2026
+      - hapnesbitt/README.md created on GitHub:
+        - Bio, Arc Codex description, stack, background, availability
+      - ROADMAP: Arc Codex Workspaces (v1 scope):
+        - User claims a route name (e.g. /w/12thgradeEnglish) at signup or in settings
+        - Upload folder or individual files (PDF, DOCX, TXT, URL list)
+        - Full A.R.C. scoring pipeline on each document
+        - Results at /w/[routename] — auth required, owner only by default
+        - Optional: share workspace publicly or via secret link
+        - Same IntelligenceCard display, filtered to workspace context
+        - LinkedIn OAuth as third sign-in provider (ties into workspaces)
+        - Private by default — submissions never public until owner chooses
+        - Never used to train models, never shared with third parties
+        - Teacher use case: upload class papers, score whole class at once
+        - Student use case: upload draft, see gap between intent and output
+        - Touches: auth, file ingestion, Solr schema, frontend routing, scoring pipeline
+        - Estimated: 2-3 sessions
     v7.7: |
       Mar 7, 2026 (afternoon):
       - arc.sh restore command implemented:
