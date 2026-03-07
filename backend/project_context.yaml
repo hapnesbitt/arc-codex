@@ -1,5 +1,5 @@
 # Arc Codex Project Context
-# VERSION 7.4 - Updated Mar 7, 2026
+# VERSION 7.5 - Updated Mar 7, 2026
 # Restructured into three audience sections: USER / ADMIN / DEVELOPER
 # Comprehensive reference for AI assistants working on this codebase
 #
@@ -399,6 +399,15 @@ developer:
     scope: "openid profile w_member_social"
     token_expiry: "~60 days — re-run linkedin_auth.py to refresh"
     env_vars: [LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET, LINKEDIN_ACCESS_TOKEN, LINKEDIN_MEMBER_ID, LINKEDIN_REFRESH_TOKEN]
+
+  github_oauth_notes:
+    app_name: Arc Codex
+    client_id: Ov23liSxxBCqJjE7nXGM
+    app_url: https://github.com/settings/developers
+    callback_url: https://arc-codex.com/api/auth/callback/github
+    env_vars: [GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET]
+    avatar_domain: avatars.githubusercontent.com (added to next.config.mjs remotePatterns)
+    files_changed: [frontend/lib/auth.ts, frontend/components/UserMenu.tsx, frontend/next.config.mjs]
     on_off_switch: "redis-cli -a $REDIS_PASSWORD set linkedin:autopost 1|0"
     posted_set: "linkedin:posted — SET of article IDs already posted (prevents duplicates)"
     post_format: |
@@ -455,6 +464,30 @@ developer:
       - "Prompt-to-Article (Write tab, grade/tone/image settings)"
 
   changelog:
+    v7.5: |
+      Mar 7, 2026:
+      - GitHub OAuth added (second sign-in provider)
+        - Auth.js provider: GitHub (next-auth/providers/github)
+        - App: arc-codex, client_id: Ov23liSxxBCqJjE7nXGM
+        - Callback: https://arc-codex.com/api/auth/callback/github
+        - UserMenu: GitHub sign-in button added below Google
+        - next.config.mjs: avatars.githubusercontent.com added to remotePatterns
+      - Arc Codex logo + favicon deployed
+        - public/arc-codex-logo.jpg (1024x1024) — sidebar desktop nav
+        - app/icon.jpg — auto-served as favicon by Next.js App Router
+      - About pages updated:
+        - contact/page.tsx: LinkedIn + GitHub + hapnesbitt@outlook.com, Hap Nesbitt byline
+        - sales/page.tsx: A.R.C. framework accuracy, 1200+ sources, Counter-Analyst, LinkedIn
+        - support/page.tsx: arc.sh command reference, 162 languages, Next.js 16.1.6
+        - developer/page.tsx: v6.2 — mobile overflow fix, linkedin_poster, updated services
+      - GitHub repo live: https://github.com/hapnesbitt/arc-codex
+        - Cleaned history: removed longclassicalpiano.mp3 (136MB) and secret/ dir
+        - Google OAuth credentials rotated after brief exposure
+        - .gitignore: added secret/, **/*.mp3
+      - System hardening:
+        - Redis bound to 127.0.0.1 (was 0.0.0.0)
+        - Disabled: zabbix-server, zabbix-agent, mariadb, snmpd, unbound
+        - Freed 2.9GB systemd journals
     v7.4: |
       Mar 7, 2026:
       - LinkedIn auto-poster live (linkedin_poster.py v1.0)
