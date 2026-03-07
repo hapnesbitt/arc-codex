@@ -12,6 +12,11 @@ const nextConfig = {
         protocol: 'https',
         hostname: 'lh3.googleusercontent.com',
       },
+      {
+        // GitHub OAuth avatars
+        protocol: 'https',
+        hostname: 'avatars.githubusercontent.com',
+      },
     ],
   },
 };

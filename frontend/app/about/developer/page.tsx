@@ -1,5 +1,5 @@
 // Filename: /frontend/app/about/developer/page.tsx
-// Arc Codex Developer Documentation — v6.1 (Accessibility pass)
+// Arc Codex Developer Documentation — v6.2 (mobile overflow fix, linkedin_poster, updated services)
 // Changes from v6.0:
 //   - Collapse: button has aria-expanded, aria-controls, panel has role="region" + id
 //   - Section: heading hierarchy h2 (was already h2, confirmed)
@@ -162,7 +162,7 @@ const DeveloperPage: React.FC = () => {
             </p>
             <div className="flex flex-wrap gap-3 justify-center" role="list" aria-label="Tech stack">
               {[
-                { label: 'Flask + Next.js 16', className: 'bg-amber-600/20 text-amber-300 border-amber-500/30' },
+                { label: 'Flask + Next.js 16.1.6', className: 'bg-amber-600/20 text-amber-300 border-amber-500/30' },
                 { label: 'Redis + Solr',       className: 'bg-blue-600/20 text-blue-300 border-blue-500/30' },
                 { label: 'Ollama on M1',       className: 'bg-green-600/20 text-green-300 border-green-500/30' },
                 { label: 'Auth.js v5 Beta',    className: 'bg-purple-600/20 text-purple-300 border-purple-500/30' },
@@ -195,7 +195,7 @@ const DeveloperPage: React.FC = () => {
               ].map(({ label, value, color }) => (
                 <div key={label} className="bg-slate-800/30 border border-white/5 rounded-lg p-4">
                   <dt className="text-xs text-slate-500 uppercase tracking-widest mb-1">{label}</dt>
-                  <dd className={`text-sm font-mono ${color}`}>{value}</dd>
+                  <dd className={`text-sm font-mono ${color} break-words`}>{value}</dd>
                 </div>
               ))}
             </dl>
@@ -211,16 +211,22 @@ const DeveloperPage: React.FC = () => {
             <p>All services are managed by <Code>arc.sh</Code>. The stack auto-starts on boot via <Code>/etc/systemd/system/itc-stack.service</Code> (legacy name from itc era — paths are correct).</p>
             <Block>{`./arc.sh start|stop|restart [service]
 ./arc.sh status          # service states + log/backup sizes
-./arc.sh build           # npm build + restart frontend
-./arc.sh backup          # full tarball (stops stack → archives → restarts)
+./arc.sh build           # Docker build + restart frontend
+./arc.sh backup          # fast SSD backup, code only (stack stops briefly)
+./arc.sh backup-cold     # full archive to /mnt/data (stack stays up)
 ./arc.sh checkup         # health check + error scan + CPU/RAM
-./arc.sh logs            # tail -f all logs
-./arc.sh prune [dry]     # rotate large logs, delete >9 days
+./arc.sh logs [service]  # tail logs for a service
+./arc.sh prune [dry]     # rotate old backups
 
 # Named service control:
 ./arc.sh restart gunicorn
 ./arc.sh restart scribe
-./arc.sh restart frontend`}</Block>
+./arc.sh restart linkedin_poster
+./arc.sh restart frontend
+
+# LinkedIn on/off (no restart needed):
+redis-cli -a $REDIS_PASSWORD set linkedin:autopost 1
+redis-cli -a $REDIS_PASSWORD set linkedin:autopost 0`}</Block>
 
             <dl className="grid md:grid-cols-2 gap-3 mt-2">
               {[
@@ -229,13 +235,14 @@ const DeveloperPage: React.FC = () => {
                 { name: 'manual_publisher', note: 'v5.1 — URL/text/file submissions' },
                 { name: 'stream_consumer',  note: 'Redis Streams consumer' },
                 { name: 'analyzer',         note: 'On-demand analysis worker' },
-                { name: 'mailer',           note: 'Stub — email digest not yet active' },
-                { name: 'frontend',         note: 'Next.js — port 3000' },
+                { name: 'mailer',           note: 'v1.0 ACTIVE — alerts + 7am digest' },
+                { name: 'linkedin_poster',  note: 'v1.0 — auto-posts to LinkedIn, on/off via Redis' },
+                { name: 'frontend',         note: 'Docker container arc-frontend — port 3000' },
                 { name: 'watchdog',         note: '60s check loop, restarts crashed services' },
               ].map(({ name, note }) => (
-                <div key={name} className="flex items-start gap-2 bg-slate-800/20 border border-white/5 rounded p-3">
+                <div key={name} className="flex items-start gap-2 bg-slate-800/20 border border-white/5 rounded p-3 min-w-0">
                   <dt><Code>{name}</Code></dt>
-                  <dd className="text-xs text-slate-400">{note}</dd>
+                  <dd className="text-xs text-slate-400 min-w-0 break-words">{note}</dd>
                 </div>
               ))}
             </dl>
@@ -286,7 +293,7 @@ const DeveloperPage: React.FC = () => {
                 { method: 'DELETE', path: '/api/user/prefs',        desc: 'GDPR self-service deletion' },
                 { method: 'GET',    path: '/api/rss',               desc: 'RSS 2.0 — full analysis per item' },
               ].map(({ method, path, desc }) => (
-                <li key={path} className="flex items-start gap-3 bg-slate-800/20 border border-white/5 rounded p-3">
+                <li key={path} className="flex flex-wrap items-start gap-2 bg-slate-800/20 border border-white/5 rounded p-3 min-w-0">
                   <span
                     aria-label={`HTTP ${method}`}
                     className={`text-xs font-bold font-mono px-2 py-0.5 rounded flex-shrink-0 ${
@@ -298,8 +305,8 @@ const DeveloperPage: React.FC = () => {
                   >
                     {method}
                   </span>
-                  <Code>{path}</Code>
-                  <span className="text-xs text-slate-400">{desc}</span>
+                  <Code className="break-all">{path}</Code>
+                  <span className="text-xs text-slate-400 min-w-0">{desc}</span>
                 </li>
               ))}
             </ul>
@@ -500,7 +507,7 @@ text, duration = call_ollama_with_fallback(prompt, model)`}</Block>
           {/* Footer */}
           <footer className="text-center text-sm text-slate-500 pt-8 pb-4 border-t border-slate-700/50">
             <p>
-              © {new Date().getFullYear()} Arc Codex. Project context v6.1.{' '}
+              © {new Date().getFullYear()} Arc Codex. Project context v6.2.{' '}
               <a
                 href="https://github.com/hapnesbitt/arc-codex"
                 target="_blank"

@@ -2,7 +2,7 @@
  * Arc Codex — Auth.js v5 Configuration
  * frontend/lib/auth.ts
  *
- * Google SSO only. JWT sessions (cookie-based, no Redis adapter needed).
+ * Google + GitHub SSO. JWT sessions (cookie-based, no Redis adapter needed).
  * On sign-in, upserts user preference record in Flask backend.
  *
  * Exports: { handlers, auth, signIn, signOut }
@@ -10,6 +10,7 @@
 
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
+import GitHub from "next-auth/providers/github";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
     trustHost: true,
@@ -24,6 +25,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 },
             },
         }),
+        GitHub({
+            clientId: process.env.GITHUB_CLIENT_ID!,
+            clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+        }),
     ],
 
     session: {
@@ -33,8 +38,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
     callbacks: {
         /**
-         * Embed the Google subject ID into the JWT token.
-         * `account.providerAccountId` is the stable Google sub.
+         * Embed the provider subject ID into the JWT token.
+         * `account.providerAccountId` is the stable sub for both Google and GitHub.
          */
         async jwt({ token, account }) {
             if (account?.providerAccountId) {
