@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import React from 'react';
 import FeedClient from '@/components/FeedClient';
-import PageWrapper from '@/components/PageWrapper';
+import PageWrapper from '@/components/layout/PageWrapper';
 
 const BACKEND = process.env.BACKEND_INTERNAL_URL ?? "http://localhost:5005";
 
