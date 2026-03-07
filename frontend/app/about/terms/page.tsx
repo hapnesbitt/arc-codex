@@ -65,7 +65,7 @@ const TermsPage: React.FC = () => {
             </p>
             <div className="flex flex-wrap gap-3 justify-center">
               <Badge variant="outline" className="bg-amber-600/20 text-amber-300 border-amber-500/30 font-serif text-sm">
-                Last Updated: February 25, 2026
+                Last Updated: March 7, 2026
               </Badge>
             </div>
             <div className="w-24 h-1 bg-gradient-to-r from-amber-400 to-orange-500 rounded-full animate-pulse"></div>
@@ -111,11 +111,13 @@ const TermsPage: React.FC = () => {
             gradient="border-blue-400/50 hover:border-blue-300/50"
           >
             <p>
-              While browsing is open to all, registered accounts must follow ethical use. Do not post spam, malware, 
-              or content that violates laws or intellectual property rights.
+              Browsing is open to all. Optional sign-in via Google, GitHub, or LinkedIn enables publishing, 
+              commenting, and private workspaces. We never store passwords — all authentication is handled 
+              by your chosen OAuth provider.
             </p>
             <p>
-              You are responsible for safeguarding your credentials and for all activity on your account.
+              You are responsible for all activity on your account. If you believe your account has been 
+              compromised, revoke access via your OAuth provider immediately.
             </p>
             <div className="bg-blue-900/10 border border-blue-500/30 rounded-lg p-6 mt-6">
               <p className="text-blue-300 font-semibold mb-3">Prohibited Activities:</p>
@@ -193,6 +195,48 @@ const TermsPage: React.FC = () => {
                   <strong className="text-cyan-300">We respect attribution:</strong> Original sources and authors are 
                   credited whenever possible.
                 </p>
+                <p>
+                  <strong className="text-cyan-300">We never train on your content:</strong> Material you submit — 
+                  including workspace documents, papers, and articles — is never used to train AI models, 
+                  never sold, and never shared with third parties.
+                </p>
+              </div>
+            </div>
+          </Section>
+
+          {/* Workspace Terms */}
+          <Section
+            title="Private Workspaces"
+            icon={<BookOpen className="w-8 h-8 text-emerald-400 group-hover:animate-pulse" />}
+            gradient="border-emerald-400/50 hover:border-emerald-300/50"
+          >
+            <p>
+              Arc Codex offers private workspaces for authenticated users — designed for educators, students, 
+              researchers, and analysts who need to score and analyze documents outside the public feed.
+            </p>
+            <div className="bg-emerald-900/10 border border-emerald-500/30 rounded-lg p-6 mt-6 space-y-4">
+              <div>
+                <p className="text-emerald-300 font-semibold mb-3">Workspace Commitments:</p>
+                <ul className="space-y-2 text-slate-300 text-sm list-disc list-inside">
+                  <li><strong>Private by default:</strong> Workspace content is never publicly visible unless you explicitly choose to share it</li>
+                  <li><strong>No model training:</strong> Documents you upload are never used to train AI models</li>
+                  <li><strong>No third-party sharing:</strong> Your workspace data is never sold or shared</li>
+                  <li><strong>Student work:</strong> Papers and drafts uploaded by students are treated with the highest confidentiality</li>
+                  <li><strong>Deletion:</strong> You may delete your workspace and all associated content at any time</li>
+                </ul>
+              </div>
+              <div className="bg-slate-800/40 rounded-lg p-4 border border-emerald-500/20">
+                <p className="text-emerald-300 text-sm font-semibold mb-2">Educational Use</p>
+                <p className="text-slate-400 text-sm">
+                  Arc Codex is a critical thinking tool, not a writing tool. It analyzes and scores — 
+                  it does not generate, ghost-write, or complete assignments. Use of Arc Codex is consistent 
+                  with academic integrity policies at most institutions.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 pt-2">
+                <span className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-500/20 border border-emerald-400/40 rounded-full text-emerald-300 text-sm font-semibold">
+                  🚧 Coming Soon — Workspaces launching in a future update
+                </span>
               </div>
             </div>
           </Section>
