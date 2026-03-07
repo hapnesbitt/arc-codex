@@ -1,0 +1,73 @@
+# =============================================================================
+# Arc Codex — Frontend Dockerfile
+# Multi-stage build: deps → builder → runner
+#
+# Stage 1 (deps):    npm ci — cached unless package*.json changes
+# Stage 2 (builder): next build — cached unless source changes
+# Stage 3 (runner):  Minimal Alpine runtime, standalone output only (~200MB)
+#
+# Build:
+#   docker build -f Dockerfile.frontend -t arc-codex-frontend:latest ./frontend
+#
+# Run standalone:
+#   docker run -p 3000:3000 --env-file frontend/.env.local arc-codex-frontend:latest
+# =============================================================================
+
+ARG NODE_VERSION=22.16.0
+
+# ── Stage 1: deps ────────────────────────────────────────────────────────────
+FROM node:${NODE_VERSION}-alpine AS deps
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --legacy-peer-deps
+
+# ── Stage 2: builder ─────────────────────────────────────────────────────────
+FROM node:${NODE_VERSION}-alpine AS builder
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+
+# Copy coarse-to-fine — maximises layer cache hits.
+# Config files change less often than components.
+COPY next.config.mjs tsconfig.json tailwind.config.mjs postcss.config.js ./
+COPY package.json package-lock.json .npmrc ./ 
+COPY public      ./public
+COPY app         ./app
+COPY components  ./components
+COPY lib         ./lib
+COPY hooks       ./hooks
+
+# NEXT_PUBLIC_* vars must be present at build time
+ARG NEXTAUTH_URL
+ARG NEXT_PUBLIC_API_URL
+ENV NEXTAUTH_URL=${NEXTAUTH_URL}
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
+
+RUN npm run build
+
+# ── Stage 3: runner ──────────────────────────────────────────────────────────
+FROM node:${NODE_VERSION}-alpine AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME=""
+
+# Non-root user — security best practice
+RUN addgroup --system --gid 1001 nodejs \
+ && adduser  --system --uid 1001 nextjs
+
+# Standalone output + static assets only — no node_modules, no source
+COPY --from=builder /app/public                    ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static     ./.next/static
+
+USER nextjs
+EXPOSE 3000
+
+# next.js standalone generates server.js — replaces `npm run start`
+CMD ["node", "server.js"]

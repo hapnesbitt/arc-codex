@@ -1328,8 +1328,8 @@ def main():
                 del candidates
                 gc.collect()
                 
-                logger.info("💤 Cycle complete. Sleeping 10 minutes ...")
-                time.sleep(600)
+                logger.info("💤 Cycle complete. Sleeping one hundred seconds ...")
+                time.sleep(100)
                 
             except Exception as e:
                 logger.error(f"MAIN LOOP ERROR: {e}", exc_info=True)

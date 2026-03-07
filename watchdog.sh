@@ -1,9 +1,11 @@
 #!/bin/bash
 # watchdog.sh - Arc Codex Service Watchdog
-# Checks all ITC services every 60 seconds, restarts any that died.
-# Designed to run as a service itself, managed by itc.sh.
+# Checks all services every 60 seconds, restarts any that died.
+# Managed by arc.sh — do not run directly in production.
 #
-# Usage: ./watchdog.sh (or managed by itc.sh)
+# Updated: Mar 2026 — mailer added (was missing from original)
+#           Mar 2026 — frontend now managed as Docker container
+#           Mar 2026 — linkedin_poster added as managed service
 
 ITC_ROOT="/home/www/arc_stack"
 PID_DIR="$ITC_ROOT/pids"
@@ -15,15 +17,19 @@ BACKEND_DIR="$ITC_ROOT/backend"
 FRONTEND_DIR="$ITC_ROOT/frontend"
 VENV="$BACKEND_DIR/venv/bin/activate"
 
+COMPOSE_FILE="$ITC_ROOT/docker-compose.yml"
 export PATH="/home/ross/.nvm/versions/node/v22.16.0/bin:$PATH"
 
+# Must match arc.sh SERVICES order — watchdog does not manage itself
 SERVICES=(
     "gunicorn|$BACKEND_DIR|./gunicorn_arc.sh|true|5005"
     "scribe|$BACKEND_DIR|python3 scribe.py|true|"
     "manual_publisher|$BACKEND_DIR|python3 manual_publisher.py|true|"
     "stream_consumer|$BACKEND_DIR|python3 stream_consumer.py|true|"
     "analyzer|$BACKEND_DIR|python3 analyzer.py|true|"
-    "frontend|$FRONTEND_DIR|npm run start|false|3000"
+    "mailer|$BACKEND_DIR|python3 mailer.py|true|"
+    "linkedin_poster|$BACKEND_DIR|python3 linkedin_poster.py|true|"
+    "frontend|$ITC_ROOT|docker|false|3000"   # docker sentinel — managed via docker compose
 )
 
 log() {
@@ -32,7 +38,12 @@ log() {
 }
 
 is_running() {
-    local pidfile="$PID_DIR/$1.pid"
+    local name="$1"
+    if [ "$name" = "frontend" ]; then
+        docker ps --filter "name=arc-frontend" --filter "status=running" -q 2>/dev/null | grep -q .
+        return
+    fi
+    local pidfile="$PID_DIR/$name.pid"
     [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null
 }
 
@@ -55,6 +66,19 @@ restart_service() {
     IFS='|' read -r name dir cmd use_venv port <<< "$1"
 
     log "🔄 Restarting $name..."
+
+    # Docker-managed services
+    if [ "$cmd" = "docker" ]; then
+        docker compose -f "$COMPOSE_FILE" up -d --no-deps "$name" >> "$LOG_DIR/$name.log" 2>&1
+        sleep 3
+        if is_running "$name"; then
+            log "✅ $name recovered (docker arc-$name)"
+        else
+            log "❌ $name container failed to restart — manual intervention needed"
+        fi
+        return
+    fi
+
     free_port "$port"
 
     if [ "$use_venv" = "true" ]; then
@@ -67,7 +91,11 @@ restart_service() {
 
     local pid=$!
     echo $pid > "$PID_DIR/$name.pid"
-    sleep 3
+
+    # Gunicorn needs longer to bind
+    local wait=3
+    [[ "$name" == "gunicorn" ]] && wait=5
+    sleep $wait
 
     if is_running "$name"; then
         log "✅ $name recovered (pid $pid)"
@@ -83,9 +111,16 @@ log "🐕 Arc Codex Watchdog started (checking every ${CHECK_INTERVAL}s)"
 while true; do
     for svc in "${SERVICES[@]}"; do
         local_name="${svc%%|*}"
+        IFS='|' read -r _ _ local_cmd _ _ <<< "$svc"
         if ! is_running "$local_name"; then
-            # Only restart if PID file exists (service died vs. intentionally stopped)
-            if [ -f "$PID_DIR/$local_name.pid" ]; then
+            if [ "$local_cmd" = "docker" ]; then
+                # Docker containers: restart if compose service exists but container is not running
+                if docker compose -f "$COMPOSE_FILE" ps --services 2>/dev/null | grep -q "^$local_name$"; then
+                    log "💀 $local_name container is down — restarting"
+                    restart_service "$svc"
+                fi
+            elif [ -f "$PID_DIR/$local_name.pid" ]; then
+                # Native services: only restart if PID file exists (died vs. intentionally stopped)
                 log "💀 $local_name is down — restarting"
                 restart_service "$svc"
             fi

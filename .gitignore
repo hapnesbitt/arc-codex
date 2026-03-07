@@ -38,3 +38,7 @@ backend/upload/
 DOCKERENV
 arc1.sh
 arc_backup_*.tar.gz
+files.zip
+frontend/files.zip
+**/*.mp3
+secret/

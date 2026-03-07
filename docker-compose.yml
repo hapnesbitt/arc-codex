@@ -1,61 +1,190 @@
+# =============================================================================
+# Arc Codex — docker-compose.yml
+# Full stack: 6 backend services + 1 frontend + redis + solr
+#
+# Redis and Solr run natively on the Z230 — services reach them via
+# host.docker.internal (Docker Desktop) or via host network mode on Linux.
+#
+# Usage:
+#   docker compose up -d              # start all
+#   docker compose up -d scribe       # start one service
+#   docker compose logs -f scribe     # tail logs
+#   docker compose restart analyzer   # restart one
+#   docker compose down               # stop all
+#
+# First run:
+#   cp backend/.env.example backend/.env
+#   cp frontend/.env.local.example frontend/.env.local
+#   docker compose build
+#   docker compose up -d
+# =============================================================================
+
 services:
-  # --- Core Infrastructure with Persistent Volumes (on HDD) ---
-  redis:
-    image: redis:7-alpine
-    restart: always
-    command: redis-server --requirepass $${REDIS_PASSWORD} # ESCAPED to ensure literal passing of the REDIS_PASSWORD from your .env
-    volumes:
-      - /mnt/data/arc_codex/redis:/data # Persistent HDD storage for Redis
-    networks:
-      - arc_network
 
-  solr:
-    image: solr:9
-    restart: always
-    user: "8983:8983" # FIXED: Run as the correct non-root user
-    # command: solr-foreground --force # OMITTED: Start Solr normally, not forcing as root. If you run as root, you must use this.
-    volumes:
-      - /mnt/data/arc_codex/solr:/var/solr # Persistent HDD storage for Solr
-    networks:
-      - arc_network
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+  # Redis and Solr are native on Z230 — not managed by compose.
+  # If you later containerize them, uncomment the blocks at the bottom.
 
-  # --- Application Components (built from source on SSD) ---
-  # FIXED: Restored complete 'backend' service definition.
-  backend:
+  # ── Backend: API ────────────────────────────────────────────────────────────
+  gunicorn:
     build:
-      context: ./backend # Source code on your fast SSD
-      dockerfile: Dockerfile
-    restart: always
-    env_file: ./backend/.env
+      context: ./backend
+      dockerfile: ../Dockerfile.backend
+    image: arc-codex-backend:latest
+    container_name: arc-gunicorn
+    command: ["./gunicorn_arc.sh"]
     ports:
       - "5005:5005"
-    depends_on:
-      - redis
-      - solr
-    networks:
-      - arc_network
-    volumes: # FIXED: Backend must have a valid, even if empty, array
-      # Since you are relying on Docker's default stdout/stderr logging,
-      # the backend does not require any host volume mounts for its immediate operations.
-      [] # Use an empty array to satisfy the requirement
+    env_file: ./backend/.env
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./logs:/app/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5005/api/get_feed?limit=1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
+  # ── Backend: Workers ────────────────────────────────────────────────────────
+  scribe:
+    image: arc-codex-backend:latest
+    container_name: arc-scribe
+    command: ["python3", "scribe.py"]
+    env_file: ./backend/.env
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./logs:/app/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      gunicorn:
+        condition: service_healthy
+    restart: unless-stopped
+
+  manual_publisher:
+    image: arc-codex-backend:latest
+    container_name: arc-manual-publisher
+    command: ["python3", "manual_publisher.py"]
+    env_file: ./backend/.env
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./logs:/app/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      gunicorn:
+        condition: service_healthy
+    restart: unless-stopped
+
+  stream_consumer:
+    image: arc-codex-backend:latest
+    container_name: arc-stream-consumer
+    command: ["python3", "stream_consumer.py"]
+    env_file: ./backend/.env
+    volumes:
+      - ./logs:/app/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      gunicorn:
+        condition: service_healthy
+    restart: unless-stopped
+
+  analyzer:
+    image: arc-codex-backend:latest
+    container_name: arc-analyzer
+    command: ["python3", "analyzer.py"]
+    env_file: ./backend/.env
+    volumes:
+      - ./logs:/app/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      gunicorn:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mailer:
+    image: arc-codex-backend:latest
+    container_name: arc-mailer
+    command: ["python3", "mailer.py"]
+    env_file: ./backend/.env
+    volumes:
+      - ./logs:/app/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      gunicorn:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Frontend ────────────────────────────────────────────────────────────────
+  # network_mode: host — shares host network stack so 127.0.0.1:5005
+  # resolves to native gunicorn. Caddy remains the TLS edge.
+  # ports/extra_hosts removed — incompatible with host network mode.
   frontend:
     build:
-      context: ./frontend # Source code on your fast SSD
-      dockerfile: Dockerfile
-    restart: always
-    environment:
-      # Use the Docker service name 'backend', not localhost/127.0.0.1
-      - API_URL=http://backend:5005 # Direct environment variable set to override any misconfiguration
-    env_file: ./frontend/.env.local # Keep this for other variables, but API_URL is now forced above
-    ports:
-      - "3000:3000"
+      context: ./frontend
+      dockerfile: ../Dockerfile.frontend
+      args:
+        NEXTAUTH_URL: ${NEXTAUTH_URL:-https://arc-codex.com}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5005}
+    image: arc-codex-frontend:latest
+    container_name: arc-frontend
+    network_mode: host
+    env_file: ./frontend/.env.local
     depends_on:
-      - backend # FIXED: The dependent service 'backend' must be defined
-    networks:
-      - arc_network
+      gunicorn:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
-# --- Define Networks in their proper, top-level section ---
-networks:
-  arc_network:
-    driver: bridge
+# =============================================================================
+# Shared log volume — all services write to ./logs on the host
+# =============================================================================
+volumes:
+  logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./logs
+
+# =============================================================================
+# Optional: containerize Redis and Solr
+# Uncomment when ready to migrate off native.
+# Update backend .env: REDIS_URL=redis://redis:6379, SOLR_URL=http://solr:8983
+# =============================================================================
+
+#  redis:
+#    image: redis:7-alpine
+#    container_name: arc-redis
+#    ports:
+#      - "6379:6379"
+#    volumes:
+#      - redis_data:/data
+#    command: redis-server --save 60 1 --loglevel warning
+#    restart: unless-stopped
+#
+#  solr:
+#    image: solr:9-slim
+#    container_name: arc-solr
+#    ports:
+#      - "8983:8983"
+#    volumes:
+#      - solr_data:/var/solr
+#    command: solr-precreate arc_codex
+#    restart: unless-stopped
+
+#volumes:
+#  redis_data:
+#  solr_data:

@@ -7,6 +7,7 @@ const fontUbuntu = Ubuntu({ subsets: ["latin"], weight: ["400", "700"], variable
 
 export const metadata = {
   title: 'Arc Codex',
+  description: 'AI-powered news intelligence with A.R.C. analysis — Facts Only, Executive Summary, and Full Take on every story.',
   metadataBase: new URL('https://arc-codex.com'),
 };
 

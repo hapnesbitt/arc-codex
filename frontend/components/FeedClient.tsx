@@ -1,7 +1,11 @@
 // File: /frontend/components/FeedClient.tsx
 // VERSION: Tribonacci Lazy Loading + Staggered Waterfall Animation
-// REFACTOR: Inclusive/Solid Accessibility (ARIA Landmarks + Semantic List)
-// FIX: Updated Ref types to HTMLLIElement to match semantic list structure.
+// v2 — Accessibility pass:
+//   - role="feed" moved from <main> to <ol> (preserves main landmark)
+//   - aria-posinset + aria-setsize on each feed item (required by feed pattern)
+//   - Decorative spinner divs get aria-hidden
+//   - focus-visible replaces focus on retry button ring
+//   - "Viewed N stories" aria-label removed (text content is sufficient)
 
 'use client';
 
@@ -17,22 +21,22 @@ interface FeedClientProps {
 }
 
 const LoadingSpinner: React.FC = () => (
-  <div 
-    className="flex justify-center items-center py-12 w-full" 
-    role="status" 
+  <div
+    className="flex justify-center items-center py-12 w-full"
+    role="status"
     aria-live="polite"
   >
-    <div className="relative">
-      <div className="absolute inset-0 rounded-full bg-amber-400/20 blur-xl animate-pulse"></div>
-      <div className="relative animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-amber-300"></div>
-      <div className="absolute inset-2 rounded-full bg-amber-400/10 animate-ping"></div>
+    <div className="relative" aria-hidden="true">
+      <div className="absolute inset-0 rounded-full bg-amber-400/20 blur-xl animate-pulse" />
+      <div className="relative animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-amber-300" />
+      <div className="absolute inset-2 rounded-full bg-amber-400/10 animate-ping" />
     </div>
     <span className="sr-only">Decrypting more intelligence...</span>
   </div>
 );
 
 const ErrorMessage: React.FC<{ message: string; onRetry: () => void }> = ({ message, onRetry }) => (
-  <motion.div 
+  <motion.div
     initial={{ opacity: 0, y: 20 }}
     animate={{ opacity: 1, y: 0 }}
     className="flex justify-center items-center py-12 w-full"
@@ -45,7 +49,7 @@ const ErrorMessage: React.FC<{ message: string; onRetry: () => void }> = ({ mess
         onClick={onRetry}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
-        className="mt-4 px-6 py-2 bg-amber-500 text-slate-900 font-bold rounded-lg hover:bg-amber-400 transition-colors shadow-md hover:shadow-lg focus:ring-2 focus:ring-white outline-none"
+        className="mt-4 px-6 py-2 bg-amber-500 text-slate-900 font-bold rounded-lg hover:bg-amber-400 transition-colors shadow-md hover:shadow-lg focus-visible:ring-2 focus-visible:ring-white outline-none"
       >
         Try Again
       </motion.button>
@@ -54,15 +58,16 @@ const ErrorMessage: React.FC<{ message: string; onRetry: () => void }> = ({ mess
 );
 
 function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JSX.Element {
-  const [feed, setFeed] = useState<Article[]>(initialFeed || []);
+  const [feed, setFeed]       = useState<Article[]>(initialFeed || []);
   const [loading, setLoading] = useState<boolean>(false);
   const [hasMore, setHasMore] = useState<boolean>((initialFeed || []).length > 0);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError]     = useState<string | null>(null);
 
-  // Updated to HTMLLIElement to match the list item structure
   const observerTarget = useRef<HTMLLIElement | null>(null);
-  const fibState = useRef<{ a: number; b: number; c: number }>({ a: 1, b: 1, c: 2 });
-  const offsetRef = useRef<number>((initialFeed || []).length);
+  const fibState       = useRef<{ a: number; b: number; c: number }>({ a: 1, b: 1, c: 2 });
+  const offsetRef      = useRef<number>((initialFeed || []).length);
+  // Snapshot batch size at render time so stagger calc is stable
+  const batchSizeRef   = useRef<number>(fibState.current.c);
 
   const fetchMoreItems = useCallback(async () => {
     if (loading || !hasMore) return;
@@ -78,13 +83,16 @@ function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JS
       const newItems: Article[] = await response.json();
       if (newItems.length < limit) setHasMore(false);
 
-      setFeed(prevFeed => [...prevFeed, ...newItems]);
+      setFeed(prev => [...prev, ...newItems]);
       offsetRef.current += newItems.length;
-      
+
       const next_trib = fibState.current.a + fibState.current.b + fibState.current.c;
-      fibState.current.a = fibState.current.b;
-      fibState.current.b = fibState.current.c;
-      fibState.current.c = next_trib;
+      fibState.current = {
+        a: fibState.current.b,
+        b: fibState.current.c,
+        c: next_trib,
+      };
+      batchSizeRef.current = fibState.current.c;
     } catch (err) {
       console.error('Error fetching items:', err);
       setError('Failed to load more stories.');
@@ -108,7 +116,6 @@ function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JS
     return () => { if (currentTarget) observer.unobserve(currentTarget); };
   }, [hasMore, loading, fetchMoreItems]);
 
-  // Updated parameter type to HTMLLIElement
   const lastItemRef = useCallback((node: HTMLLIElement | null) => {
     observerTarget.current = node;
   }, []);
@@ -122,33 +129,40 @@ function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JS
     return map;
   }, [initialComments]);
 
+  const totalKnown = feed.length; // setsize approximation — exact count if feed is fully loaded
+
   return (
-    <main 
-      className="space-y-12" 
-      role="feed" 
-      aria-busy={loading}
-      aria-label="Intelligence Main Feed"
-    >
-      <ol className="space-y-12 list-none p-0 m-0">
+    // <main> retains its implicit landmark role.
+    // role="feed" lives on the <ol> where it belongs per ARIA spec.
+    <main className="space-y-12" aria-label="Intelligence Main Feed">
+      <ol
+        role="feed"
+        aria-busy={loading}
+        aria-label="Intelligence Main Feed"
+        className="space-y-12 list-none p-0 m-0"
+      >
         <AnimatePresence mode="popLayout">
           {feed.map((card, index) => {
             const cardComments = commentsByArticleId.get(card.id) || [];
-            const isLastItem = index === feed.length - 1;
-            
-            // Calculate stagger delay based on its position in the current Tribonacci batch
-            const staggerIndex = index >= initialFeed.length ? (index - initialFeed.length) % fibState.current.c : index;
+            const isLastItem   = index === feed.length - 1;
+            const staggerIndex = index >= initialFeed.length
+              ? (index - initialFeed.length) % batchSizeRef.current
+              : index;
 
             return (
               <motion.li
                 key={card.id}
                 ref={isLastItem ? lastItemRef : null}
+                // ARIA feed pattern: position + total so AT announces "item 3 of 47"
+                aria-posinset={index + 1}
+                aria-setsize={hasMore ? -1 : totalKnown} // -1 = unknown total while loading
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                transition={{ 
-                  duration: 0.5, 
+                transition={{
+                  duration: 0.5,
                   ease: "circOut",
-                  delay: Math.min(staggerIndex * 0.1, 0.5) // Max 0.5s delay to keep it snappy
+                  delay: Math.min(staggerIndex * 0.1, 0.5),
                 }}
                 className="space-y-4 outline-none"
               >
@@ -163,7 +177,7 @@ function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JS
       {error && <ErrorMessage message={error} onRetry={fetchMoreItems} />}
 
       {!hasMore && feed.length > 0 && (
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           className="flex justify-center items-center py-12 w-full"
@@ -171,8 +185,8 @@ function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JS
         >
           <div className="text-center text-slate-400 font-semibold backdrop-blur-sm bg-slate-900/30 rounded-xl px-8 py-6 border border-slate-700/50">
             <p className="text-lg">End of Feed</p>
-            <p className="text-sm mt-2 text-slate-500" aria-label={`Total of ${feed.length} stories viewed`}>
-                Viewed {feed.length} stories
+            <p className="text-sm mt-2 text-slate-500">
+              Viewed {feed.length} {feed.length === 1 ? 'story' : 'stories'}
             </p>
           </div>
         </motion.div>
