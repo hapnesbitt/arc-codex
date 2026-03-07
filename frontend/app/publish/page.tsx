@@ -403,7 +403,7 @@ export default function PublishPage() {
   const submitLabel =
     status === 'loading' ? 'Publishing, please wait'
     : status === 'success' ? 'Published successfully'
-    : 'Publish to Arc Codex';
+    : 'Publish';
 
   // --- CONTENT TYPE RENDERERS ---
   const renderTextInput = () => (
@@ -680,7 +680,7 @@ export default function PublishPage() {
                         ? 'Analyzing...'
                         : status === 'success'
                         ? 'Published!'
-                        : 'Publish to Arc Codex'
+                        : <><span className="sm:hidden">Publish</span><span className="hidden sm:inline">Publish to Arc Codex</span></>
                       }
                     </span>
                   </div>

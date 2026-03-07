@@ -457,6 +457,81 @@ cmd_backup_cold() {
 }
 
 # ==============================================================================
+# RESTORE — select and extract a backup, then restart the stack
+# Lists SSD backups first, then cold archives. Pick by number.
+# ==============================================================================
+cmd_restore() {
+    echo "🗄️  Arc Codex Restore"
+    echo "────────────────────────────────────"
+
+    # Collect all available backups
+    local -a files=()
+    local -a labels=()
+
+    # SSD backups (newest first)
+    while IFS= read -r f; do
+        files+=("$f")
+        labels+=("📦 SSD   $(basename "$f")  ($(du -sh "$f" | cut -f1))")
+    done < <(ls -t "$BACKUP_DIR"/arc_backup_*.tar.gz 2>/dev/null)
+
+    # Cold archives (newest first)
+    while IFS= read -r f; do
+        files+=("$f")
+        labels+=("🧊 Cold  $(basename "$f")  ($(du -sh "$f" | cut -f1))")
+    done < <(ls -t "$COLD_BACKUP_DIR"/arc_cold_*.tar.gz 2>/dev/null)
+
+    if [ ${#files[@]} -eq 0 ]; then
+        echo "❌ No backups found."
+        return 1
+    fi
+
+    echo "Available backups:"
+    echo ""
+    for i in "${!files[@]}"; do
+        printf "  [%d] %s\n" "$((i+1))" "${labels[$i]}"
+    done
+    echo ""
+    printf "Select backup to restore [1-%d] (or q to quit): " "${#files[@]}"
+    read -r choice
+
+    [[ "$choice" == "q" || "$choice" == "Q" ]] && echo "Aborted." && return 0
+
+    if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#files[@]}" ]; then
+        echo "❌ Invalid selection."
+        return 1
+    fi
+
+    local selected="${files[$((choice-1))]}"
+    echo ""
+    echo "⚠️  You selected: $(basename "$selected")"
+    echo "   This will STOP the stack and overwrite $ITC_ROOT"
+    printf "   Type 'yes' to confirm: "
+    read -r confirm
+
+    if [ "$confirm" != "yes" ]; then
+        echo "Aborted."
+        return 0
+    fi
+
+    echo ""
+    echo "🛑 Stopping stack..."
+    cmd_stop
+
+    echo "📂 Extracting $(basename "$selected") → $ITC_ROOT ..."
+    tar -zxf "$selected" -C "$ITC_ROOT"
+
+    if [ $? -eq 0 ]; then
+        echo "✅ Restore complete."
+    else
+        echo "❌ Extraction failed — check the archive."
+        return 1
+    fi
+
+    echo "🔄 Restarting stack..."
+    cmd_start
+}
+
+# ==============================================================================
 # COMMAND DISPATCH
 # ==============================================================================
 VALID_SERVICES="gunicorn|scribe|manual_publisher|stream_consumer|analyzer|mailer|linkedin_poster|frontend|watchdog"
@@ -471,9 +546,10 @@ case "${1:-}" in
     checkup)      cmd_checkup ;;
     backup)       cmd_backup ;;
     backup-cold)  cmd_backup_cold ;;
+    restore)      cmd_restore ;;
     prune)        cmd_prune_logs "${2:-}" ;;
     *)
-        echo "Usage: $0 {start|stop|restart|status|logs|build [--clean]|checkup|backup|backup-cold|prune [dry]}"
+        echo "Usage: $0 {start|stop|restart|status|logs|build [--clean]|checkup|backup|backup-cold|restore|prune [dry]}"
         echo ""
         echo "Service-level control (add service name as second arg):"
         echo "  $0 start|stop|restart [$VALID_SERVICES]"
@@ -481,6 +557,7 @@ case "${1:-}" in
         echo "Backup:"
         echo "  $0 backup          # Fast SSD backup, code only, stack stops briefly"
         echo "  $0 backup-cold     # Full cold archive to /mnt/data, stack stays up"
+        echo "  $0 restore         # Interactive — list backups, pick one, extract + restart"
         echo "  $0 build --clean   # Force clear webpack cache before build"
         echo ""
         echo "Cron setup:"

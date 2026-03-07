@@ -1,5 +1,5 @@
 # Arc Codex Project Context
-# VERSION 7.6 - Updated Mar 7, 2026
+# VERSION 7.7 - Updated Mar 7, 2026
 # Restructured into three audience sections: USER / ADMIN / DEVELOPER
 # Comprehensive reference for AI assistants working on this codebase
 #
@@ -464,6 +464,23 @@ developer:
       - "Prompt-to-Article (Write tab, grade/tone/image settings)"
 
   changelog:
+    v7.7: |
+      Mar 7, 2026 (afternoon):
+      - arc.sh restore command implemented:
+        - Interactive — lists all SSD + cold backups by number with sizes
+        - Requires typing 'yes' to confirm before touching anything
+        - Stops stack, extracts tarball to ITC_ROOT, restarts stack
+        - Added to dispatch and usage text
+      - mailer.py pipeline stall fix:
+        - arc:last_publish Redis key added — scribe sets on every publish
+        - Fast path in check_pipeline_stall() reads arc:last_publish directly
+        - Fallback to full key scan if key missing (pre-fix data)
+        - Removed [:100] sample limit (was causing false stall alerts)
+        - Seeded arc:last_publish with current newest article timestamp
+      - publish/page.tsx mobile fix:
+        - "Publish to Arc Codex" button overflowed on mobile
+        - Mobile shows "Publish", desktop shows "Publish to Arc Codex"
+        - FAB aria-label also shortened to "Publish"
     v7.6: |
       Mar 7, 2026:
       - Gmail PTR relay fix:

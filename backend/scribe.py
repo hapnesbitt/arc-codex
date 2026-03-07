@@ -1142,6 +1142,7 @@ def publish_and_prepare_comments(target, recently_published, api_client):
     try:
         api_client.publish_article(publish_payload)
         logger.info(f"✅ Article published: {article_id}")
+        r.set('arc:last_publish', datetime.now(timezone.utc).isoformat())
     except Exception as e:
         logger.error(f"Failed to publish {article_id}: {e}")
         return False

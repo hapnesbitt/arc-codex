@@ -208,21 +208,23 @@ Arc Codex — arc-codex.com
 def check_pipeline_stall(r: redis.Redis):
     """Alert if no new articles have been published in the last 2 hours."""
     try:
-        # Get the newest article timestamp from stats
-        keys = r.keys("article:*")
-        if not keys:
-            return
-        pipe = r.pipeline()
-        for key in keys[:100]:  # sample 100 for speed
-            pipe.hget(key, "timestamp")
-        timestamps = [t for t in pipe.execute() if t]
-        if not timestamps:
-            return
-        timestamps.sort(reverse=True)
-        newest_str = timestamps[0]
+        # Fast path — scribe sets this key on every publish
+        newest_str = r.get('arc:last_publish')
+        if not newest_str:
+            # Fallback — scan all articles (catches pre-fix data)
+            keys = r.keys("article:*")
+            if not keys:
+                return
+            pipe = r.pipeline()
+            for key in keys:  # check all articles
+                pipe.hget(key, "timestamp")
+            timestamps = [t for t in pipe.execute() if t]
+            if not timestamps:
+                return
+            timestamps.sort(reverse=True)
+            newest_str = timestamps[0]
         newest = datetime.fromisoformat(newest_str.replace("Z", "+00:00"))
         age_hours = (datetime.now(timezone.utc) - newest).total_seconds() / 3600
-
         if age_hours > 2:
             if should_alert(r, "pipeline_stall"):
                 logger.warning("🚨 Pipeline stall detected — no new articles in %.1fh", age_hours)
