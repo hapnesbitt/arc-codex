@@ -270,8 +270,14 @@ def get_top_articles(r: redis.Redis, n: int = 10) -> list[dict]:
                 except ValueError:
                     pass
             try:
+                # chimera_score lives inside the dossier JSON blob
                 score = float(data.get("chimera_score", 0))
-            except ValueError:
+                if score == 0:
+                    import json as _json
+                    dossier_raw = data.get("dossier", "{}")
+                    dossier = _json.loads(dossier_raw) if dossier_raw else {}
+                    score = float(dossier.get("chimera_score", dossier.get("sentiment", 0)))
+            except (ValueError, Exception):
                 score = 0
             articles.append({
                 "id":       aid,
