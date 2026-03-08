@@ -2,7 +2,7 @@
  * Arc Codex — Auth.js v5 Configuration
  * frontend/lib/auth.ts
  *
- * Google + GitHub SSO. JWT sessions (cookie-based, no Redis adapter needed).
+ * Google + GitHub + LinkedIn SSO. JWT sessions (cookie-based, no Redis adapter needed).
  * On sign-in, upserts user preference record in Flask backend.
  *
  * Exports: { handlers, auth, signIn, signOut }
@@ -11,6 +11,7 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import GitHub from "next-auth/providers/github";
+import LinkedIn from "next-auth/providers/linkedin";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
     trustHost: true,
@@ -28,6 +29,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         GitHub({
             clientId: process.env.GITHUB_CLIENT_ID!,
             clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+        }),
+        LinkedIn({
+            clientId: process.env.LINKEDIN_CLIENT_ID!,
+            clientSecret: process.env.LINKEDIN_CLIENT_SECRET!,
         }),
     ],
 
