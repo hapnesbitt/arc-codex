@@ -28,6 +28,8 @@ interface TranslateButtonProps {
   articleId: string;
   /** Languages the backend already has cached (from card.cached_langs) */
   cachedLangs?: string[];
+  /** Detected language of the article (from scribe langdetect) */
+  sourceLang?: string | null;
   onTranslated: (fields: TranslatedFields, rtl: boolean) => void;
   onReset: () => void;
   onLangChange?: (lang: string | null) => void;
@@ -43,6 +45,7 @@ const RTL_LANGS = new Set(["Arabic", "Persian", "Urdu", "Hebrew", "Pashto", "Sin
 export default function TranslateButton({
   articleId,
   cachedLangs = [],
+  sourceLang = null,
   onTranslated,
   onReset,
   onLangChange,
@@ -173,10 +176,20 @@ export default function TranslateButton({
   const toggleDropdown = () => {
     const pref = prefs?.preferred_lang;
 
-    // Smart skip: if user has a non-English preferred lang, fire immediately
-    if (!isOpen && pref && pref !== "English" && !activeLang && !allCached.includes(pref)) {
-      handleTranslate(pref);
-      return;
+    // Smart fire: if user has a preferred lang AND article is in a different language,
+    // translate immediately instead of opening the picker.
+    // Works for English users reading foreign articles too.
+    if (!isOpen && !activeLang && pref) {
+      const articleLang = sourceLang || "English";
+      if (pref !== articleLang) {
+        // Use cached version if available, otherwise fetch
+        if (allCached.includes(pref)) {
+          handleTranslate(pref);
+        } else {
+          handleTranslate(pref);
+        }
+        return;
+      }
     }
 
     setIsOpen((prev) => !prev);

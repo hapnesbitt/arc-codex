@@ -772,6 +772,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 <TranslateButton
                                     articleId={card.id}
                                     cachedLangs={(card as any).cached_langs ?? []}
+                                    sourceLang={(card as any).source_lang ?? null}
                                     onTranslated={handleTranslated}
                                     onReset={handleReset}
                                     onLangChange={setCurrentLang}
