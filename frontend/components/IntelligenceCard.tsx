@@ -989,7 +989,15 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                 <div className="border-t border-slate-700/50" aria-hidden="true" />
                 <footer className="flex justify-between items-center text-xs text-slate-500 p-4">
                     <time dateTime={card.timestamp}>{formattedDate}</time>
-                    <span className="font-semibold uppercase tracking-wider">{card.directive}</span>
+                    {card.directive ? (
+                        <Link
+                            href={`/?directive=${encodeURIComponent(card.directive)}`}
+                            className="font-semibold uppercase tracking-wider text-slate-500 hover:text-amber-400 transition-colors duration-200"
+                            aria-label={`Filter by ${card.directive}`}
+                        >
+                            {card.directive}
+                        </Link>
+                    ) : null}
                 </footer>
             </div>
         </motion.article>

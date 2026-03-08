@@ -11,32 +11,19 @@
       },
       {
         "name": "Personal Blog Content - Auto Publish",
-        "keywords": ["medium.com/@rossnesbitt"],
-        "negative_keywords": [],
-        "source_filter": ["medium.com/feed/@rossnesbitt_62306"],
-        "priority": 98,
-        "analysis_plan": ["blue", "red", "purple"]
-      }
-    ]
-  },
-  {
-    "topic": "High-Value Lifestyle & Home",
-    "directives": [
-      {
-        "name": "Home & Garden Monetization",
         "keywords": [
-          "home improvement",
-          "gardening",
-          "DIY",
-          "interior design",
-          "landscaping",
-          "home decor",
-          "appliances",
-          "smart home"
+          "medium.com/@rossnesbitt"
         ],
         "negative_keywords": [],
-        "priority": 97,
-        "analysis_plan": ["blue", "red", "purple"]
+        "source_filter": [
+          "medium.com/feed/@rossnesbitt_62306"
+        ],
+        "priority": 98,
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
       }
     ]
   },
@@ -59,13 +46,59 @@
         ],
         "negative_keywords": [],
         "priority": 96,
-        "analysis_plan": ["blue", "red", "purple"]
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
+      },
+      {
+        "name": "Corporate Actions and Labor Market",
+        "keywords": [
+          "merger and acquisition",
+          "earnings report",
+          "IPO",
+          "labor dispute",
+          "unionization",
+          "layoffs",
+          "worker rights",
+          "ESG"
+        ],
+        "negative_keywords": [
+          "drone strike",
+          "lightning strike",
+          "bowling"
+        ],
+        "priority": 9,
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
       }
     ]
   },
   {
-    "topic": "Technology & Electronics",
+    "topic": "Technology & AI",
     "directives": [
+      {
+        "name": "AI Developments and Discourse",
+        "keywords": [
+          "artificial intelligence",
+          "generative AI",
+          "LLM",
+          "ethical AI",
+          "human-centered AI",
+          "AGI threat"
+        ],
+        "negative_keywords": [],
+        "priority": 15,
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
+      },
       {
         "name": "Consumer Tech & Electronics",
         "keywords": [
@@ -80,75 +113,121 @@
         ],
         "negative_keywords": [],
         "priority": 95,
-        "analysis_plan": ["blue", "red", "purple"]
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
       }
     ]
   },
   {
-    "topic": "Online Communities & Engagement",
+    "topic": "Intelligence & Security",
     "directives": [
       {
-        "name": "Online Community Monitoring",
+        "name": "Intelligence Community Operations",
         "keywords": [
-          "forum thread",
-          "reddit post",
-          "discord discussion",
-          "community update",
-          "social media group",
-          "virtual meetup",
-          "online community growth"
+          "CIA",
+          "NSA",
+          "FBI",
+          "surveillance",
+          "counterintelligence",
+          "foreign interference",
+          "disinformation",
+          "covert operations"
+        ],
+        "negative_keywords": [
+          "fabric",
+          "fibre channel"
+        ],
+        "priority": 17,
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
+      },
+      {
+        "name": "Crisis Event Monitoring",
+        "keywords": [
+          "emergency response",
+          "crisis management",
+          "disaster preparedness",
+          "national emergency",
+          "state of emergency",
+          "public safety",
+          "false flag",
+          "community resilience"
         ],
         "negative_keywords": [],
-        "priority": 94,
-        "analysis_plan": ["blue", "red", "purple"]
+        "priority": 19,
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
+      },
+      {
+        "name": "Epstein Case and Network",
+        "keywords": [
+          "epstein case",
+          "ghislaine maxwell",
+          "trafficking networks",
+          "elite cover-up",
+          "survivors",
+          "powerful connections",
+          "shadow network"
+        ],
+        "negative_keywords": [],
+        "priority": 18,
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
       }
     ]
   },
   {
-    "topic": "Health & Beauty",
+    "topic": "Governance & Policy",
     "directives": [
       {
-        "name": "Health, Wellness & Beauty Insights",
+        "name": "Government Actions and Political Discourse",
         "keywords": [
-          "mental health",
-          "physical fitness",
-          "nutrition",
-          "wellness",
-          "beauty tips",
-          "skincare",
-          "exercise routines",
-          "healthcare research"
+          "voting rights",
+          "government transparency",
+          "regulation",
+          "whistleblower",
+          "fair elections",
+          "unelected officials"
         ],
         "negative_keywords": [],
-        "priority": 93,
-        "analysis_plan": ["blue", "red", "purple"]
-      }
-    ]
-  },
-  {
-    "topic": "Travel & Transportation",
-    "directives": [
+        "priority": 14,
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
+      },
       {
-        "name": "Travel & Transport Insights",
+        "name": "Major Legal and Supreme Court Developments",
         "keywords": [
-          "travel tips",
-          "flights",
-          "hotels",
-          "tourism trends",
-          "car rental",
-          "public transport",
-          "vacation planning",
-          "travel gear"
+          "Supreme Court",
+          "SCOTUS",
+          "landmark ruling",
+          "judicial nomination",
+          "class action lawsuit",
+          "criminal justice reform",
+          "appeals court"
         ],
         "negative_keywords": [],
-        "priority": 92,
-        "analysis_plan": ["blue", "red", "purple"]
-      }
-    ]
-  },
-  {
-    "topic": "Original Mission & Policy",
-    "directives": [
+        "priority": 16,
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
+      },
       {
         "name": "Anti-DEI Monitoring",
         "keywords": [
@@ -165,141 +244,11 @@
         ],
         "negative_keywords": [],
         "priority": 20,
-        "analysis_plan": ["blue", "red", "purple"]
-      },
-      {
-        "name": "Crisis Event Monitoring",
-        "keywords": [
-          "emergency response",
-          "crisis management",
-          "disaster preparedness",
-          "national emergency",
-          "state of emergency",
-          "public safety",
-          "false flag",
-          "community resilience"
-        ],
-        "negative_keywords": [],
-        "priority": 19,
-        "analysis_plan": ["blue", "red", "purple"]
-      },
-      {
-        "name": "Epstein Case and Network",
-        "keywords": [
-          "epstein case",
-          "ghislaine maxwell",
-          "trafficking networks",
-          "elite cover-up",
-          "survivors",
-          "powerful connections",
-          "shadow network"
-        ],
-        "negative_keywords": [],
-        "priority": 18,
-        "analysis_plan": ["blue", "red", "purple"]
-      },
-      {
-        "name": "Intelligence Community Operations",
-        "keywords": [
-          "CIA",
-          "NSA",
-          "FBI",
-          "surveillance",
-          "counterintelligence",
-          "foreign interference",
-          "disinformation",
-          "covert operations"
-        ],
-        "negative_keywords": ["fabric", "fibre channel"],
-        "priority": 17,
-        "analysis_plan": ["blue", "red", "purple"]
-      },
-      {
-        "name": "Major Legal and Supreme Court Developments",
-        "keywords": [
-          "Supreme Court",
-          "SCOTUS",
-          "landmark ruling",
-          "judicial nomination",
-          "class action lawsuit",
-          "criminal justice reform",
-          "appeals court"
-        ],
-        "negative_keywords": [],
-        "priority": 16,
-        "analysis_plan": ["blue", "red", "purple"]
-      },
-      {
-        "name": "AI Developments and Discourse",
-        "keywords": [
-          "artificial intelligence",
-          "generative AI",
-          "LLM",
-          "ethical AI",
-          "human-centered AI",
-          "AGI threat"
-        ],
-        "negative_keywords": [],
-        "priority": 15,
-        "analysis_plan": ["blue", "red", "purple"]
-      },
-      {
-        "name": "Government Actions and Political Discourse",
-        "keywords": [
-          "voting rights",
-          "government transparency",
-          "regulation",
-          "whistleblower",
-          "fair elections",
-          "unelected officials"
-        ],
-        "negative_keywords": [],
-        "priority": 14,
-        "analysis_plan": ["blue", "red", "purple"]
-      },
-      {
-        "name": "Corporate Actions and Labor Market",
-        "keywords": [
-          "merger and acquisition",
-          "earnings report",
-          "IPO",
-          "labor dispute",
-          "unionization",
-          "layoffs",
-          "worker rights",
-          "ESG"
-        ],
-        "negative_keywords": ["drone strike","lightning strike","bowling"],
-        "priority": 9,
-        "analysis_plan": ["blue", "red", "purple"]
-      },
-      {
-        "name": "Education Policy and Debates",
-        "keywords": [
-          "education reform",
-          "school board",
-          "student loans",
-          "academic freedom",
-          "book ban",
-          "teacher shortage"
-        ],
-        "negative_keywords": [],
-        "priority": 8,
-        "analysis_plan": ["blue", "red", "purple"]
-      },
-      {
-        "name": "Climate and Environment",
-        "keywords": [
-          "climate change",
-          "renewable energy",
-          "carbon emissions",
-          "environmental regulation",
-          "sustainability",
-          "geoengineering conspiracy"
-        ],
-        "negative_keywords": ["business climate","political climate","investment climate"],
-        "priority": 7,
-        "analysis_plan": ["blue", "red", "purple"]
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
       },
       {
         "name": "Immigration Policy and News",
@@ -313,22 +262,35 @@
         ],
         "negative_keywords": [],
         "priority": 6,
-        "analysis_plan": ["blue", "red", "purple"]
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
       },
       {
-        "name": "US Farming and Agriculture",
+        "name": "Education Policy and Debates",
         "keywords": [
-          "farm bill",
-          "crop prices",
-          "food supply chain",
-          "agribusiness",
-          "water rights",
-          "GMO"
+          "education reform",
+          "school board",
+          "student loans",
+          "academic freedom",
+          "book ban",
+          "teacher shortage"
         ],
-        "negative_keywords": ["creative drought","artistic drought"],
-        "priority": 5,
-        "analysis_plan": ["blue", "red", "purple"]
-      },
+        "negative_keywords": [],
+        "priority": 8,
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
+      }
+    ]
+  },
+  {
+    "topic": "Media & Information Integrity",
+    "directives": [
       {
         "name": "Media and Journalism Standards",
         "keywords": [
@@ -341,8 +303,17 @@
         ],
         "negative_keywords": [],
         "priority": 4,
-        "analysis_plan": ["blue", "red", "purple"]
-      },
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
+      }
+    ]
+  },
+  {
+    "topic": "Science & Environment",
+    "directives": [
       {
         "name": "Science, Math & Philosophy Insight",
         "keywords": [
@@ -354,21 +325,60 @@
         ],
         "negative_keywords": [],
         "priority": 3,
-        "analysis_plan": ["blue", "red", "purple"]
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
       },
       {
-        "name": "Minecraft Automation",
+        "name": "Climate and Environment",
         "keywords": [
-          "Minecraft server",
-          "world generation",
-          "custom map",
-          "datapack",
-          "modding"
+          "climate change",
+          "renewable energy",
+          "carbon emissions",
+          "environmental regulation",
+          "sustainability",
+          "geoengineering conspiracy"
         ],
-        "negative_keywords": ["web server","data center","API","database"],
-        "priority": 3,
-        "analysis_plan": ["blue", "red", "purple"]
+        "negative_keywords": [
+          "business climate",
+          "political climate",
+          "investment climate"
+        ],
+        "priority": 7,
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
       },
+      {
+        "name": "US Farming and Agriculture",
+        "keywords": [
+          "farm bill",
+          "crop prices",
+          "food supply chain",
+          "agribusiness",
+          "water rights",
+          "GMO"
+        ],
+        "negative_keywords": [
+          "creative drought",
+          "artistic drought"
+        ],
+        "priority": 5,
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
+      }
+    ]
+  },
+  {
+    "topic": "General",
+    "directives": [
       {
         "name": "General News, Culture & Lifestyle",
         "keywords": [
@@ -380,11 +390,18 @@
           "award",
           "sports highlight"
         ],
-        "negative_keywords": ["martial arts","sport utility vehicle","SUV"],
+        "negative_keywords": [
+          "martial arts",
+          "sport utility vehicle",
+          "SUV"
+        ],
         "priority": 1,
-        "analysis_plan": ["blue", "red", "purple"]
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
       }
     ]
   }
 ]
-

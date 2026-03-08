@@ -1,5 +1,5 @@
 # Arc Codex Project Context
-# VERSION 7.8 - Updated Mar 7, 2026
+# VERSION 7.9 - Updated Mar 8, 2026
 # Restructured into three audience sections: USER / ADMIN / DEVELOPER
 # Comprehensive reference for AI assistants working on this codebase
 #
@@ -46,8 +46,8 @@ user:
     "empty dance floor" problem — gives readers something to push back against.
 
   translation:
-    languages: 68
-    groups: "English (1), European (21), Middle East (7), South Asia (11), East/SE Asia (11), Africa (8), Americas & Pacific (5)"
+    languages: 162
+    source: frontend/lib/languages.json — 162 languages
     rtl_support: Arabic, Hebrew, Urdu, Persian, Pashto, Kurdish, Uyghur, Sindhi, Yiddish, Dhivehi
     behavior: Click Translate -> goes to preferred language (no dropdown). Globe icon to change.
     cache: 24h Redis cache per article+language pair
@@ -104,6 +104,7 @@ admin:
     checkup: "./arc.sh checkup"
     backup:  "./arc.sh backup"
     prune:   "./arc.sh prune [dry]"
+    restore: "./arc.sh restore"
 
   arc_env_sh:
     file: /home/www/arc_stack/arc_env.sh
@@ -146,7 +147,7 @@ admin:
       includes: .next build, uploads, Redis RDB, Solr data
       cron: "0 2 * * 0"
       note: Stack stays up during cold backup — Redis BGSAVE + Solr commit flush before snapshot
-    restore: PENDING — arc.sh restore not yet implemented
+    restore: "arc.sh restore — interactive picker, lists SSD + cold backups by number with sizes, requires typing yes, stops stack, extracts, restarts"
 
   log_management:
     locations: [logs/*.log, backend/*.log]
@@ -210,9 +211,9 @@ developer:
     backend: "Python 3.x / Flask / gunicorn (port 5005, 1 worker, 8 threads, timeout 600)"
     frontend: "Next.js 16.1.6 / React 19 / TypeScript / Tailwind CSS / shadcn-ui"
     database: Redis
-    search: Apache Solr
+    search: "Apache Solr — core: feeds, 4767 docs. Fields added Mar 8: category (string), source_lang (string), original_text (text_general). Reindexed via reindex_solr.py."
     ai: "Ollama on M1 — devstral cloud + gemma3:4b (analysis) + TranslateGemma:4b (translation)"
-    auth: "Auth.js v5 (next-auth@5.0.0-beta.30) — Google OAuth, JWT sessions"
+    auth: "Auth.js v5 (next-auth@5.0.0-beta.30) — Google + GitHub + LinkedIn OAuth, JWT sessions"
     reverse_proxy: Caddy
 
   file_tree: |
@@ -306,7 +307,7 @@ developer:
     from user_prefs import user_prefs_bp;   app.register_blueprint(user_prefs_bp)
 
   redis_schemas:
-    article:      "article:{id} hash — id, title, url, source, original_text, timestamp, directive, chimera_score, red/blue/purple_team_analysis, sentinel_verdict, og_image, slug"
+    article:      "article:{id} hash — id, title, url, source, original_text, timestamp, directive, category, source_lang, chimera_score, red/blue/purple_team_analysis, sentinel_verdict, og_image, slug"
     comment:      "comments:{article_id} list of JSON"
     reaction:     "reactions:{comment_id} hash — like, dislike, heart, happy, sad, angry"
     translation:  "translation:{article_id}:{lang} JSON TTL 24h — {title, original_text, rtl} (local) or 5-field (pro)"
@@ -335,7 +336,8 @@ developer:
     sentinel_fatal: false
     counter_analyst_fatal: false
     stream_delivery: "Redis Streams only — no filesystem JSON writes"
-    chimera_score_caveat: "Calibrated on English. Non-English articles may score abnormally (Norwegian 100%). Language detection + badge is planned."
+    chimera_score_caveat: "Calibrated on English. Non-English articles may score abnormally."
+    source_lang_detection: "langdetect 1.0.9 in backend venv. scribe.py detects language at ingest, stores source_lang field. backfill_source_lang.py ran Mar 8 — 4697 articles backfilled. Dominant: English 4652, German 30, Swedish 10, Spanish 7."
 
   security_notes:
     redis_bind: "127.0.0.1 only — fixed Mar 7 2026 (was 0.0.0.0)"
@@ -343,7 +345,7 @@ developer:
     reason: "Zabbix+MariaDB redundant with Netdata; SNMP/Unbound not needed"
 
   frontend_gotchas:
-    feedclient: "NEVER restructure — surgical deletions only"
+    feedclient: "NEVER restructure — surgical deletions only. Directive filter: useSearchParams reads ?directive=X, resets feed on change, passes to /api/get_feed. isFirstRender ref prevents wipe on mount."
     layouttheme: "Check LayoutTheme.module.css first for any color issues"
     user_prefs_import: "From @/components/UserPrefsContext — NOT @/hooks/useUserPrefs"
     font: "Ubuntu only — variable --font-sans"
@@ -354,10 +356,12 @@ developer:
     markdown: "Zero-dependency built into IntelligenceCard.tsx — no react-markdown"
     spacy: "Install via wheel URL — NOT python3 -m spacy download"
     reactions: "Valid: like, dislike, heart, happy, sad, angry"
+    directive_filter: "IntelligenceCard footer directive label is a Link to /?directive=<encoded>. FeedClient reads param, filters feed, shows amber banner with ✕ Clear button. main.py get_feed accepts &directive= param, batch-scans Redis hget directive field."
     env_local_priority: "frontend/.env.local overrides .env — keep NEXT_PUBLIC_BACKEND_URL correct in both"
     logo: "public/arc-codex-logo.jpg (1024x1024) — displayed in sidebar desktop nav, 64x64 rounded"
     favicon: "app/icon.jpg — copy of logo, auto-served by Next.js App Router"
     search_sort: "4 options: relevant, recent, score_desc (Tone high→low), score_asc (Tone low→high)"
+    directives_cleanup: "Mar 8 2026 — directives.json cleaned: 24→19 directives, 8 topics. Removed: Minecraft Automation, Home & Garden Monetization, Health/Wellness & Beauty, Travel & Transport, Online Community Monitoring. Topics: System Directives, Finance & Economics, Technology & AI, Intelligence & Security, Governance & Policy, Media & Information Integrity, Science & Environment, General. Greek god categoryLabels.js and allDirectives in utils.js are dead code — pending removal."
     share_payload: |
       IntelligenceCard share/copy uses: title + counter-analyst comment + URL.
       Falls back to title + URL if no comment exists.
@@ -374,7 +378,7 @@ developer:
       backend:  "arc-codex-backend:latest — Python 3.11-slim, shared by all 6 backend services"
     network_mode: "frontend uses network_mode: host — required so 127.0.0.1:5005 resolves to native gunicorn"
     fix: "ENV HOSTNAME='' (empty string) in Dockerfile.frontend runner stage — was '0.0.0.0' which caused request routing failure on Linux with network_mode: host"
-    health_check: "Container shows 'unhealthy' in docker ps but serves requests fine — health check interval needs tuning, not a functional issue"
+    health_check: "Uses wget -qO- (not curl — Alpine has no curl). Container shows healthy. ✅"
     solr_core: "feeds (NOT arc_codex — cold_archive and docker-compose.yml must use 'feeds')"
     files:
       - Dockerfile.frontend
@@ -434,7 +438,7 @@ developer:
 
   planned_features:
     arc_sh_restore:
-      description: "./arc.sh restore — list tarballs, pick, confirm, extract, restart"
+      status: "✅ DONE — interactive picker, SSD + cold backups, yes confirmation, stops/extracts/restarts"
 
     arc_admin_tui:
       description: "Python curses TUI — arc_admin.py — stdlib only, no pip"
@@ -445,10 +449,13 @@ developer:
       also: "Pro translation = all 5 fields"
 
     language_detection:
-      description: "Detect non-English articles, show 'Translate to English' prominently + chimera score caveat badge"
+      status: "✅ DONE — langdetect 1.0.9, source_lang field on all articles, smart TranslateButton auto-fires when article lang != user preferred_lang"
 
     score_sort_feed:
       description: "Tone sort on feed page (search already has it)"
+
+    search_page_filters:
+      description: "search/page.tsx — add language filter (source_lang) and directive/topic filter. Both backed by Solr. Language filter should show all stories in that language regardless of other params."
 
     preferred_lang_auto_article:
       description: "Auto-translate on /article/[slug] — safe (1 article). NOT on feed."
@@ -464,6 +471,30 @@ developer:
       - "Prompt-to-Article (Write tab, grade/tone/image settings)"
 
   changelog:
+    v7.9: |
+      Mar 8, 2026:
+      - Solr reindex complete: 4725 articles indexed, category + source_lang + original_text fields populated
+        category distribution: general 1409, economic_finance 1300, tech_surveillance 1106,
+        threat_intelligence 543, science_health 367
+        source_lang distribution: English 4652, German 30, Swedish 10, Spanish 7, Vietnamese 6, others
+      - directives.json cleaned: 24 → 19 directives, 8 clean topic groups
+        Removed: Minecraft Automation, Home & Garden Monetization, Health/Wellness & Beauty,
+        Travel & Transport, Online Community Monitoring
+        New topics: Finance & Economics, Technology & AI, Intelligence & Security,
+        Governance & Policy, Media & Information Integrity, Science & Environment, General
+      - prompts.yaml v6.1: HapENews → Arc Codex in mission statement
+      - Directive filter on feed: IntelligenceCard footer directive label is now a clickable
+        Link to /?directive=<encoded>. FeedClient reads useSearchParams, resets feed on
+        directive change (isFirstRender guard prevents mount wipe), passes &directive= to
+        /api/get_feed. main.py get_feed accepts directive_filter param, batch-scans Redis
+        hget directive field. Amber filter banner with ✕ Clear button shown when active.
+      - mailer.py digest score fix: chimera_score lives inside dossier JSON blob —
+        parse dossier when top-level chimera_score is 0
+      - langdetect 1.0.9 installed, source_lang field on all articles (backfilled 4697)
+        Smart TranslateButton auto-fires when article source_lang != user preferred_lang
+      - LinkedIn OAuth added as third sign-in provider (client_id: 77gih47e82m35z)
+      - TODO: search/page.tsx — add language + directive filters backed by Solr
+      - TODO: remove dead code: categoryLabels.js Greek god system, allDirectives in utils.js
     v7.8: |
       Mar 7, 2026 (evening):
       - PageWrapper duplicate resolved:

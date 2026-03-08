@@ -13,7 +13,7 @@ import React, { useState, useEffect, useCallback, Suspense, useRef } from 'react
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, ArrowLeft, Clock, Newspaper, Zap, Shield, TrendingUp, Radio, Database, CalendarDays, Terminal } from 'lucide-react';
+import { Search, ArrowLeft, Clock, Newspaper, Zap, Shield, TrendingUp, Radio, Database, CalendarDays, Terminal, Globe, Tag, X } from 'lucide-react';
 import PageWrapper from '@/components/layout/PageWrapper';
 
 // ── Reduced motion ────────────────────────────────────────────────────────────
@@ -32,6 +32,7 @@ interface SearchResult {
   chimera_score: number;
   snippet: string;
   score: number;
+  source_lang?: string;
 }
 
 interface SearchResponse {
@@ -76,6 +77,23 @@ const getChimeraColor = (score: number) => {
   if (score >= 0.4) return { bar: 'bg-amber-500',   text: 'text-amber-400',   label: 'MED'  };
   return               { bar: 'bg-emerald-500', text: 'text-emerald-400', label: 'LOW'  };
 };
+
+// ── Directive topics (from directives.json) ──────────────────────────────────
+const DIRECTIVE_TOPICS: { topic: string; directives: string[] }[] = [
+  { topic: 'Finance & Economics', directives: ['Economic Policy and Financial Markets', 'Corporate Actions and Labor Market'] },
+  { topic: 'Technology & AI',     directives: ['AI Developments and Discourse', 'Consumer Tech & Electronics'] },
+  { topic: 'Intelligence & Security', directives: ['Intelligence Community Operations', 'Crisis Event Monitoring', 'Epstein Case and Network'] },
+  { topic: 'Governance & Policy', directives: ['Government Actions and Political Discourse', 'Major Legal and Supreme Court Developments', 'Anti-DEI Monitoring', 'Immigration Policy and News', 'Education Policy and Debates'] },
+  { topic: 'Media & Information', directives: ['Media and Journalism Standards'] },
+  { topic: 'Science & Environment', directives: ['Science, Math & Philosophy Insight', 'Climate and Environment', 'US Farming and Agriculture'] },
+  { topic: 'General',             directives: ['General News, Culture & Lifestyle'] },
+];
+
+const KNOWN_LANGUAGES = [
+  'German', 'Swedish', 'Spanish', 'Vietnamese', 'Italian',
+  'Norwegian', 'Thai', 'Finnish', 'Hindi', 'Korean',
+  'Arabic', 'Indonesian', 'Russian',
+];
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 function ResultSkeleton() {
@@ -225,6 +243,10 @@ function SearchPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'recent' | 'relevant' | 'score_desc' | 'score_asc'>('relevant');
   const [stats, setStats] = useState<{ article_count: number; newest: string | null } | null>(null);
+  const [langFilter, setLangFilter]           = useState<string>('');
+  const [directiveFilter, setDirectiveFilter] = useState<string>('');
+  const [showLangPicker, setShowLangPicker]   = useState(false);
+  const [showDirPicker, setShowDirPicker]     = useState(false);
 
   useEffect(() => {
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
@@ -237,7 +259,7 @@ function SearchPageContent() {
     fetchStats();
     const interval = setInterval(fetchStats, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [langFilter, directiveFilter]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -250,13 +272,17 @@ function SearchPageContent() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  const performSearch = useCallback(async (searchQuery: string, sort: typeof sortBy = 'relevant') => {
-    if (!searchQuery.trim()) return;
+  const performSearch = useCallback(async (searchQuery: string, sort: typeof sortBy = 'relevant', lang = langFilter, directive = directiveFilter) => {
+    if (!searchQuery.trim() && !lang && !directive) return;
     setLoading(true);
     setError(null);
     setSearched(true);
     try {
-      const response = await fetch(`/api/search?q=${encodeURIComponent(searchQuery.trim())}&limit=30&sort=${sort}`);
+      const params = new URLSearchParams({ limit: '30', sort });
+      if (searchQuery.trim()) params.set('q', searchQuery.trim());
+      if (lang)      params.set('lang', lang);
+      if (directive) params.set('directive', directive);
+      const response = await fetch(`/api/search?${params.toString()}`);
       const data: SearchResponse = await response.json();
       if (!response.ok) {
         setError(data.error || 'Search failed');
@@ -293,7 +319,31 @@ function SearchPageContent() {
 
   const handleSortChange = (sort: typeof sortBy) => {
     setSortBy(sort);
-    if (query) performSearch(query, sort);
+    if (query || langFilter || directiveFilter) performSearch(query, sort);
+  };
+
+  const handleLangSelect = (lang: string) => {
+    const newLang = langFilter === lang ? '' : lang;
+    setLangFilter(newLang);
+    setShowLangPicker(false);
+    setSearched(true);
+    performSearch(query, sortBy, newLang, directiveFilter);
+  };
+
+  const handleDirectiveSelect = (dir: string) => {
+    const newDir = directiveFilter === dir ? '' : dir;
+    setDirectiveFilter(newDir);
+    setShowDirPicker(false);
+    setSearched(true);
+    performSearch(query, sortBy, langFilter, newDir);
+  };
+
+  const clearAllFilters = () => {
+    setLangFilter('');
+    setDirectiveFilter('');
+    setShowLangPicker(false);
+    setShowDirPicker(false);
+    if (query) performSearch(query, sortBy, '', '');
   };
 
   return (
@@ -389,6 +439,115 @@ function SearchPageContent() {
               </button>
             </div>
           </form>
+        </motion.div>
+
+        {/* ── Filter bar ── */}
+        <motion.div
+          initial={reducedMotion ? {} : { opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.15 }}
+          className="flex flex-wrap items-center gap-2"
+        >
+          {/* Language filter */}
+          <div className="relative">
+            <button
+              onClick={() => { setShowLangPicker(v => !v); setShowDirPicker(false); }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 ${
+                langFilter
+                  ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300'
+                  : 'bg-slate-800/60 border-slate-700/50 text-slate-400 hover:text-slate-300'
+              }`}
+              aria-expanded={showLangPicker}
+              aria-haspopup="listbox"
+            >
+              <Globe className="h-3 w-3" aria-hidden="true" />
+              {langFilter || 'Language'}
+              {langFilter && (
+                <span
+                  onClick={(e) => { e.stopPropagation(); handleLangSelect(langFilter); }}
+                  className="ml-1 hover:text-white cursor-pointer"
+                  aria-label="Clear language filter"
+                >×</span>
+              )}
+            </button>
+            {showLangPicker && (
+              <div className="absolute top-full mt-1 left-0 z-50 bg-slate-900 border border-slate-700/60 rounded-xl shadow-xl p-2 min-w-[160px]" role="listbox" aria-label="Select language">
+                {KNOWN_LANGUAGES.map(lang => (
+                  <button
+                    key={lang}
+                    role="option"
+                    aria-selected={langFilter === lang}
+                    onClick={() => handleLangSelect(lang)}
+                    className={`w-full text-left px-3 py-1.5 text-xs rounded-lg transition-colors ${
+                      langFilter === lang
+                        ? 'bg-cyan-500/20 text-cyan-300'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                    }`}
+                  >
+                    {lang}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Directive filter */}
+          <div className="relative">
+            <button
+              onClick={() => { setShowDirPicker(v => !v); setShowLangPicker(false); }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 ${
+                directiveFilter
+                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                  : 'bg-slate-800/60 border-slate-700/50 text-slate-400 hover:text-slate-300'
+              }`}
+              aria-expanded={showDirPicker}
+              aria-haspopup="listbox"
+            >
+              <Tag className="h-3 w-3" aria-hidden="true" />
+              {directiveFilter ? directiveFilter.length > 28 ? directiveFilter.slice(0, 28) + '…' : directiveFilter : 'Topic'}
+              {directiveFilter && (
+                <span
+                  onClick={(e) => { e.stopPropagation(); handleDirectiveSelect(directiveFilter); }}
+                  className="ml-1 hover:text-white cursor-pointer"
+                  aria-label="Clear topic filter"
+                >×</span>
+              )}
+            </button>
+            {showDirPicker && (
+              <div className="absolute top-full mt-1 left-0 z-50 bg-slate-900 border border-slate-700/60 rounded-xl shadow-xl p-2 min-w-[260px] max-h-80 overflow-y-auto" role="listbox" aria-label="Select topic">
+                {DIRECTIVE_TOPICS.map(({ topic, directives }) => (
+                  <div key={topic}>
+                    <div className="px-3 py-1 text-[10px] uppercase tracking-widest text-slate-600 font-mono font-bold mt-1">{topic}</div>
+                    {directives.map(dir => (
+                      <button
+                        key={dir}
+                        role="option"
+                        aria-selected={directiveFilter === dir}
+                        onClick={() => handleDirectiveSelect(dir)}
+                        className={`w-full text-left px-3 py-1.5 text-xs rounded-lg transition-colors ${
+                          directiveFilter === dir
+                            ? 'bg-amber-500/20 text-amber-300'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                        }`}
+                      >
+                        {dir}
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Clear all */}
+          {(langFilter || directiveFilter) && (
+            <button
+              onClick={clearAllFilters}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs text-slate-500 hover:text-red-400 border border-slate-700/30 hover:border-red-500/30 transition-all outline-none focus-visible:ring-2 focus-visible:ring-red-400/60"
+            >
+              <X className="h-3 w-3" aria-hidden="true" /> Clear filters
+            </button>
+          )}
         </motion.div>
 
         {/* ── Results header + sort ── */}

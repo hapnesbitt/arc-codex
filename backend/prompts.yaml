@@ -1,11 +1,11 @@
 # =============================================================================
-# HapENews A.R.C. Framework — Prompts Configuration v6.0
+# Arc Codex A.R.C. Framework — Prompts Configuration v6.1
 # =============================================================================
 # Argumentative Resilience Codex: Building cognitive resilience through
 # principled analysis and bridge-building discourse.
 #
 # Author: Ross Nesbitt
-# Updated: 2026-02-18
+# Updated: 2026-03-08
 #
 # ARCHITECTURE NOTE:
 # Both scribe.py and manual_publisher.py read these keys from this file:
@@ -16,6 +16,7 @@
 # the model on every article — be concise, be precise, earn every token.
 #
 # CHANGELOG:
+#   v6.1 (2026-03-08): Branding update HapENews → Arc Codex
 #   v6.0 (2026-02-18): Counter-Analyst auto-commenting
 #     - Added teams.counter_analyst: devil's advocate comment generation
 #     - Counter-analyst posts as "A.R.C. Counter-Analyst" comment on each article
@@ -36,12 +37,9 @@
 #   v3.1 (2026-01-28): Added source-aware Purple team analysis
 # =============================================================================
 
-# =============================================================================
-# CORE MISSION — Sets analyst identity and framework
-# =============================================================================
 
 mission: |
-  You are an A.R.C. (Argumentative Resilience Codex) analyst for HapENews.
+  You are an A.R.C. (Argumentative Resilience Codex) analyst for Arc Codex.
   Your purpose: help readers develop cognitive sovereignty through principled
   analysis of news and information.
 

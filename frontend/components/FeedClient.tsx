@@ -10,6 +10,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import IntelligenceCard from '@/components/IntelligenceCard';
 import type { Article, Comment } from '@/lib/types';
@@ -63,6 +64,10 @@ function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JS
   const [hasMore, setHasMore] = useState<boolean>((initialFeed || []).length > 0);
   const [error, setError]     = useState<string | null>(null);
 
+  const searchParams   = useSearchParams();
+  const router         = useRouter();
+  const directiveFilter = searchParams.get('directive') || '';
+
   const observerTarget = useRef<HTMLLIElement | null>(null);
   const fibState       = useRef<{ a: number; b: number; c: number }>({ a: 1, b: 1, c: 2 });
   const offsetRef      = useRef<number>((initialFeed || []).length);
@@ -77,7 +82,8 @@ function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JS
     const limit = fibState.current.b;
 
     try {
-      const response = await fetch(`/api/get_feed?limit=${limit}&offset=${offsetRef.current}`);
+      const directiveParam = directiveFilter ? `&directive=${encodeURIComponent(directiveFilter)}` : '';
+      const response = await fetch(`/api/get_feed?limit=${limit}&offset=${offsetRef.current}${directiveParam}`);
       if (!response.ok) throw new Error(`API error! status: ${response.status}`);
 
       const newItems: Article[] = await response.json();
@@ -99,7 +105,22 @@ function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JS
     } finally {
       setLoading(false);
     }
-  }, [loading, hasMore]);
+  }, [loading, hasMore, directiveFilter]);
+
+  // Reset feed when directive filter changes (skip initial mount)
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    setFeed([]);
+    offsetRef.current = 0;
+    setHasMore(true);
+    setError(null);
+    fibState.current = { a: 1, b: 1, c: 2 };
+    batchSizeRef.current = 2;
+  }, [directiveFilter]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -135,6 +156,18 @@ function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JS
     // <main> retains its implicit landmark role.
     // role="feed" lives on the <ol> where it belongs per ARIA spec.
     <main className="space-y-12" aria-label="Intelligence Main Feed">
+      {directiveFilter && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-sm text-amber-300 mb-2">
+          <span>Filtering by: <strong className="text-amber-200">{directiveFilter}</strong></span>
+          <button
+            onClick={() => router.push('/')}
+            className="ml-auto text-xs px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/40 text-amber-200 transition-colors"
+            aria-label="Clear directive filter"
+          >
+            ✕ Clear
+          </button>
+        </div>
+      )}
       <ol
         role="feed"
         aria-busy={loading}

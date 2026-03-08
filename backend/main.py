@@ -361,12 +361,13 @@ def get_feed():
     
     limit = request.args.get('limit', 33, type=int)
     offset = request.args.get('offset', 0, type=int)
-    category_filter = request.args.get('category', '', type=str).strip()
+    category_filter  = request.args.get('category', '', type=str).strip()
+    directive_filter = request.args.get('directive', '', type=str).strip()
     
     try:
         redis_start = time.perf_counter()
         
-        if not category_filter:
+        if not category_filter and not directive_filter:
             # --- UNFILTERED: original fast path (unchanged) ---
             article_ids = r.zrevrange('feed', offset, offset + limit - 1)
             if not article_ids: 
@@ -399,11 +400,15 @@ def get_feed():
                 # Pipeline-fetch just the category field for this batch
                 pipe = r.pipeline()
                 for aid in batch_ids:
-                    pipe.hget(f"article:{aid}", 'category')
+                    pipe.hget(f"article:{aid}", 'directive' if directive_filter else 'category')
                 categories = pipe.execute()
                 
-                for aid, cat in zip(batch_ids, categories):
-                    if (cat or 'general') == category_filter:
+                for aid, cat_or_dir in zip(batch_ids, categories):
+                    if directive_filter:
+                        match = (cat_or_dir or '') == directive_filter
+                    else:
+                        match = (cat_or_dir or 'general') == category_filter
+                    if match:
                         if skipped < offset:
                             skipped += 1
                         else:
@@ -512,9 +517,11 @@ def search_articles():
     query = request.args.get('q', '').strip()
     limit = min(int(request.args.get('limit', 20)), 50)
     offset = int(request.args.get('offset', 0))
+    lang_filter      = request.args.get('lang', '').strip()
+    directive_filter = request.args.get('directive', '').strip()
 
-    if not query:
-        return jsonify({"error": "Search query is required."}), 400
+    if not query and not lang_filter and not directive_filter:
+        return jsonify({"error": "Search query or filter is required."}), 400
 
     try:
         search_start = time.perf_counter()
@@ -532,33 +539,49 @@ def search_articles():
             'score_asc':  'chimera_score asc, timestamp desc',
         }.get(sort_param, 'timestamp desc, score desc')
 
+        # Build Solr filter queries for language and directive
+        fq = []
+        if lang_filter:
+            fq.append(f'source_lang:"{lang_filter}"')
+        if directive_filter:
+            fq.append(f'directive:"{directive_filter}"')
+
         # Search title and content with smart query construction:
         # Multi-word queries: phrase match (exact) boosted highest, then AND (all words), then OR fallback
-        words = query.split()
-        if len(words) > 1:
-            phrase = f'"{query}"'
-            and_terms = ' AND '.join(words)
-            solr_query = (
-                f'title:{phrase}^10 OR content:{phrase}^5 '
-                f'OR title:({and_terms})^3 OR content:({and_terms})'
-            )
+        # Empty query = browse mode (all docs matching filters)
+        if query:
+            words = query.split()
+            if len(words) > 1:
+                phrase = f'"{query}"'
+                and_terms = ' AND '.join(words)
+                solr_query = (
+                    f'title:{phrase}^10 OR content:{phrase}^5 '
+                    f'OR title:({and_terms})^3 OR content:({and_terms})'
+                )
+            else:
+                solr_query = f'title:({query})^3 OR content:({query})'
         else:
-            solr_query = f'title:({query})^3 OR content:({query})'
-        results = solr.search(
-            solr_query,
-            rows=limit,
-            start=offset,
-            sort=sort_order,
-            fl='id,title,source,url,timestamp,directive,chimera_score,score',
-            **{
+            solr_query = '*:*'
+
+        search_kwargs = {
+            'rows': limit,
+            'start': offset,
+            'sort': sort_order,
+            'fl': 'id,title,source,url,timestamp,directive,chimera_score,source_lang,score',
+        }
+        if fq:
+            search_kwargs['fq'] = fq
+        if query:
+            search_kwargs.update({
                 'hl': 'true',
                 'hl.fl': 'content,title',
                 'hl.snippets': '1',
                 'hl.fragsize': '250',
                 'hl.simple.pre': '<mark class="bg-amber-400/30 text-slate-100 px-0.5 rounded">',
                 'hl.simple.post': '</mark>',
-            }
-        )
+            })
+
+        results = solr.search(solr_query, **search_kwargs)
 
         # Build response with highlights
         articles = []
@@ -581,12 +604,14 @@ def search_articles():
                 'timestamp': doc.get('timestamp', [''])[0] if isinstance(doc.get('timestamp'), list) else doc.get('timestamp', ''),
                 'directive': doc.get('directive', [''])[0] if isinstance(doc.get('directive'), list) else doc.get('directive', ''),
                 'chimera_score': doc.get('chimera_score', 0),
+                'source_lang': doc.get('source_lang', [''])[0] if isinstance(doc.get('source_lang'), list) else doc.get('source_lang', ''),
                 'snippet': snippet,
                 'score': doc.get('score', 0),
             })
 
         search_duration = (time.perf_counter() - search_start) * 1000
-        app.logger.info(f"🔍 Search '{query}' returned {len(articles)} results in {search_duration:.0f}ms")
+        filter_info = ''.join([f' lang={lang_filter}' if lang_filter else '', f' directive={directive_filter}' if directive_filter else ''])
+        app.logger.info(f"🔍 Search '{query}'{filter_info} returned {len(articles)} results in {search_duration:.0f}ms")
 
         return jsonify({
             'query': query,
