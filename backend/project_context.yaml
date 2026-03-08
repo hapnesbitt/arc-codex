@@ -1,5 +1,5 @@
 # Arc Codex Project Context
-# VERSION 7.9 - Updated Mar 8, 2026
+# VERSION 7.10 - Updated Mar 8, 2026
 # Restructured into three audience sections: USER / ADMIN / DEVELOPER
 # Comprehensive reference for AI assistants working on this codebase
 #
@@ -454,8 +454,27 @@ developer:
     score_sort_feed:
       description: "Tone sort on feed page (search already has it)"
 
+    publish_confirmation_modal:
+      description: |
+        Publish page confirmation modal — shown before article enters the pipeline.
+        Triggered by: current "Publish" / "Publish to Arc Codex" button press.
+        Modal title: "Share Story"
+        Options:
+          - Keep Private: routes to personal Workspace (future feature — disabled/grayed until Workspaces ships)
+          - Make Public: current behavior — publishes to public feed (default, highlighted)
+        Footer text: "Don't share personal information or third-party content without permission,
+          and see our Usage Policy."
+        Footer link: "Usage Policy" links to /about/terms
+        Implementation notes:
+          - Same modal pattern as IntelligenceCard share sheet (bottom sheet on mobile, centered on desktop)
+          - Keep Private should be visually present but disabled with tooltip "Coming soon — Workspaces"
+            until Workspaces feature ships, so users understand the option exists
+          - On Make Public confirm: fires existing publish pipeline unchanged
+          - window.confirm() already removed from publish page — this is the intended replacement
+        Files to touch: frontend/app/publish/page.tsx, frontend/hooks/usePublish.ts
+
     search_page_filters:
-      description: "search/page.tsx — add language filter (source_lang) and directive/topic filter. Both backed by Solr. Language filter should show all stories in that language regardless of other params."
+      status: "✅ DONE — search/page.tsx v5.0: Language dropdown (13 non-English langs via source_lang fq), Topic grouped dropdown (19 directives / 7 topics via directive fq), stackable with free-text, browse mode (*:*) when query empty but filter set, cyan/amber active state, Clear filters button"
 
     preferred_lang_auto_article:
       description: "Auto-translate on /article/[slug] — safe (1 article). NOT on feed."
@@ -471,6 +490,12 @@ developer:
       - "Prompt-to-Article (Write tab, grade/tone/image settings)"
 
   changelog:
+    v7.10: |
+      Mar 8, 2026 (evening):
+      - project_context.yaml v7.10: publish confirmation modal fully specified
+        in planned_features. search_page_filters marked done.
+      - Commit 4bba1f8: 7 files, directive click-filter + search lang/topic
+        filters + directives cleanup all in one coherent commit.
     v7.9: |
       Mar 8, 2026:
       - Solr reindex complete: 4725 articles indexed, category + source_lang + original_text fields populated
