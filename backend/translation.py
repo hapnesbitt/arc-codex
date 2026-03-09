@@ -80,9 +80,9 @@ TRANSLATION_TTL_ENGLISH = 604_800   # 7 days — English translations are high-v
 TRANSLATION_LANGS_TTL   = 604_800   # 7 days — langs set TTL matches longest translation
 
 # Fields to translate
-# Local model (TranslateGemma:4b): title + original_text only — A.R.C. analyses
-# are too long for the 4b model within reasonable time limits.
-# Pro model (devstral): all 5 fields.
+# All 5 fields translated — title, original_text, red/blue/purple team analysis.
+# TranslateGemma:4b handles title + original_text well; analysis fields fall back
+# to devstral/gemma3 on M1 if needed. Time cost acceptable.
 TRANSLATABLE_FIELDS_LOCAL = [
     "title",
     "original_text",
@@ -94,7 +94,7 @@ TRANSLATABLE_FIELDS_PRO = [
     "blue_team_analysis",
     "purple_team_analysis",
 ]
-TRANSLATABLE_FIELDS = TRANSLATABLE_FIELDS_LOCAL  # default
+TRANSLATABLE_FIELDS = TRANSLATABLE_FIELDS_PRO  # translate all 5 fields
 
 # ---------------------------------------------------------------------------
 # TranslateGemma-specific caller

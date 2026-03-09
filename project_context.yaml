@@ -1,5 +1,5 @@
 # Arc Codex Project Context
-# VERSION 7.13 - Updated Mar 9, 2026
+# VERSION 7.14 - Updated Mar 9, 2026
 # Restructured into three audience sections: USER / ADMIN / DEVELOPER
 # Comprehensive reference for AI assistants working on this codebase
 #
@@ -415,7 +415,6 @@ developer:
       Log appears empty if you tail immediately after restart (arc.sh logs command
       restarts the service instead of tailing). Use:
       tail -f /home/www/arc_stack/logs/linkedin_poster.log directly.
-
   github_oauth_notes:
     app_name: Arc Codex
     client_id: Ov23liSxxBCqJjE7nXGM
@@ -448,19 +447,18 @@ developer:
     digest: "Daily 7am — top 10 articles by chimera_score, color-coded"
     pipeline_stall: "Alerts if no new articles in 2 hours"
 
-  pending_tests:
-    translation_verification:
-      trigger: "After devstral weekly credit reset"
-      steps:
-        - "Test Telugu auto-select (article in Telugu fires TranslateButton automatically)"
-        - "Full 5-field translation — verify title, original_text, red/blue/purple all translate"
-        - "Verify both before moving on"
-    arc_pattern_citations:
-      trigger: "After ~24h of new articles analyzed under prompts v6.2"
-      steps:
-        - "Run kasmir [10] ARC Pattern Scanner"
-        - "Verify pattern count climbs above 14 detected patterns"
-        - "Check a recent purple_team_analysis for Patterns detected: line"
+  translation_notes:
+    fields_translated: [title, original_text, red_team_analysis, blue_team_analysis, purple_team_analysis]
+    fields_excluded:
+      sentinel_analysis: "JSON forensic data — translating would break schema, excluded by design"
+      counter_analyst_comment: |
+        Stored in comments:{article_id} Redis list, not in article hash.
+        translation.py only sees article hash fields — comment fetch not implemented.
+        Known gap: counter-analyst comment displays in original language during translation.
+    verified: "Mar 9, 2026 — Telugu translation confirmed working for all 5 prose fields"
+    model_local: "TranslateGemma:4b on M1 — title + original_text"
+    model_pro: "devstral fallback — analysis fields if TranslateGemma fails"
+    default: "TRANSLATABLE_FIELDS_PRO — all 5 fields always attempted"
   changelog:
     v7.10: |
       Mar 8, 2026 (evening):
@@ -545,19 +543,25 @@ developer:
         - "Publish to Arc Codex" button overflowed on mobile
         - Mobile shows "Publish", desktop shows "Publish to Arc Codex"
         - FAB aria-label also shortened to "Publish"
-    v7.13: |
+    v7.14: |
       Mar 9, 2026:
+      - translation.py: switched TRANSLATABLE_FIELDS from LOCAL to PRO
+        - Now translates all 5 fields: title, original_text, red/blue/purple team analysis
+        - Verified working: Telugu translation confirmed for all 5 prose fields
+        - Sentinel excluded by design (JSON forensic schema)
+        - Counter-analyst comment known gap (separate Redis store, not in article hash)
       - prompts.yaml v6.2:
-        - Purple team Step 2 now requires explicit ARC code citations
-        - Format: "Patterns detected: ARC-XXXX Name, ARC-XXXX Name"
-        - Removed "NEVER list codes explicitly" constraint that blocked scanner
-        - Coverage expected to climb from 14 detected patterns toward 48
-      - project_context.yaml v7.13:
-        - planned_features replaced with pending_tests (2 items)
-        - Todo list cleared
-      - kasmir7.py v7.4: dashboard sourceUrl fix, sentinel parsing, chimera completeness
-      - kasmir7.py v7.3: batch Solr deletes (single commit vs per-article)
-      - Grafana corpus intelligence stack v1.0 (see v7.12 for full details)
+        - Purple team now cites ARC codes explicitly: "Patterns detected: ARC-XXXX Name"
+        - Removed NEVER list codes constraint — enables kasmir scanner + corpus_exporter
+      - project_context.yaml v7.14:
+        - planned_features replaced with translation_notes
+        - Todo list cleared — rediscover organically
+        - Fixed pre-existing YAML indentation bugs (mailer_digest, linkedin_notes)
+      - Grafana corpus intelligence stack v1.0 live:
+        - corpus_exporter.py port 9101, hourly Redis scan
+        - Prometheus + Grafana in docker-compose.grafana.yml
+        - https://grafana.arc-codex.com — corpus health dashboard
+        - arc.sh: grafana-start/stop/status + corpus_exporter service
     v7.6: |
       Mar 7, 2026:
       - Gmail PTR relay fix:
