@@ -1,5 +1,5 @@
 # Arc Codex Project Context
-# VERSION 7.12 - Updated Mar 9, 2026
+# VERSION 7.13 - Updated Mar 9, 2026
 # Restructured into three audience sections: USER / ADMIN / DEVELOPER
 # Comprehensive reference for AI assistants working on this codebase
 #
@@ -105,9 +105,6 @@ admin:
     backup:  "./arc.sh backup"
     prune:   "./arc.sh prune [dry]"
     restore: "./arc.sh restore"
-    grafana_start:  "./arc.sh grafana-start"
-    grafana_stop:   "./arc.sh grafana-stop"
-    grafana_status: "./arc.sh grafana-status"
 
   arc_env_sh:
     file: /home/www/arc_stack/arc_env.sh
@@ -122,7 +119,6 @@ admin:
     analyzer:         {command: "python3 analyzer.py"}
     mailer:           {command: "python3 mailer.py", note: "v1.0 ACTIVE — alerts + 7am digest"}
     linkedin_poster:  {command: "python3 linkedin_poster.py", note: "v1.0 — auto-posts to LinkedIn, on/off via Redis"}
-    corpus_exporter:  {command: "python3 corpus_exporter.py", port: 9101, note: "v1.0 — Prometheus exporter, hourly Redis corpus scan"}
     frontend:         {command: "docker compose up -d --no-deps frontend", port: 3000, note: "Docker container arc-frontend"}
     watchdog:         {command: "./watchdog.sh", note: "60s check loop, restarts crashed services"}
 
@@ -152,31 +148,6 @@ admin:
       cron: "0 2 * * 0"
       note: Stack stays up during cold backup — Redis BGSAVE + Solr commit flush before snapshot
     restore: "arc.sh restore — interactive picker, lists SSD + cold backups by number with sizes, requires typing yes, stops stack, extracts, restarts"
-
-  monitoring:
-    prometheus:
-      container: arc-prometheus
-      port: 9090
-      config: monitoring/prometheus.yml
-      retention: 90d
-      scrape_interval: 60m
-    grafana:
-      container: arc-grafana
-      port: 3001
-      url: https://grafana.arc-codex.com
-      login: "admin / arccodex (change after first login)"
-      dashboard: "Arc Codex — Corpus Intelligence (auto-provisioned)"
-      compose_file: docker-compose.grafana.yml
-    corpus_exporter:
-      file: backend/corpus_exporter.py
-      port: 9101
-      interval: 60m (EXPORTER_INTERVAL_SEC env var)
-      metrics: >
-        arc_corpus_total, arc_chimera_score_avg, arc_synthetic_pct,
-        arc_sentinel_total{verdict}, arc_directive_total{directive},
-        arc_source_total{domain}, arc_completeness{field},
-        arc_arc_pattern_total{code,name}, arc_chimera_bucket{bucket}
-      note: Runs natively (not Docker) so it can reach Redis directly
 
   log_management:
     locations: [logs/*.log, backend/*.log]
@@ -426,24 +397,24 @@ developer:
       - Cluster registration via Redis pub/sub
 
   linkedin_notes:
-      app_name: arc-codex
-      client_id: 77gih47e82m35z
-      app_url: https://developer.linkedin.com/apps/77gih47e82m35z
-      scope: "openid profile w_member_social"
-      token_expiry: "~60 days — re-run linkedin_auth.py to refresh. Last refreshed: Mar 8 2026. Next due: ~May 7 2026."
-      env_vars: [LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET, LINKEDIN_ACCESS_TOKEN, LINKEDIN_MEMBER_ID, LINKEDIN_REFRESH_TOKEN]
-      troubleshooting: |
-        Token expiry is the #1 failure mode — silent 401s in the log.
-        Symptoms: service running, autopost=1, but no posts. Check log for 401.
-        Fix: source venv/bin/activate && cd backend && python3 linkedin_auth.py
-        Then: sed -i to replace LINKEDIN_ACCESS_TOKEN and LINKEDIN_REFRESH_TOKEN in backend/.env
-        Then: ./arc.sh restart linkedin_poster
-        Token expires ~60 days from issue. Current expiry: ~May 7, 2026.
-        Test after refresh: redis-cli srem linkedin:posted <any_article_id> — picks up in 15s + jitter.
-      log_gotcha: |
-        Log appears empty if you tail immediately after restart (arc.sh logs command
-        restarts the service instead of tailing). Use:
-        tail -f /home/www/arc_stack/logs/linkedin_poster.log directly.
+    app_name: arc-codex
+    client_id: 77gih47e82m35z
+    app_url: https://developer.linkedin.com/apps/77gih47e82m35z
+    scope: "openid profile w_member_social"
+    token_expiry: "~60 days — re-run linkedin_auth.py to refresh. Last refreshed: Mar 8 2026. Next due: ~May 7 2026."
+    env_vars: [LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET, LINKEDIN_ACCESS_TOKEN, LINKEDIN_MEMBER_ID, LINKEDIN_REFRESH_TOKEN]
+    troubleshooting: |
+      Token expiry is the #1 failure mode — silent 401s in the log.
+      Symptoms: service running, autopost=1, but no posts. Check log for 401.
+      Fix: source venv/bin/activate && cd backend && python3 linkedin_auth.py
+      Then: sed -i to replace LINKEDIN_ACCESS_TOKEN and LINKEDIN_REFRESH_TOKEN in backend/.env
+      Then: ./arc.sh restart linkedin_poster
+      Token expires ~60 days from issue. Current expiry: ~May 7, 2026.
+      Test after refresh: redis-cli srem linkedin:posted <any_article_id> — picks up in 15s + jitter.
+    log_gotcha: |
+      Log appears empty if you tail immediately after restart (arc.sh logs command
+      restarts the service instead of tailing). Use:
+      tail -f /home/www/arc_stack/logs/linkedin_poster.log directly.
 
   github_oauth_notes:
     app_name: Arc Codex
@@ -477,59 +448,19 @@ developer:
     digest: "Daily 7am — top 10 articles by chimera_score, color-coded"
     pipeline_stall: "Alerts if no new articles in 2 hours"
 
-  planned_features:
-    arc_sh_restore:
-      status: "✅ DONE — interactive picker, SSD + cold backups, yes confirmation, stops/extracts/restarts"
-
-    arc_admin_tui:
-      description: "Python curses TUI — arc_admin.py — stdlib only, no pip"
-      sections: [System, Backups, Articles, Users, Ollama]
-
-    try_pro_button:
-      description: "'Analyze with Pro' — hardcodes devstral, bypasses weekly limit check"
-      also: "Pro translation = all 5 fields"
-
-    language_detection:
-      status: "✅ DONE — langdetect 1.0.9, source_lang field on all articles, smart TranslateButton auto-fires when article lang != user preferred_lang"
-
-    score_sort_feed:
-      description: "Tone sort on feed page (search already has it)"
-
-    publish_confirmation_modal:
-      description: |
-        Publish page confirmation modal — shown before article enters the pipeline.
-        Triggered by: current "Publish" / "Publish to Arc Codex" button press.
-        Modal title: "Share Story"
-        Options:
-          - Keep Private: routes to personal Workspace (future feature — disabled/grayed until Workspaces ships)
-          - Make Public: current behavior — publishes to public feed (default, highlighted)
-        Footer text: "Don't share personal information or third-party content without permission,
-          and see our Usage Policy."
-        Footer link: "Usage Policy" links to /about/terms
-        Implementation notes:
-          - Same modal pattern as IntelligenceCard share sheet (bottom sheet on mobile, centered on desktop)
-          - Keep Private should be visually present but disabled with tooltip "Coming soon — Workspaces"
-            until Workspaces feature ships, so users understand the option exists
-          - On Make Public confirm: fires existing publish pipeline unchanged
-          - window.confirm() already removed from publish page — this is the intended replacement
-        Files to touch: frontend/app/publish/page.tsx, frontend/hooks/usePublish.ts
-
-    search_page_filters:
-      status: "✅ DONE — search/page.tsx v5.0: Language dropdown (13 non-English langs via source_lang fq), Topic grouped dropdown (19 directives / 7 topics via directive fq), stackable with free-text, browse mode (*:*) when query empty but filter set, cyan/amber active state, Clear filters button"
-
-    preferred_lang_auto_article:
-      description: "Auto-translate on /article/[slug] — safe (1 article). NOT on feed."
-
-    future:
-      - "arc_control.sh — configure mailer recipients, log retention, alert thresholds"
-      - "Topic/category preferences per user"
-      - "Reading history"
-      - "GitHub SSO"
-      - "Article deduplication (SimHash)"
-      - "Netdata custom metrics"
-      - "Email digest subscriber management in admin UI"
-      - "Prompt-to-Article (Write tab, grade/tone/image settings)"
-
+  pending_tests:
+    translation_verification:
+      trigger: "After devstral weekly credit reset"
+      steps:
+        - "Test Telugu auto-select (article in Telugu fires TranslateButton automatically)"
+        - "Full 5-field translation — verify title, original_text, red/blue/purple all translate"
+        - "Verify both before moving on"
+    arc_pattern_citations:
+      trigger: "After ~24h of new articles analyzed under prompts v6.2"
+      steps:
+        - "Run kasmir [10] ARC Pattern Scanner"
+        - "Verify pattern count climbs above 14 detected patterns"
+        - "Check a recent purple_team_analysis for Patterns detected: line"
   changelog:
     v7.10: |
       Mar 8, 2026 (evening):
@@ -614,35 +545,19 @@ developer:
         - "Publish to Arc Codex" button overflowed on mobile
         - Mobile shows "Publish", desktop shows "Publish to Arc Codex"
         - FAB aria-label also shortened to "Publish"
-    v7.12: |
+    v7.13: |
       Mar 9, 2026:
-      - Grafana corpus intelligence stack v1.0:
-        - corpus_exporter.py: Prometheus exporter, 20+ metrics, hourly Redis scan (0.6s for 2000+ articles)
-        - docker-compose.grafana.yml: Prometheus + Grafana containers, network_mode host
-        - monitoring/prometheus.yml: 60m scrape interval, 120s timeout, 90d retention
-        - monitoring/grafana/provisioning: auto-wired Prometheus datasource + corpus dashboard
-        - Dashboard panels: corpus size, chimera avg+distribution, SYNTHETIC %, sentinel donut,
-          directive pie, top sources bar, completeness gauge, ARC pattern frequency, language breakdown,
-          divisive vs objective trends over time
-        - arc.sh: corpus_exporter added to SERVICES, grafana-start/stop/status commands added
-        - about/page.tsx: CORPUS METRICS link to grafana.arc-codex.com (subtle monospace footer link)
-        - Caddy: grafana.arc-codex.com reverse proxy block added
-        - DNS: grafana.arc-codex.com A record → 38.175.170.87
-      - kasmir7.py v7.4: dashboard fixes:
-        - Source domain now uses sourceUrl (original story) not url (arc-codex.com page)
-        - Sentinel verdict parsed from sentinel_analysis JSON blob (assessment field)
-        - Chimera completeness check parses dossier JSON blob correctly
-      - kasmir7.py v7.3: batch Solr deletes (100 articles/batch, single commit vs per-article commit)
-        - trim from 2739 articles: ~3min → ~10sec
-    v7.11: |
-      Mar 8, 2026:
-      - LinkedIn OAuth token refreshed (expired after ~60 days from v7.4)
-        - New token: AQVtKrf1fGRt_KYGcblLZZ8j1w1Ns_... (expires ~May 7 2026)
-        - Fix: source venv/bin/activate && python3 linkedin_auth.py
-        - Reminder: token expires every ~60 days, next due ~May 7 2026
-      - kasmir7.py v7.2 delivered (see session notes)
-      - Corpus trimmed: deleted 2739 pre-pipeline articles (pre Feb-25, no purple_team_analysis)
-        - Clean corpus: 2004 articles, all with analysis, Redis/Solr in sync at 2004/2004
+      - prompts.yaml v6.2:
+        - Purple team Step 2 now requires explicit ARC code citations
+        - Format: "Patterns detected: ARC-XXXX Name, ARC-XXXX Name"
+        - Removed "NEVER list codes explicitly" constraint that blocked scanner
+        - Coverage expected to climb from 14 detected patterns toward 48
+      - project_context.yaml v7.13:
+        - planned_features replaced with pending_tests (2 items)
+        - Todo list cleared
+      - kasmir7.py v7.4: dashboard sourceUrl fix, sentinel parsing, chimera completeness
+      - kasmir7.py v7.3: batch Solr deletes (single commit vs per-article)
+      - Grafana corpus intelligence stack v1.0 (see v7.12 for full details)
     v7.6: |
       Mar 7, 2026:
       - Gmail PTR relay fix:
