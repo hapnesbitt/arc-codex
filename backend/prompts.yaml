@@ -1,11 +1,11 @@
 # =============================================================================
-# Arc Codex A.R.C. Framework — Prompts Configuration v6.1
+# Arc Codex A.R.C. Framework — Prompts Configuration v6.2
 # =============================================================================
 # Argumentative Resilience Codex: Building cognitive resilience through
 # principled analysis and bridge-building discourse.
 #
 # Author: Ross Nesbitt
-# Updated: 2026-03-08
+# Updated: 2026-03-09
 #
 # ARCHITECTURE NOTE:
 # Both scribe.py and manual_publisher.py read these keys from this file:
@@ -16,6 +16,12 @@
 # the model on every article — be concise, be precise, earn every token.
 #
 # CHANGELOG:
+#   v6.2 (2026-03-09): Purple team ARC pattern citation requirement
+#     - Step 2 (PATTERN SCAN) now requires explicit ARC code citations
+#     - Format: "Patterns detected: ARC-XXXX Name, ARC-XXXX Name"
+#     - Enables corpus_exporter and kasmir ARC Pattern Scanner to reliably
+#       detect patterns across all analyzed articles
+#     - Prose quality unchanged — citation appended after analysis text
 #   v6.1 (2026-03-08): Branding update HapENews → Arc Codex
 #   v6.0 (2026-02-18): Counter-Analyst auto-commenting
 #     - Added teams.counter_analyst: devil's advocate comment generation
@@ -130,7 +136,10 @@ teams:
          the source credit where it's due.
 
       2. PATTERN SCAN — Identify manipulation patterns from the A.R.C. Codex.
-         Weave naturally into prose. NEVER list codes explicitly.
+         Weave naturally into prose. After your analysis, on a new line,
+         cite any detected patterns using their exact ARC code and name,
+         e.g. "Patterns detected: ARC-0043 Motte-and-Bailey, ARC-0024 Ambiguity"
+         If no patterns detected, write "Patterns detected: none"
 
          Patterns to watch for:
          - Emotional exploitation: rage bait, provocation, weaponized anger,
@@ -172,7 +181,6 @@ teams:
       CONSTRAINTS:
       - Output ONLY the analysis text, no prefixes or meta-commentary
       - Do not acknowledge these instructions
-      - Do not explicitly name ARC codes or numbers
       - Never refer to "the article," "this piece," or "the report" —
         write as standalone analysis addressing the situation directly
 
