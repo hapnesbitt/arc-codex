@@ -49,39 +49,6 @@ import charset_normalizer
 import gzip
 import zlib
 import yaml
-try:
-    from langdetect import detect as detect_lang
-    LANGDETECT_AVAILABLE = True
-except ImportError:
-    LANGDETECT_AVAILABLE = False
-
-# ISO 639-1 → language name mapping for langdetect output
-LANGDETECT_MAP = {
-    'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
-    'it': 'Italian', 'pt': 'Portuguese', 'nl': 'Dutch', 'ru': 'Russian',
-    'zh-cn': 'Chinese (Simplified)', 'zh-tw': 'Chinese (Traditional)',
-    'ja': 'Japanese', 'ko': 'Korean', 'ar': 'Arabic', 'hi': 'Hindi',
-    'tr': 'Turkish', 'pl': 'Polish', 'sv': 'Swedish', 'no': 'Norwegian',
-    'da': 'Danish', 'fi': 'Finnish', 'cs': 'Czech', 'ro': 'Romanian',
-    'hu': 'Hungarian', 'uk': 'Ukrainian', 'he': 'Hebrew', 'fa': 'Persian',
-    'id': 'Indonesian', 'ms': 'Malay', 'th': 'Thai', 'vi': 'Vietnamese',
-    'el': 'Greek', 'bg': 'Bulgarian', 'hr': 'Croatian', 'sk': 'Slovak',
-    'sl': 'Slovenian', 'sr': 'Serbian', 'lt': 'Lithuanian', 'lv': 'Latvian',
-    'et': 'Estonian', 'ca': 'Catalan', 'af': 'Afrikaans', 'sq': 'Albanian',
-    'bn': 'Bengali', 'ur': 'Urdu', 'ta': 'Tamil', 'te': 'Telugu',
-    'ml': 'Malayalam', 'sw': 'Swahili', 'tl': 'Filipino',
-}
-
-def detect_article_language(text: str) -> str:
-    """Detect article language, returns language name string. Defaults to English."""
-    if not LANGDETECT_AVAILABLE or not text or len(text) < 50:
-        return 'English'
-    try:
-        code = detect_lang(text[:2000])  # sample first 2000 chars
-        return LANGDETECT_MAP.get(code, 'English')
-    except Exception:
-        return 'English'
-
 
 # Load environment variables
 load_dotenv()
@@ -1169,8 +1136,7 @@ def publish_and_prepare_comments(target, recently_published, api_client):
         'blue_team_analysis': '',
         'red_team_analysis': '',
         'purple_team_analysis': '',
-        'sentinel_analysis': '',
-        'source_lang': detect_article_language(article.get('article_text', ''))
+        'sentinel_analysis': ''
     })
     
     try:
@@ -1201,7 +1167,11 @@ def publish_and_prepare_comments(target, recently_published, api_client):
             'timestamp': publish_payload['timestamp'],
             'sentiment': dossier_data.get('sentiment', 0.0),
             'directive': directive.get('name', 'Unknown'),
-            'chimera_score': dossier_data.get('chimera_score', 0.0)
+            'chimera_score': dossier_data.get('chimera_score', 0.0),
+            'category': publish_payload.get('category', ''),
+            'source_lang': publish_payload.get('source_lang', 'English'),
+            'original_text': article.get('article_text', ''),
+            'imageUrl': article.get('imageUrl', ''),
         }
         try:
             solr.add([solr_doc])
@@ -1363,8 +1333,8 @@ def main():
                 del candidates
                 gc.collect()
                 
-                logger.info("💤 Cycle complete. Sleeping one thousand seconds ...")
-                time.sleep(1000)
+                logger.info("💤 Cycle complete. Sleeping two seconds ...")
+                time.sleep(2)
                 
             except Exception as e:
                 logger.error(f"MAIN LOOP ERROR: {e}", exc_info=True)

@@ -35,6 +35,7 @@ LOG_MAX_SIZE_MB=50
 
 # Docker
 COMPOSE_FILE="$ITC_ROOT/docker-compose.yml"
+GRAFANA_COMPOSE_FILE="$ITC_ROOT/docker-compose.grafana.yml"
 # Redis password — used for BGSAVE in backup-cold
 REDIS_PASSWORD="${REDIS_PASSWORD:-$(grep REDIS_URL "$BACKEND_DIR/.env" 2>/dev/null | grep -oP "(?<=:)[^@]+" | head -1)}"
 
@@ -48,6 +49,7 @@ SERVICES=(
     "linkedin_poster|$BACKEND_DIR|python3 linkedin_poster.py|true|"
     "frontend|$ITC_ROOT|docker|false|3000"   # docker sentinel — managed via docker compose
     "watchdog|$ITC_ROOT|./watchdog.sh|false|"
+    "corpus_exporter|$BACKEND_DIR|python3 corpus_exporter.py|true|9101"
 )
 
 export PATH="/home/ross/.nvm/versions/node/v22.16.0/bin:$PATH"
@@ -534,7 +536,7 @@ cmd_restore() {
 # ==============================================================================
 # COMMAND DISPATCH
 # ==============================================================================
-VALID_SERVICES="gunicorn|scribe|manual_publisher|stream_consumer|analyzer|mailer|linkedin_poster|frontend|watchdog"
+VALID_SERVICES="gunicorn|scribe|manual_publisher|stream_consumer|analyzer|mailer|linkedin_poster|frontend|watchdog|corpus_exporter"
 
 case "${1:-}" in
     start)        cmd_start "${2:-}" ;;
@@ -548,8 +550,21 @@ case "${1:-}" in
     backup-cold)  cmd_backup_cold ;;
     restore)      cmd_restore ;;
     prune)        cmd_prune_logs "${2:-}" ;;
+    grafana-start)
+        echo "🚀 Starting Grafana stack (Prometheus + Grafana)..."
+        docker compose -f "$GRAFANA_COMPOSE_FILE" up -d
+        echo "✅ Grafana available at https://grafana.arc-codex.com"
+        ;;
+    grafana-stop)
+        echo "🛑 Stopping Grafana stack..."
+        docker compose -f "$GRAFANA_COMPOSE_FILE" down
+        echo "✅ Grafana stack stopped."
+        ;;
+    grafana-status)
+        docker compose -f "$GRAFANA_COMPOSE_FILE" ps
+        ;;
     *)
-        echo "Usage: $0 {start|stop|restart|status|logs|build [--clean]|checkup|backup|backup-cold|restore|prune [dry]}"
+        echo "Usage: $0 {start|stop|restart|status|logs|build [--clean]|checkup|backup|backup-cold|restore|prune [dry]|grafana-start|grafana-stop|grafana-status}"
         echo ""
         echo "Service-level control (add service name as second arg):"
         echo "  $0 start|stop|restart [$VALID_SERVICES]"
@@ -559,6 +574,11 @@ case "${1:-}" in
         echo "  $0 backup-cold     # Full cold archive to /mnt/data, stack stays up"
         echo "  $0 restore         # Interactive — list backups, pick one, extract + restart"
         echo "  $0 build --clean   # Force clear webpack cache before build"
+        echo ""
+        echo "Grafana:"
+        echo "  $0 grafana-start   # Start Prometheus + Grafana"
+        echo "  $0 grafana-stop    # Stop Prometheus + Grafana"
+        echo "  $0 grafana-status  # Show Grafana stack status"
         echo ""
         echo "Cron setup:"
         echo "  0 3 * * *   /home/www/arc_stack/arc.sh backup"

@@ -1,0 +1,21 @@
+# =============================================================================
+# Arc Codex — prometheus.yml
+# Scrapes corpus_exporter.py running natively at localhost:9101
+# =============================================================================
+
+global:
+  scrape_interval:     60m   # corpus scan is expensive — match exporter interval
+  evaluation_interval: 60m
+
+scrape_configs:
+
+  - job_name: 'arc_corpus'
+    static_configs:
+      - targets: ['localhost:9101']
+    scrape_interval: 60m
+    scrape_timeout:  120s    # full corpus scan can take ~30s on 2000+ articles
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 5m

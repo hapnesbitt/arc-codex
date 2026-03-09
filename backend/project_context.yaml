@@ -396,13 +396,25 @@ developer:
       - USB provisioning script for new nodes
       - Cluster registration via Redis pub/sub
 
-  linkedin_notes:
-    app_name: arc-codex
-    client_id: 77gih47e82m35z
-    app_url: https://developer.linkedin.com/apps/77gih47e82m35z
-    scope: "openid profile w_member_social"
-    token_expiry: "~60 days — re-run linkedin_auth.py to refresh"
-    env_vars: [LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET, LINKEDIN_ACCESS_TOKEN, LINKEDIN_MEMBER_ID, LINKEDIN_REFRESH_TOKEN]
+      linkedin_notes:
+      app_name: arc-codex
+      client_id: 77gih47e82m35z
+      app_url: https://developer.linkedin.com/apps/77gih47e82m35z
+      scope: "openid profile w_member_social"
+      token_expiry: "~60 days — re-run linkedin_auth.py to refresh. Last refreshed: Mar 8 2026. Next due: ~May 7 2026."
+      env_vars: [LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET, LINKEDIN_ACCESS_TOKEN, LINKEDIN_MEMBER_ID, LINKEDIN_REFRESH_TOKEN]
+      troubleshooting: |
+        Token expiry is the #1 failure mode — silent 401s in the log.
+        Symptoms: service running, autopost=1, but no posts. Check log for 401.
+        Fix: source venv/bin/activate && cd backend && python3 linkedin_auth.py
+        Then: sed -i to replace LINKEDIN_ACCESS_TOKEN and LINKEDIN_REFRESH_TOKEN in backend/.env
+        Then: ./arc.sh restart linkedin_poster
+        Token expires ~60 days from issue. Current expiry: ~May 7, 2026.
+        Test after refresh: redis-cli srem linkedin:posted <any_article_id> — picks up in 15s + jitter.
+      log_gotcha: |
+        Log appears empty if you tail immediately after restart (arc.sh logs command
+        restarts the service instead of tailing). Use:
+        tail -f /home/www/arc_stack/logs/linkedin_poster.log directly.
 
   github_oauth_notes:
     app_name: Arc Codex

@@ -2498,16 +2498,6 @@
     "category": "Global Watchdog (Finance)"
   },
   {
-    "name": "Financial Times - Companies",
-    "url": "https://www.ft.com/companies?format=rss",
-    "category": "Business News"
-  },
-  {
-    "name": "Financial Times - World News",
-    "url": "https://www.ft.com/world?format=rss",
-    "category": "Business News"
-  },
-  {
     "name": "Daily FT (Sri Lanka)",
     "url": "https://www.ft.lk/rss",
     "category": "Sri Lanka Business"
@@ -4458,11 +4448,6 @@
     "category": "Global Cyber Risk"
   },
   {
-    "name": "Financial Times Cybersecurity",
-    "url": "https://www.ft.com/cyber-security?format=rss",
-    "category": "Cybersecurity Business & Risk"
-  },
-  {
     "name": "Reuters Cybersecurity",
     "url": "https://www.reuters.com/technology/cybersecurity/rss",
     "category": "Cyber Threat Journalism"
@@ -4635,11 +4620,6 @@
   {
     "name": "The Wall Street Journal - Markets",
     "url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
-    "category": "Financial News"
-  },
-  {
-    "name": "Financial Times - Markets",
-    "url": "https://www.ft.com/markets?format=rss",
     "category": "Financial News"
   },
   {
@@ -4913,11 +4893,6 @@
     "category": "Credit Markets"
   },
   {
-    "name": "FT Alphaville",
-    "url": "https://www.ft.com/ftalphaville?format=rss",
-    "category": "Market Analysis"
-  },
-  {
     "name": "Matt Levine (Bloomberg Opinion)",
     "url": "https://www.bloomberg.com/opinion/authors/ARbTQlRLRjE/matthew-s-levine",
     "category": "Finance Commentary"
@@ -5053,11 +5028,6 @@
     "category": "Private Aviation"
   },
   {
-    "name": "How To Spend It (FT)",
-    "url": "https://howtospendit.ft.com/rss",
-    "category": "Luxury Goods"
-  },
-  {
     "name": "Pursuitist",
     "url": "https://pursuitist.com/feed/",
     "category": "Luxury Lifestyle"
@@ -5066,16 +5036,6 @@
     "name": "Worth Magazine",
     "url": "https://www.worth.com/feed/",
     "category": "Wealth Management"
-  },
-  {
-    "name": "Financial Times - Technology",
-    "url": "https://www.ft.com/technology?format=rss",
-    "category": "Tech Business"
-  },
-  {
-    "name": "Financial Times - Lex Column",
-    "url": "https://www.ft.com/lex?format=rss",
-    "category": "Investment Analysis"
   },
   {
     "name": "WSJ - CFO Journal",

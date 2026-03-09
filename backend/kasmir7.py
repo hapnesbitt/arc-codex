@@ -1,6 +1,28 @@
 #!/usr/bin/env python3
-# kasmir7.py - Arc Codex Admin Console v7.0
-# Data operations: search, inspect, remove, trim, re-index
+# kasmir7.py - Arc Codex Admin Console v7.4
+# Data operations: search, inspect, remove, trim, re-index, intelligence
+#
+# Changelog v7.2:
+#   - [9]  Intelligence Dashboard — corpus health: source distribution, language
+#          breakdown, directive breakdown, Sentinel verdicts, chimera score
+#          histogram, articles missing key fields. Full epistemic fingerprint.
+#   - [10] A.R.C. Pattern Scanner — scans purple_team_analysis across corpus,
+#          ranks ARC-0001..0048 by detection frequency, drills into articles
+#          per pattern. Shows the rhetorical fingerprint of the news cycle.
+#   - [2d] Remove by Chimera Score threshold — prune divisive/low-quality
+#          articles below a score, or outliers above one.
+#   - [2e] Remove by Sentinel verdict — batch-delete SYNTHETIC, UNCERTAIN,
+#          or HUMAN-flagged articles.
+#   - [3]  Trim by directive — rebalance corpus by pruning oldest N from one
+#          directive without touching others.
+#   - [4]  Inspect now shows ARC patterns detected in purple_team_analysis
+#          and domain / language / sentinel fields.
+#   - [1]  Research now supports chimera score filter (e.g. >0.6 or <0.3).
+#
+# Changelog v7.1:
+#   - Emergency removal: [2b] Remove by Domain (TLD) — full domain match
+#   - Emergency removal: [2c] Remove by Language — matches source_lang field
+#
 # Changelog v7.0:
 #   - Rebranded: HapEnews → Arc Codex
 #   - Emergency removal now also deletes from Solr
@@ -8,7 +30,8 @@
 #   - [5] Re-index Solr: finds and indexes articles missing from Solr
 #   - [6] Solr diagnostics: count, latest doc, connection check
 
-import os, sys, json, redis, time, csv, pysolr
+import os, sys, json, re, redis, time, csv, pysolr, urllib.parse
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from termcolor import colored
 from dotenv import load_dotenv
@@ -24,10 +47,62 @@ SOLR_URL       = os.getenv("SCRIBE_SOLR_URL", "http://localhost:8983/solr/feeds/
 
 BANNER = """
 ╔══════════════════════════════════════════════╗
-║       Arc Codex Admin Console  v7.0         ║
+║       Arc Codex Admin Console  v7.2         ║
 ║       kasmir — Data Operations              ║
 ╚══════════════════════════════════════════════╝
 """
+
+# All 48 A.R.C. patterns — code + canonical name
+ARC_PATTERNS = {
+    "ARC-0001": "Siren's Trap",
+    "ARC-0002": "Deniability Decoy",
+    "ARC-0003": "Wolf's Gambit",
+    "ARC-0004": "Configuration Drift",
+    "ARC-0005": "Appeal to Ridicule",
+    "ARC-0006": "Appeal to Spite",
+    "ARC-0007": "Appeal to Force",
+    "ARC-0008": "Ad Hominem",
+    "ARC-0009": "Straw Man",
+    "ARC-0010": "False Dilemma",
+    "ARC-0011": "Slippery Slope",
+    "ARC-0012": "Appeal to Nature",
+    "ARC-0013": "Appeal to Tradition",
+    "ARC-0014": "Appeal to Novelty",
+    "ARC-0015": "Bandwagon",
+    "ARC-0016": "Appeal to Authority",
+    "ARC-0017": "Hasty Generalization",
+    "ARC-0018": "Anecdotal Evidence",
+    "ARC-0019": "Texas Sharpshooter",
+    "ARC-0020": "Post Hoc",
+    "ARC-0021": "Correlation Causation",
+    "ARC-0022": "False Analogy",
+    "ARC-0023": "Equivocation",
+    "ARC-0024": "Ambiguity",
+    "ARC-0025": "Composition Fallacy",
+    "ARC-0026": "Division Fallacy",
+    "ARC-0027": "Begging the Question",
+    "ARC-0028": "Circular Reasoning",
+    "ARC-0029": "Red Herring",
+    "ARC-0030": "Irrelevant Conclusion",
+    "ARC-0031": "Moving the Goalposts",
+    "ARC-0032": "No True Scotsman",
+    "ARC-0033": "Tu Quoque",
+    "ARC-0034": "Two Wrongs",
+    "ARC-0035": "Appeal to Pity",
+    "ARC-0036": "Appeal to Flattery",
+    "ARC-0037": "Loaded Question",
+    "ARC-0038": "Burden of Proof Shift",
+    "ARC-0039": "Argument from Ignorance",
+    "ARC-0040": "Black-or-White",
+    "ARC-0041": "Middle Ground Fallacy",
+    "ARC-0042": "Nirvana Fallacy",
+    "ARC-0043": "Motte-and-Bailey",
+    "ARC-0044": "Gish Gallop",
+    "ARC-0045": "Sealioning",
+    "ARC-0046": "Kafka Trap",
+    "ARC-0047": "Sanewashing",
+    "ARC-0048": "Kalisti Principle",
+}
 
 # --- Connections ---
 def connect_redis():
@@ -62,16 +137,39 @@ def normalize_timestamp(raw_ts):
         return raw_ts
 
 def solr_delete(solr, article_id):
-    """Delete a single doc from Solr by ID."""
+    """Delete a single doc from Solr WITHOUT committing (caller must commit)."""
     if not solr:
         return False
     try:
         solr.delete(id=article_id)
-        solr.commit()
         return True
     except Exception as e:
         print(colored(f"  ⚠️  Solr delete failed for {article_id}: {e}", "yellow"))
         return False
+
+def solr_delete_batch(solr, article_ids, batch_size=100):
+    """Delete a list of IDs from Solr in batches with a single commit at the end."""
+    if not solr or not article_ids:
+        return 0, 0
+    deleted = failed = 0
+    ids = list(article_ids)
+    for i in range(0, len(ids), batch_size):
+        batch = ids[i:i + batch_size]
+        try:
+            for aid in batch:
+                solr.delete(id=aid)
+            deleted += len(batch)
+            print(f"  Solr: {deleted}/{len(ids)} queued...", end='\r')
+        except Exception as e:
+            print(colored(f"\n  ⚠️  Solr batch failed: {e}", "yellow"))
+            failed += len(batch)
+    try:
+        solr.commit()
+    except Exception as e:
+        print(colored(f"  ⚠️  Solr commit failed: {e}", "yellow"))
+    if deleted:
+        print(f"  Solr: {deleted}/{len(ids)} deleted, committed.    ")
+    return deleted, failed
 
 def build_solr_doc(article_id, data):
     """Build a Solr document from Redis article hash."""
@@ -91,6 +189,61 @@ def build_solr_doc(article_id, data):
         'directive': data.get('category', data.get('directive', 'Unknown')),
         'chimera_score': dossier.get('chimera_score', 0.0),
     }
+
+def _extract_registered_domain(url):
+    """Extract registered domain from a URL. 'https://blogs.ft.com/...' -> 'ft.com'"""
+    try:
+        host = urllib.parse.urlparse(url).netloc.lower()
+        host = host.split(':')[0]
+        parts = host.lstrip('www.').split('.')
+        return '.'.join(parts[-2:]) if len(parts) >= 2 else host
+    except Exception:
+        return ''
+
+def _get_chimera_score(data):
+    """Extract chimera_score from article data. Returns None if not present."""
+    score = data.get('chimera_score')
+    if score is not None:
+        try:
+            return float(score)
+        except (ValueError, TypeError):
+            pass
+    try:
+        dossier = json.loads(data.get('dossier', '{}'))
+        s = dossier.get('chimera_score')
+        if s is not None:
+            return float(s)
+    except Exception:
+        pass
+    return None
+
+def _scan_arc_patterns(text):
+    """Return list of ARC codes mentioned in a text block."""
+    found = []
+    text_upper = text.upper()
+    for code, name in ARC_PATTERNS.items():
+        if code in text_upper or name.upper() in text_upper:
+            found.append(code)
+    return found
+
+def _bar(value, max_value, width=30):
+    """Simple ASCII progress bar."""
+    if max_value == 0:
+        return '░' * width
+    filled = int(width * value / max_value)
+    return '█' * filled + '░' * (width - filled)
+
+def _delete_articles(r, solr, matching, label):
+    """Common delete loop for (key, aid, ...) tuples. Batches Solr deletes."""
+    aids = []
+    for row in matching:
+        key, aid = row[0], row[1]
+        r.delete(key)
+        r.zrem("feed", aid)
+        r.srem("processed_hashes", aid)
+        aids.append(aid)
+    solr_delete_batch(solr, aids)
+    print(colored(f"✅ Deleted {len(aids)} {label} article(s) from Redis and Solr.", "green"))
 
 # --- DB Status ---
 def get_db_status(r, solr):
@@ -116,12 +269,34 @@ def get_db_status(r, solr):
 def research_articles(r, solr):
     print(colored("\n--- [1] Research / Search Articles ---", "cyan"))
 
-    query = input("Search query (leave blank for date-only filter): ").strip()
+    query            = input("Search query (leave blank for filter-only): ").strip()
     start_date_input = input("Start date (YYYY-MM-DD, optional): ").strip()
     end_date_input   = input("End date (YYYY-MM-DD, optional): ").strip()
+    score_filter     = input("Chimera score filter (e.g. >0.6  <0.3  blank=none): ").strip()
 
-    # Try Solr first for full-text search
-    if query and solr:
+    score_op, score_val = None, None
+    if score_filter:
+        m = re.match(r'([<>]=?)\s*([\d.]+)', score_filter)
+        if m:
+            score_op  = m.group(1)
+            score_val = float(m.group(2))
+        else:
+            print(colored("⚠️  Score filter ignored — use format >0.6 or <0.3", "yellow"))
+
+    def passes_score(data):
+        if score_op is None:
+            return True
+        s = _get_chimera_score(data)
+        if s is None:
+            return False
+        if score_op == '>':  return s > score_val
+        if score_op == '>=': return s >= score_val
+        if score_op == '<':  return s < score_val
+        if score_op == '<=': return s <= score_val
+        return True
+
+    # Solr path — fast full-text, no score filter
+    if query and solr and not score_filter:
         print(colored("\n🔍 Searching via Solr (full-text)...", "yellow"))
         try:
             words = query.split()
@@ -154,7 +329,7 @@ def research_articles(r, solr):
         except Exception as e:
             print(colored(f"⚠️  Solr search failed, falling back to Redis scan: {e}", "yellow"))
 
-    # Redis fallback — title scan
+    # Redis scan path — supports all filters including chimera score
     print(colored("\n🔍 Searching via Redis (title scan)...", "yellow"))
     start_ts = parser.parse(start_date_input).timestamp() if start_date_input else None
     end_ts   = parser.parse(end_date_input).timestamp() if end_date_input else None
@@ -172,6 +347,7 @@ def research_articles(r, solr):
 
         if start_ts and ts and ts < start_ts: continue
         if end_ts   and ts and ts > end_ts:   continue
+        if not passes_score(data):            continue
 
         if query:
             q = query.lower()
@@ -184,15 +360,17 @@ def research_articles(r, solr):
             elif q not in title:
                 continue
 
-        matches.append((raw_ts, data.get("title", ""), article_id))
+        s = _get_chimera_score(data)
+        score_str = f'  χ={s:.2f}' if s is not None else ''
+        matches.append((raw_ts, data.get("title", ""), article_id, score_str))
 
-    print(f"Found {colored(str(len(matches)), 'cyan')} Redis results:")
-    for ts_str, title, aid in matches[:20]:
-        print(f"  {str(ts_str)[:10]:10} | {title[:70]}")
+    print(f"Found {colored(str(len(matches)), 'cyan')} results:")
+    for ts_str, title, aid, score_str in matches[:20]:
+        print(f"  {str(ts_str)[:10]:10} | {title[:65]}{score_str}")
     if len(matches) > 20:
         print(f"  ... {len(matches)-20} more not shown")
 
-    _maybe_export_csv(matches, ('timestamp','title','article_id'))
+    _maybe_export_csv([(ts, t, aid) for ts, t, aid, _ in matches], ('timestamp','title','article_id'))
 
 def _maybe_export_csv(matches, headers):
     if not matches:
@@ -206,9 +384,30 @@ def _maybe_export_csv(matches, headers):
                 writer.writerow(row)
         print(colored(f"✅ Exported {len(matches)} rows to {csv_file}", "green"))
 
-# --- [2] Emergency Removal ---
-def emergency_removal(r, solr):
+# ==============================================================================
+# [2] Emergency Removal sub-menu
+# ==============================================================================
+
+def emergency_removal_menu(r, solr):
     print(colored("\n--- [2] Emergency Content Removal ---", "cyan"))
+    print("  [a] Remove by title phrase")
+    print("  [b] Remove by domain          (e.g. ft.com — all subdomains)")
+    print("  [c] Remove by language         (e.g. ru, de, zh)")
+    print("  [d] Remove by Chimera score    (e.g. divisive articles below threshold)")
+    print("  [e] Remove by Sentinel verdict  (SYNTHETIC / UNCERTAIN / HUMAN)")
+    print("  [q] Back\n")
+    sub = input("Select: ").strip().lower()
+    if   sub == 'a': emergency_removal(r, solr)
+    elif sub == 'b': remove_by_domain(r, solr)
+    elif sub == 'c': remove_by_language(r, solr)
+    elif sub == 'd': remove_by_score(r, solr)
+    elif sub == 'e': remove_by_sentinel(r, solr)
+    elif sub in ('q', ''): return
+    else: print(colored("Invalid selection.", "red"))
+
+
+def emergency_removal(r, solr):
+    print(colored("\n--- [2a] Remove by Title Phrase ---", "cyan"))
     search_phrase = input("Title phrase to search for: ").strip()
     if not search_phrase:
         return
@@ -238,28 +437,296 @@ def emergency_removal(r, solr):
         print("Aborted.")
         return
 
-    deleted = 0
-    for key, aid, title in matching:
-        r.delete(key)
-        r.zrem("feed", aid)
-        r.srem("processed_hashes", aid)
-        solr_delete(solr, aid)
-        deleted += 1
+    _delete_articles(r, solr, matching, "matched")
 
-    print(colored(f"✅ Deleted {deleted} article(s) from Redis and Solr.", "green"))
 
-# --- [3] Trim Database ---
+def remove_by_domain(r, solr):
+    print(colored("\n--- [2b] Remove by Domain ---", "cyan"))
+    print("Deletes ALL articles from a given domain (e.g. ft.com).")
+    print("Matches any subdomain: www.ft.com, blogs.ft.com, amp.ft.com → all gone.\n")
+
+    domain_input = input("Domain to purge (e.g. ft.com): ").strip().lower()
+    if not domain_input:
+        return
+    if domain_input.startswith('www.'):
+        domain_input = domain_input[4:]
+
+    print(colored(f"\nScanning all articles for domain '{domain_input}'...", "yellow"))
+
+    matching = []
+    for key in r.scan_iter("article:*"):
+        url = r.hget(key, "url") or r.hget(key, "sourceUrl") or ''
+        if not url:
+            continue
+        if _extract_registered_domain(url) == domain_input:
+            aid   = key.split(":", 1)[-1]
+            title = r.hget(key, "title") or "(no title)"
+            matching.append((key, aid, title, url))
+
+    if not matching:
+        print(colored(f"No articles found from '{domain_input}'.", "green"))
+        return
+
+    print(colored(f"\nDRY RUN — {len(matching)} article(s) from '{domain_input}' would be deleted:", "yellow"))
+    for _, aid, title, url in matching[:20]:
+        solr_status = ''
+        if solr:
+            try:
+                res = solr.search(f'id:"{aid}"', rows=1, fl='id')
+                solr_status = colored(' [in Solr]', 'blue') if res.hits > 0 else colored(' [not in Solr]', 'dark_grey')
+            except Exception:
+                pass
+        print(f"  - {title[:65]}{solr_status}")
+    if len(matching) > 20:
+        print(f"  ... and {len(matching) - 20} more")
+
+    if input(f"\nDelete ALL {len(matching)} articles from '{domain_input}' (Redis + Solr)? (yes/no): ").lower() != 'yes':
+        print("Aborted.")
+        return
+
+    _delete_articles(r, solr, matching, f"'{domain_input}'")
+
+
+def remove_by_language(r, solr):
+    print(colored("\n--- [2c] Remove by Language ---", "cyan"))
+    print("Deletes ALL articles with a given source_lang (ISO 639-1 code).")
+    print("Examples: ru = Russian, de = German, zh = Chinese, ar = Arabic\n")
+
+    lang_input = input("Language code to purge (e.g. ru): ").strip().lower()
+    if not lang_input:
+        return
+
+    print(colored(f"\nScanning for source_lang='{lang_input}'...", "yellow"))
+
+    matching = []
+    for key in r.scan_iter("article:*"):
+        lang = r.hget(key, "source_lang") or ''
+        if lang.lower() == lang_input:
+            aid   = key.split(":", 1)[-1]
+            title = r.hget(key, "title") or "(no title)"
+            url   = r.hget(key, "url") or r.hget(key, "sourceUrl") or ''
+            matching.append((key, aid, title, url))
+
+    if not matching:
+        print(colored(f"No articles found with source_lang='{lang_input}'.", "green"))
+        return
+
+    print(colored(f"\nDRY RUN — {len(matching)} article(s) with lang='{lang_input}' would be deleted:", "yellow"))
+    for _, aid, title, url in matching[:20]:
+        domain = _extract_registered_domain(url)
+        print(f"  - [{domain:20}] {title[:55]}")
+    if len(matching) > 20:
+        print(f"  ... and {len(matching) - 20} more")
+
+    if input(f"\nDelete ALL {len(matching)} '{lang_input}' articles (Redis + Solr)? (yes/no): ").lower() != 'yes':
+        print("Aborted.")
+        return
+
+    _delete_articles(r, solr, matching, f"'{lang_input}'")
+
+
+def remove_by_score(r, solr):
+    """[2d] Remove articles above or below a chimera_score threshold."""
+    print(colored("\n--- [2d] Remove by Chimera Score ---", "cyan"))
+    print("Chimera score: 0.0 = maximally divisive/emotional, 1.0 = maximally objective.")
+    print("Examples:")
+    print("  <0.2  — nuke the most divisive/inflammatory articles")
+    print("  <0.3  — prune low-quality bottom tier")
+    print("  >0.95 — remove suspiciously 'clean' outliers (sanity check)\n")
+
+    expr = input("Score expression (e.g. <0.2): ").strip()
+    if not expr:
+        return
+
+    m = re.match(r'([<>]=?)\s*([\d.]+)', expr)
+    if not m:
+        print(colored("Invalid format. Use <0.2 or >=0.5 etc.", "red"))
+        return
+
+    op  = m.group(1)
+    val = float(m.group(2))
+
+    def passes(score):
+        if op == '<':  return score < val
+        if op == '<=': return score <= val
+        if op == '>':  return score > val
+        if op == '>=': return score >= val
+        return False
+
+    print(colored(f"\nScanning for articles with chimera_score {op}{val}...", "yellow"))
+
+    matching = []
+    no_score  = 0
+    for key in r.scan_iter("article:*"):
+        data = r.hgetall(key)
+        s = _get_chimera_score(data)
+        if s is None:
+            no_score += 1
+            continue
+        if passes(s):
+            aid   = key.split(":", 1)[-1]
+            title = data.get("title", "(no title)")
+            matching.append((key, aid, title, s))
+
+    if no_score:
+        print(colored(f"  ℹ️  {no_score} articles have no chimera_score — skipped", "yellow"))
+
+    if not matching:
+        print(colored(f"No articles found with score {op}{val}.", "green"))
+        return
+
+    # Sort worst-first (lowest score first for < ops, highest for > ops)
+    reverse = op.startswith('>')
+    matching.sort(key=lambda x: x[3], reverse=reverse)
+
+    print(colored(f"\nDRY RUN — {len(matching)} article(s) with score {op}{val}:", "yellow"))
+    for _, aid, title, s in matching[:25]:
+        bar = _bar(s, 1.0, width=20)
+        score_color = 'red' if s < 0.3 else ('yellow' if s < 0.6 else 'green')
+        print(f"  χ={colored(f'{s:.3f}', score_color)} [{bar}] {title[:52]}")
+    if len(matching) > 25:
+        print(f"  ... and {len(matching) - 25} more")
+
+    if input(f"\nDelete ALL {len(matching)} articles with score {op}{val} (Redis + Solr)? (yes/no): ").lower() != 'yes':
+        print("Aborted.")
+        return
+
+    _delete_articles(r, solr, matching, f"score {op}{val}")
+
+
+def remove_by_sentinel(r, solr):
+    """[2e] Remove articles by Sentinel verdict."""
+    print(colored("\n--- [2e] Remove by Sentinel Verdict ---", "cyan"))
+    print("Sentinel verdicts:")
+    print(f"  {colored('HUMAN',     'green')}      — likely human-authored  (<20% synthetic probability)")
+    print(f"  {colored('UNCERTAIN', 'yellow')}  — ambiguous              (20–60%)")
+    print(f"  {colored('SYNTHETIC', 'red')}  — likely AI-generated    (>80%)\n")
+
+    verdict_input = input("Verdict to purge (HUMAN / UNCERTAIN / SYNTHETIC): ").strip().upper()
+    if verdict_input not in ("HUMAN", "UNCERTAIN", "SYNTHETIC"):
+        print(colored("Invalid verdict. Must be HUMAN, UNCERTAIN, or SYNTHETIC.", "red"))
+        return
+
+    print(colored(f"\nScanning for sentinel_verdict='{verdict_input}'...", "yellow"))
+
+    matching = []
+    for key in r.scan_iter("article:*"):
+        verdict = r.hget(key, "sentinel_verdict") or ''
+        if verdict.upper() == verdict_input:
+            aid   = key.split(":", 1)[-1]
+            title = r.hget(key, "title") or "(no title)"
+            url   = r.hget(key, "url") or r.hget(key, "sourceUrl") or ''
+            matching.append((key, aid, title, url))
+
+    if not matching:
+        print(colored(f"No articles found with verdict '{verdict_input}'.", "green"))
+        return
+
+    print(colored(f"\nDRY RUN — {len(matching)} {verdict_input} article(s) would be deleted:", "yellow"))
+    for _, aid, title, url in matching[:20]:
+        domain = _extract_registered_domain(url)
+        print(f"  - [{domain:20}] {title[:55]}")
+    if len(matching) > 20:
+        print(f"  ... and {len(matching) - 20} more")
+
+    # Extra confirmation for HUMAN (probably a mistake)
+    confirm_phrase = f"delete {verdict_input.lower()}"
+    print(colored(f"\n⚠️  Type '{confirm_phrase}' to confirm (anything else aborts):", "yellow"))
+    if input("> ").strip().lower() != confirm_phrase:
+        print("Aborted.")
+        return
+
+    _delete_articles(r, solr, matching, f"{verdict_input}")
+
+
+# ==============================================================================
+# [3] Trim Database
+# ==============================================================================
+
 def trim_database(r, solr):
     print(colored("\n--- [3] Trim Database ---", "cyan"))
-    print("  count N  → keep latest N articles")
-    print("  days N   → delete articles older than N days")
-    print("  hours N  → delete articles older than N hours")
+    print("  count N              → keep latest N articles (oldest deleted)")
+    print("  days N               → delete articles older than N days")
+    print("  hours N              → delete articles older than N hours")
+    print("  directive NAME N     → keep latest N in directive NAME (partial match ok)")
+    print()
+    print("  Examples:")
+    print("    count 4000         → keep newest 4000, delete the rest")
+    print("    days 14            → delete everything older than 2 weeks")
+    print("    directive Tech 500 → keep 500 newest Technology articles")
 
-    trim_cmd = input("\nTrim command: ").strip().lower()
+    trim_cmd = input("\nTrim command: ").strip()
+    parts = trim_cmd.split()
+
+    if not parts:
+        print(colored("No command entered.", "red"))
+        return
+
+    method = parts[0].lower()
+
+    # --- directive trim ---
+    if method == 'directive':
+        if len(parts) < 3:
+            print(colored("Usage: directive <name_fragment> <keep_count>", "red"))
+            return
+        directive_fragment = parts[1].lower()
+        try:
+            keep = int(parts[2])
+        except ValueError:
+            print(colored("keep_count must be an integer.", "red"))
+            return
+
+        print(colored(f"\nScanning for directive matching '{directive_fragment}'...", "yellow"))
+        dir_articles = []
+        for aid in r.zrange("feed", 0, -1):
+            cat = (r.hget(f"article:{aid}", "category") or
+                   r.hget(f"article:{aid}", "directive") or '').lower()
+            if directive_fragment in cat:
+                ts_raw = r.hget(f"article:{aid}", "timestamp") or '0'
+                try:
+                    ts = parser.parse(ts_raw).timestamp()
+                except Exception:
+                    ts = 0
+                dir_articles.append((ts, aid))
+
+        if not dir_articles:
+            print(colored(f"No articles found matching directive '{directive_fragment}'.", "yellow"))
+            return
+
+        dir_articles.sort()  # oldest first
+        to_delete = dir_articles[:-keep] if keep < len(dir_articles) else []
+
+        if not to_delete:
+            print(f"  {len(dir_articles)} articles in directive — nothing to trim (keep={keep}).")
+            return
+
+        print(colored(f"\nDRY RUN — keeping {keep} newest, deleting {len(to_delete)} oldest:", "yellow"))
+        for ts, aid in to_delete[:10]:
+            title = r.hget(f"article:{aid}", "title") or "(no title)"
+            print(f"  {datetime.fromtimestamp(ts).strftime('%Y-%m-%d'):10} | {title[:65]}")
+        if len(to_delete) > 10:
+            print(f"  ... and {len(to_delete) - 10} more")
+
+        if input(f"\nDelete {len(to_delete)} oldest '{directive_fragment}' articles? (yes/no): ").lower() != 'yes':
+            print("Aborted.")
+            return
+
+        deleted = 0
+        aids = []
+        for ts, aid in to_delete:
+            r.delete(f"article:{aid}")
+            r.zrem("feed", aid)
+            r.srem("processed_hashes", aid)
+            aids.append(aid)
+            deleted += 1
+        solr_delete_batch(solr, aids)
+        print(colored(f"✅ Trimmed {deleted} oldest '{directive_fragment}' articles.", "green"))
+        return
+
+    # --- standard trims ---
     try:
-        method, value_str = trim_cmd.split()
-        value = int(value_str)
-    except ValueError:
+        value = int(parts[1])
+    except (IndexError, ValueError):
         print(colored("Invalid format. Use: method value", "red"))
         return
 
@@ -292,18 +759,19 @@ def trim_database(r, solr):
         r.delete(f"article:{aid}")
         r.zrem("feed", aid)
         r.srem("processed_hashes", aid)
-        solr_delete(solr, aid)
         deleted += 1
+        if deleted % 500 == 0:
+            print(f"  Redis: {deleted}/{len(ids_to_delete)} removed...", end='\r')
 
-    if solr:
-        try:
-            solr.commit()
-        except Exception:
-            pass
-
+    print(f"  Redis: {deleted} articles removed.           ")
+    solr_delete_batch(solr, list(ids_to_delete))
     print(colored(f"✅ Trim complete. Deleted {deleted} article(s) from Redis and Solr.", "green"))
 
-# --- [4] Inspect Article ---
+
+# ==============================================================================
+# [4] Inspect Article
+# ==============================================================================
+
 def inspect_article(r, solr):
     print(colored("\n--- [4] Inspect Article ---", "cyan"))
     article_id = input("Article ID (without 'article:' prefix): ").strip()
@@ -321,24 +789,64 @@ def inspect_article(r, solr):
     print(colored("--- Core Metadata ---", "yellow"))
     print(f"  Title      : {data.get('title', 'N/A')}")
     print(f"  Source     : {data.get('source_name', data.get('source', 'N/A'))}")
+    print(f"  Domain     : {_extract_registered_domain(data.get('url', data.get('sourceUrl', '')))}")
     print(f"  SourceURL  : {data.get('sourceUrl', colored('MISSING', 'red'))}")
     print(f"  Image URL  : {data.get('imageUrl', 'N/A')}")
     print(f"  Timestamp  : {data.get('timestamp', 'N/A')}")
     print(f"  Category   : {data.get('category', data.get('directive', 'N/A'))}")
+    print(f"  Language   : {data.get('source_lang', colored('N/A', 'dark_grey'))}")
+    verdict = data.get('sentinel_verdict', '')
+    if verdict:
+        vc = 'green' if 'HUMAN' in verdict.upper() else ('red' if 'SYNTHETIC' in verdict.upper() else 'yellow')
+        print(f"  Sentinel   : {colored(verdict, vc)}")
+    else:
+        print(f"  Sentinel   : {colored('N/A', 'dark_grey')}")
 
-    print(colored("\n--- Scores ---", "yellow"))
+    print(colored("\n--- Chimera Score ---", "yellow"))
+    chimera = _get_chimera_score(data)
+    if chimera is not None:
+        bar = _bar(chimera, 1.0, width=35)
+        score_color = 'red' if chimera < 0.3 else ('yellow' if chimera < 0.6 else 'green')
+        print(f"  {colored(f'{chimera:.3f}', score_color)} [{bar}]")
+        if chimera < 0.3:
+            print(colored("  ⚠️  Low score — high emotional/divisive content flagged", "red"))
+        elif chimera < 0.6:
+            print(colored("  ℹ️  Moderate score — some framing concerns", "yellow"))
+        else:
+            print(colored("  ✅ High score — largely objective framing", "green"))
+    else:
+        print(colored("  No chimera score available", "dark_grey"))
+
+    print(colored("\n--- Other Scores ---", "yellow"))
     dossier_raw = data.get('dossier', '{}')
     try:
         dossier = json.loads(dossier_raw)
         for k, v in dossier.items():
-            print(f"  {k}: {v}")
+            if k != 'chimera_score':
+                print(f"  {k}: {v}")
     except Exception:
-        print(f"  (raw) {dossier_raw[:200]}")
+        if dossier_raw and dossier_raw != '{}':
+            print(f"  (raw) {dossier_raw[:200]}")
 
     print(colored("\n--- Content Lengths ---", "yellow"))
     for field in ('article_text', 'red_team_analysis', 'blue_team_analysis', 'purple_team_analysis'):
         val = data.get(field, '')
-        print(f"  {field:28}: {len(val):6} chars")
+        status = colored(f'{len(val):6} chars', 'green' if val else 'red')
+        print(f"  {field:28}: {status}")
+
+    # ARC pattern scan on purple_team_analysis
+    purple = data.get('purple_team_analysis', '')
+    if purple:
+        print(colored("\n--- A.R.C. Patterns Detected ---", "yellow"))
+        found = _scan_arc_patterns(purple)
+        if found:
+            for code in found:
+                name = ARC_PATTERNS.get(code, '?')
+                print(f"  {colored(code, 'magenta')} — {name}")
+        else:
+            print(colored("  No specific ARC pattern codes flagged.", "dark_grey"))
+    else:
+        print(colored("\n  ⚠️  No purple_team_analysis — ARC pattern scan skipped", "yellow"))
 
     print(colored("\n--- Solr Status ---", "yellow"))
     if solr:
@@ -358,7 +866,11 @@ def inspect_article(r, solr):
     else:
         print(colored("  ⚠️  Solr unavailable", "yellow"))
 
-# --- [5] Re-index Solr ---
+
+# ==============================================================================
+# [5] Re-index Solr
+# ==============================================================================
+
 def reindex_solr(r, solr):
     print(colored("\n--- [5] Re-index Solr ---", "cyan"))
     if not solr:
@@ -369,7 +881,6 @@ def reindex_solr(r, solr):
     total = len(all_keys)
     print(f"Checking {total} feed articles against Solr...")
 
-    # Find missing in batches
     batch_size = 100
     indexed_ids = set()
     for i in range(0, total, batch_size):
@@ -384,7 +895,7 @@ def reindex_solr(r, solr):
         print(f"  Checked {min(i+batch_size, total)}/{total}...", end='\r')
 
     missing_keys = [k for k in all_keys if k.replace('article:', '') not in indexed_ids]
-    print(f"\nAlready in Solr : {colored(str(len(indexed_ids)), 'green')}")
+    print(f"\nAlready in Solr  : {colored(str(len(indexed_ids)), 'green')}")
     print(f"Missing from Solr: {colored(str(len(missing_keys)), 'yellow' if missing_keys else 'green')}")
 
     if not missing_keys:
@@ -439,7 +950,11 @@ def reindex_solr(r, solr):
     solr.commit()
     print(f"\n{colored('✅ Done.', 'green')} Indexed: {success} | Failed: {failed}")
 
-# --- [6] Solr Diagnostics ---
+
+# ==============================================================================
+# [6] Solr Diagnostics
+# ==============================================================================
+
 def solr_diagnostics(solr):
     print(colored("\n--- [6] Solr Diagnostics ---", "cyan"))
     if not solr:
@@ -475,7 +990,10 @@ def solr_diagnostics(solr):
         print(colored(f"  ❌ Diagnostics failed: {e}", "red"))
 
 
-# --- [7] Purge Solr Orphans ---
+# ==============================================================================
+# [7] Purge Solr Orphans
+# ==============================================================================
+
 def purge_solr_orphans(r, solr):
     print(colored("\n--- [7] Purge Solr Orphans ---", "cyan"))
     print("Finds Solr documents with no matching Redis article and removes them.")
@@ -483,12 +1001,10 @@ def purge_solr_orphans(r, solr):
         print(colored("❌ Solr unavailable.", "red"))
         return
 
-    # Get all Redis article IDs
     print("Loading Redis article IDs...", end="\r")
     redis_ids = {k.replace("article:", "") for k in r.keys("article:*")}
     print(f"Redis articles   : {colored(str(len(redis_ids)), 'cyan')}          ")
 
-    # Paginate through all Solr docs using cursorMark
     print("Scanning Solr documents...")
     solr_ids = set()
     cursor = "*"
@@ -527,7 +1043,6 @@ def purge_solr_orphans(r, solr):
         print("Aborted.")
         return
 
-    # Delete in batches
     deleted = failed = 0
     orphan_list = list(orphan_ids)
     batch_size = 100
@@ -550,7 +1065,10 @@ def purge_solr_orphans(r, solr):
     print(f"\n{colored('✅ Purge complete.', 'green')} Deleted: {deleted} | Failed: {failed}")
 
 
-# --- [8] Purge Redis Orphans ---
+# ==============================================================================
+# [8] Purge Redis Orphans
+# ==============================================================================
+
 def purge_redis_orphans(r, solr):
     print(colored("\n--- [8] Purge Redis Orphans ---", "cyan"))
     print("Finds article: hashes in Redis with no matching feed entry and removes them.")
@@ -596,7 +1114,302 @@ def purge_redis_orphans(r, solr):
 
     print(colored(f"✅ Purged {deleted} orphaned Redis hash(es).", "green"))
 
-# --- Main ---
+
+# ==============================================================================
+# [9] Intelligence Dashboard
+# ==============================================================================
+
+def intelligence_dashboard(r, solr):
+    print(colored("\n--- [9] Intelligence Dashboard ---", "cyan"))
+    print("Scanning corpus for epistemic health metrics...\n")
+
+    total            = 0
+    domain_counts    = Counter()
+    lang_counts      = Counter()
+    directive_counts = Counter()
+    sentinel_counts  = Counter()
+    scores           = []
+    score_buckets    = Counter()
+    missing_fields   = Counter()
+
+    TRACKED_FIELDS = [
+        'title', 'sourceUrl', 'red_team_analysis', 'blue_team_analysis',
+        'purple_team_analysis', 'sentinel_verdict', 'source_lang', 'chimera_score'
+    ]
+
+    for key in r.scan_iter("article:*"):
+        data = r.hgetall(key)
+        total += 1
+
+        # Use sourceUrl (original story) not url (arc-codex.com page)
+        source_url = data.get('sourceUrl') or data.get('url') or ''
+        domain_counts[_extract_registered_domain(source_url) or '(unknown)'] += 1
+
+        lang = data.get('source_lang') or '(unknown)'
+        lang_counts[lang] += 1
+
+        cat = data.get('category') or data.get('directive') or '(unknown)'
+        directive_counts[cat] += 1
+
+        # sentinel_verdict lives inside sentinel_analysis JSON blob
+        sentinel_verdict = data.get('sentinel_verdict', '')
+        if not sentinel_verdict:
+            try:
+                sa = json.loads(data.get('sentinel_analysis', '{}'))
+                assessment = sa.get('assessment', '')
+                # Normalize: LIKELY_HUMAN -> HUMAN, UNCERTAIN, SYNTHETIC
+                if 'HUMAN' in assessment.upper():
+                    sentinel_verdict = 'HUMAN'
+                elif 'SYNTHETIC' in assessment.upper():
+                    sentinel_verdict = 'SYNTHETIC'
+                elif assessment:
+                    sentinel_verdict = 'UNCERTAIN'
+            except Exception:
+                pass
+        sentinel_counts[(sentinel_verdict.upper() or '(NONE)')] += 1
+
+        s = _get_chimera_score(data)
+        if s is not None:
+            scores.append(s)
+            bucket = min(int(s * 10), 9)
+            score_buckets[bucket] += 1
+
+        for field in TRACKED_FIELDS:
+            if field == 'chimera_score':
+                present = _get_chimera_score(data) is not None
+            elif field == 'sentinel_verdict':
+                # Check both top-level field and sentinel_analysis blob
+                present = bool(data.get('sentinel_verdict') or data.get('sentinel_analysis'))
+            else:
+                val = data.get(field, '')
+                present = bool(val and val != '{}')
+            if not present:
+                missing_fields[field] += 1
+
+    W = 28  # bar width
+
+    print(colored(f"  ═══ CORPUS OVERVIEW ═══", "white"))
+    print(f"  Total articles scanned : {colored(str(total), 'cyan')}")
+    scored_count = len(scores)
+    if total:
+        print(f"  Scored articles        : {scored_count} ({scored_count/total*100:.1f}%)")
+    print()
+
+    # --- Top sources ---
+    print(colored("  TOP 20 SOURCES", "yellow"))
+    print(f"  {'Domain':<30} {'N':>5}  {'%':>5}  Bar")
+    print(f"  {'─'*30} {'─'*5}  {'─'*5}  {'─'*W}")
+    top_domains = domain_counts.most_common(20)
+    max_d = top_domains[0][1] if top_domains else 1
+    for domain, count in top_domains:
+        pct = count / total * 100
+        print(f"  {domain:<30} {count:>5}  {pct:>4.1f}%  {_bar(count, max_d, W)}")
+
+    # --- Language ---
+    print()
+    print(colored("  LANGUAGE BREAKDOWN", "yellow"))
+    print(f"  {'Lang':<12} {'N':>5}  {'%':>5}  Bar")
+    print(f"  {'─'*12} {'─'*5}  {'─'*5}  {'─'*W}")
+    for lang, count in lang_counts.most_common(15):
+        pct = count / total * 100
+        print(f"  {lang:<12} {count:>5}  {pct:>4.1f}%  {_bar(count, lang_counts.most_common(1)[0][1], W)}")
+
+    # --- Directives ---
+    print()
+    print(colored("  DIRECTIVE / CATEGORY BREAKDOWN", "yellow"))
+    print(f"  {'Directive':<36} {'N':>5}  {'%':>5}  Bar")
+    print(f"  {'─'*36} {'─'*5}  {'─'*5}  {'─'*W}")
+    top_dirs = directive_counts.most_common(20)
+    max_dir  = top_dirs[0][1] if top_dirs else 1
+    for directive, count in top_dirs:
+        pct = count / total * 100
+        print(f"  {directive[:36]:<36} {count:>5}  {pct:>4.1f}%  {_bar(count, max_dir, W)}")
+
+    # --- Sentinel ---
+    print()
+    print(colored("  SENTINEL VERDICT BREAKDOWN", "yellow"))
+    verdict_colors = {'HUMAN': 'green', 'UNCERTAIN': 'yellow', 'SYNTHETIC': 'red', '(NONE)': 'dark_grey'}
+    for verdict in ['HUMAN', 'UNCERTAIN', 'SYNTHETIC', '(NONE)']:
+        count = sentinel_counts.get(verdict, 0)
+        pct   = count / total * 100 if total else 0
+        vc    = verdict_colors.get(verdict, 'white')
+        print(f"  {colored(f'{verdict:<12}', vc)} {count:>5}  {pct:>4.1f}%  {_bar(count, total, W)}")
+
+    # --- Chimera score histogram ---
+    print()
+    print(colored("  CHIMERA SCORE DISTRIBUTION   0.0=divisive → 1.0=objective", "yellow"))
+    if scores:
+        avg_score = sum(scores) / len(scores)
+        max_bucket_val = max(score_buckets.values()) if score_buckets else 1
+        for i in range(10):
+            label = f"{i/10:.1f}–{(i+1)/10:.1f}"
+            count = score_buckets.get(i, 0)
+            pct   = count / scored_count * 100 if scored_count else 0
+            bucket_color = 'red' if i < 3 else ('yellow' if i < 6 else 'green')
+            bar = _bar(count, max_bucket_val, W)
+            print(f"  {colored(label, bucket_color)}  {count:>5}  {pct:>4.1f}%  {bar}")
+
+        avg_color = 'red' if avg_score < 0.3 else ('yellow' if avg_score < 0.6 else 'green')
+        print()
+        print(f"  Average  : {colored(f'{avg_score:.3f}', avg_color)}  {_bar(avg_score, 1.0, W)}")
+        low_count = sum(1 for s in scores if s < 0.3)
+        high_count = sum(1 for s in scores if s >= 0.7)
+        print(f"  Low  (<0.3) : {colored(str(low_count), 'red')} articles  "
+              f"({low_count/scored_count*100:.1f}% of scored)")
+        print(f"  High (≥0.7) : {colored(str(high_count), 'green')} articles  "
+              f"({high_count/scored_count*100:.1f}% of scored)")
+    else:
+        print(colored("  No scored articles found.", "yellow"))
+
+    # --- Completeness ---
+    print()
+    print(colored("  CORPUS COMPLETENESS", "yellow"))
+    print(f"  {'Field':<28}  {'Present':>8}  {'%':>6}  Bar")
+    print(f"  {'─'*28}  {'─'*8}  {'─'*6}  {'─'*W}")
+    for field in TRACKED_FIELDS:
+        missing = missing_fields.get(field, 0)
+        present = total - missing
+        pct_present = present / total * 100 if total else 0
+        status_color = 'green' if pct_present > 95 else ('yellow' if pct_present > 80 else 'red')
+        bar = _bar(present, total, W)
+        print(f"  {field:<28}  {colored(f'{present:>5}/{total}', status_color)}  "
+              f"{pct_present:>5.1f}%  {bar}")
+
+    print()
+    input(colored("  Press Enter to return to menu...", "dark_grey"))
+
+
+# ==============================================================================
+# [10] A.R.C. Pattern Scanner
+# ==============================================================================
+
+def arc_pattern_scanner(r, solr):
+    print(colored("\n--- [10] A.R.C. Pattern Scanner ---", "cyan"))
+    print("Scans purple_team_analysis across all articles to surface the most")
+    print("prevalent rhetorical manipulation patterns in your corpus.\n")
+    print("This is the epistemic fingerprint of your news cycle.")
+    print("High prevalence of a pattern = readers are being systematically exposed to it.\n")
+
+    limit_input = input("Articles to scan? (blank = all, or enter N for newest N): ").strip()
+    limit = int(limit_input) if limit_input.isdigit() else None
+
+    print(colored("\nScanning corpus for A.R.C. patterns...", "yellow"))
+
+    pattern_counts   = Counter()
+    pattern_articles = defaultdict(list)
+    scanned = no_purple = 0
+
+    all_ids = r.zrange("feed", 0, -1)
+    if limit:
+        all_ids = all_ids[-limit:]
+
+    total = len(all_ids)
+    for i, aid in enumerate(all_ids):
+        purple = r.hget(f"article:{aid}", "purple_team_analysis") or ''
+        if not purple:
+            no_purple += 1
+            scanned += 1
+            continue
+
+        title = r.hget(f"article:{aid}", "title") or "(no title)"
+        found = _scan_arc_patterns(purple)
+        for code in found:
+            pattern_counts[code] += 1
+            if len(pattern_articles[code]) < 5:
+                pattern_articles[code].append((title, aid))
+
+        scanned += 1
+        if scanned % 200 == 0:
+            print(f"  Scanned {scanned}/{total}...", end='\r')
+
+    print(f"  Scanned {scanned}/{total} articles.                    ")
+    if no_purple:
+        print(colored(f"  ℹ️  {no_purple} articles had no purple_team_analysis", "yellow"))
+
+    if not pattern_counts:
+        print(colored("\nNo A.R.C. patterns detected. Either purple analyses are missing "
+                      "or the AI isn't citing pattern codes explicitly.", "yellow"))
+        return
+
+    print()
+    print(colored(f"  A.R.C. PATTERN FREQUENCY  (scanned {scanned} articles)", "yellow"))
+    print(f"  {'Code':<12} {'Pattern Name':<30} {'Hits':>5}  {'% articles':>10}  Prevalence")
+    print(f"  {'─'*12} {'─'*30} {'─'*5}  {'─'*10}  {'─'*25}")
+
+    top_patterns = pattern_counts.most_common()
+    max_hits = top_patterns[0][1] if top_patterns else 1
+
+    for code, count in top_patterns:
+        name = ARC_PATTERNS.get(code, '?')
+        pct  = count / scanned * 100
+        bar  = _bar(count, max_hits, width=25)
+        count_color = 'red' if pct > 20 else ('yellow' if pct > 10 else 'green')
+        print(f"  {colored(code, 'magenta'):<12} {name:<30} "
+              f"{colored(str(count), count_color):>5}  {pct:>9.1f}%  {bar}")
+
+    # Undetected patterns
+    absent = set(ARC_PATTERNS.keys()) - set(pattern_counts.keys())
+    if absent:
+        print()
+        print(colored(f"  {len(absent)} patterns NOT detected in this scan:", "dark_grey"))
+        absent_names = [f"{code} ({ARC_PATTERNS[code]})" for code in sorted(absent)]
+        # Print in 2 columns
+        for i in range(0, len(absent_names), 2):
+            left  = absent_names[i]
+            right = absent_names[i+1] if i+1 < len(absent_names) else ''
+            print(colored(f"    {left:<40} {right}", "dark_grey"))
+
+    # Drill-down
+    print()
+    drill = input("Drill into pattern? Enter ARC code (e.g. ARC-0043) or blank to skip: ").strip().upper()
+    if drill and drill in pattern_articles:
+        name = ARC_PATTERNS.get(drill, '?')
+        count = pattern_counts[drill]
+        print(colored(f"\n  {drill} — {name}  ({count} articles, "
+                      f"{count/scanned*100:.1f}% of corpus)", "magenta"))
+        print(f"  Sample articles featuring this pattern:")
+        for title, aid in pattern_articles[drill]:
+            ts = r.hget(f"article:{aid}", "timestamp") or ''
+            print(f"    {str(ts)[:10]:10}  {aid[:12]}  {title[:65]}")
+        print()
+        view = input("  Inspect one? Enter article ID (or blank): ").strip()
+        if view:
+            # Temporarily redirect to inspect with the given id
+            _inspect_by_id(r, solr, view)
+
+    print()
+    input(colored("  Press Enter to return to menu...", "dark_grey"))
+
+
+def _inspect_by_id(r, solr, article_id):
+    """Helper: inspect without re-prompting for ID."""
+    key = f"article:{article_id}"
+    if not r.exists(key):
+        print(colored(f"❌ Not found: {article_id}", "red"))
+        return
+    # Temporarily monkey-patch input to return the pre-known id — simpler to
+    # just inline a stripped version of the display logic here.
+    data = r.hgetall(key)
+    print(colored(f"\n=== {article_id[:20]}... ===", "cyan"))
+    print(f"  Title    : {data.get('title', 'N/A')}")
+    print(f"  Domain   : {_extract_registered_domain(data.get('url', data.get('sourceUrl', '')))}")
+    print(f"  Lang     : {data.get('source_lang', 'N/A')}")
+    print(f"  Sentinel : {data.get('sentinel_verdict', 'N/A')}")
+    s = _get_chimera_score(data)
+    if s is not None:
+        sc = 'red' if s < 0.3 else ('yellow' if s < 0.6 else 'green')
+        print(f"  Chimera  : {colored(f'{s:.3f}', sc)}")
+    purple = data.get('purple_team_analysis', '')
+    if purple:
+        found = _scan_arc_patterns(purple)
+        print(f"  ARC tags : {', '.join(found) if found else '(none flagged)'}")
+        print(f"\n  Purple team excerpt:\n  {purple[:400]}...")
+
+
+# ==============================================================================
+# Main
+# ==============================================================================
+
 def main():
     print(colored(BANNER, "cyan"))
     r    = connect_redis()
@@ -604,26 +1417,30 @@ def main():
 
     while True:
         get_db_status(r, solr)
-        print("\n  [1] Research / Search")
-        print("  [2] Emergency Removal")
-        print("  [3] Trim Database")
-        print("  [4] Inspect Article")
-        print("  [5] Re-index Solr")
-        print("  [6] Solr Diagnostics")
-        print("  [7] Purge Solr Orphans")
-        print("  [8] Purge Redis Orphans")
-        print("  [q] Quit\n")
+        print("\n  [1]  Research / Search")
+        print("  [2]  Emergency Removal")
+        print("  [3]  Trim Database")
+        print("  [4]  Inspect Article")
+        print("  [5]  Re-index Solr")
+        print("  [6]  Solr Diagnostics")
+        print("  [7]  Purge Solr Orphans")
+        print("  [8]  Purge Redis Orphans")
+        print("  [9]  Intelligence Dashboard")
+        print("  [10] A.R.C. Pattern Scanner")
+        print("  [q]  Quit\n")
 
         choice = input("Select: ").strip().lower()
 
-        if   choice == '1': research_articles(r, solr)
-        elif choice == '2': emergency_removal(r, solr)
-        elif choice == '3': trim_database(r, solr)
-        elif choice == '4': inspect_article(r, solr)
-        elif choice == '5': reindex_solr(r, solr)
-        elif choice == '6': solr_diagnostics(solr)
-        elif choice == '7': purge_solr_orphans(r, solr)
-        elif choice == '8': purge_redis_orphans(r, solr)
+        if   choice == '1':  research_articles(r, solr)
+        elif choice == '2':  emergency_removal_menu(r, solr)
+        elif choice == '3':  trim_database(r, solr)
+        elif choice == '4':  inspect_article(r, solr)
+        elif choice == '5':  reindex_solr(r, solr)
+        elif choice == '6':  solr_diagnostics(solr)
+        elif choice == '7':  purge_solr_orphans(r, solr)
+        elif choice == '8':  purge_redis_orphans(r, solr)
+        elif choice == '9':  intelligence_dashboard(r, solr)
+        elif choice == '10': arc_pattern_scanner(r, solr)
         elif choice in ('', 'q', 'quit', 'exit'):
             print("Goodbye.")
             break

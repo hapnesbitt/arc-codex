@@ -1,145 +1,124 @@
 #!/usr/bin/env python3
 """
-reindex_solr.py - Re-index Arc Codex articles from Redis into Solr
-Finds all article:* keys in Redis, checks which are missing from Solr, indexes them.
-Usage:
-    python3 reindex_solr.py           # dry run — shows what would be indexed
-    python3 reindex_solr.py --commit  # actually index missing articles
+reindex_solr.py
+Reindex all articles from Redis into Solr, adding category and source_lang.
+Safe to re-run — uses Solr's upsert (add overwrites by id).
+Run: /home/www/arc_stack/backend/venv/bin/python backend/reindex_solr.py
 """
-
+import os
 import sys
 import json
 import redis
 import pysolr
 from dotenv import load_dotenv
-import os
 
-load_dotenv('/home/www/itc_stack/backend/.env')
+load_dotenv('/home/www/arc_stack/backend/.env')
 
-REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', '')
+REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', 'simplenes')
 SOLR_URL = os.getenv('SCRIBE_SOLR_URL', 'http://localhost:8983/solr/feeds/')
-DRY_RUN = '--commit' not in sys.argv
 
-r = redis.Redis(decode_responses=True, password=REDIS_PASSWORD)
-solr = pysolr.Solr(SOLR_URL)
+r = redis.Redis(host='localhost', port=6379, password=REDIS_PASSWORD, decode_responses=True)
+solr = pysolr.Solr(SOLR_URL, timeout=30)
 
-print(f"{'[DRY RUN] ' if DRY_RUN else ''}Arc Codex Solr Re-indexer")
-print(f"Solr: {SOLR_URL}")
-print("─" * 50)
+# Category mapping (mirrors scribe.py _classify)
+CATEGORY_MAP = {
+    'zeus': 'zeus', 'leadership': 'zeus', 'governance': 'zeus', 'society': 'zeus',
+    'poseidon': 'poseidon', 'climate': 'poseidon', 'ocean': 'poseidon', 'environment': 'poseidon',
+    'hades': 'hades', 'privacy': 'hades', 'deep tech': 'hades', 'cyber': 'hades',
+    'apollo': 'apollo', 'science': 'apollo', 'medicine': 'apollo', 'health': 'apollo',
+    'artemis': 'artemis', 'ecology': 'artemis', 'conservation': 'artemis', 'nature': 'artemis',
+    'athena': 'athena', 'strategy': 'athena', 'wisdom': 'athena',
+    'ares': 'ares', 'conflict': 'ares', 'justice': 'ares', 'military': 'ares',
+    'hephaestus': 'hephaestus', 'tech': 'hephaestus', 'innovation': 'hephaestus', 'engineering': 'hephaestus',
+    'hermes': 'hermes', 'media': 'hermes', 'communication': 'hermes', 'networks': 'hermes',
+    'aphrodite': 'aphrodite', 'culture': 'aphrodite', 'connection': 'aphrodite', 'social': 'aphrodite',
+    'dionysus': 'dionysus', 'emotion': 'dionysus', 'movements': 'dionysus', 'chaos': 'dionysus',
+    'demeter': 'demeter', 'food': 'demeter', 'community': 'demeter', 'sustainability': 'demeter',
+}
 
-# Get all article IDs from Redis
-all_keys = r.keys('article:*')
-total = len(all_keys)
-print(f"Found {total} articles in Redis")
+def classify(directive='', category=''):
+    combined = f"{directive} {category}".lower()
+    for keyword, cat in CATEGORY_MAP.items():
+        if keyword in combined:
+            return cat
+    return 'hermes'  # default
 
-# Check which are already in Solr in batches
-def check_solr_batch(ids):
-    id_list = ' OR '.join(f'"{i}"' for i in ids)
-    results = solr.search(f'id:({id_list})', rows=len(ids), fl='id')
-    return {doc['id'] for doc in results}
+def main():
+    keys = r.keys('article:*')
+    total = len(keys)
+    print(f"📚 Reindexing {total} articles into Solr...")
 
-batch_size = 100
-indexed_ids = set()
-for i in range(0, total, batch_size):
-    batch_keys = all_keys[i:i+batch_size]
-    batch_ids = [k.replace('article:', '') for k in batch_keys]
-    indexed_ids |= check_solr_batch(batch_ids)
-    print(f"  Checked {min(i+batch_size, total)}/{total}...", end='\r')
+    batch = []
+    updated = 0
+    errors = 0
+    BATCH_SIZE = 100
 
-print(f"\nAlready in Solr: {len(indexed_ids)}")
-missing_keys = [k for k in all_keys if k.replace('article:', '') not in indexed_ids]
-print(f"Missing from Solr: {len(missing_keys)}")
-
-if not missing_keys:
-    print("✅ Nothing to re-index.")
-    sys.exit(0)
-
-if DRY_RUN:
-    print("\nSample missing articles:")
-    for key in missing_keys[:10]:
-        title = r.hget(key, 'title') or '(no title)'
-        ts = r.hget(key, 'timestamp') or ''
-        print(f"  {key.replace('article:', '')[:12]}... | {ts[:10]} | {title[:60]}")
-    print(f"\nRun with --commit to index all {len(missing_keys)} missing articles.")
-    sys.exit(0)
-
-# Index missing articles
-print("\nIndexing missing articles...")
-success = 0
-failed = 0
-batch = []
-
-for key in missing_keys:
-    article_id = key.replace('article:', '')
-    data = r.hgetall(key)
-    if not data:
-        continue
-
-    dossier = {}
-    try:
-        dossier = json.loads(data.get('dossier', '{}'))
-    except Exception:
-        pass
-
-    # Normalize timestamp — Solr needs ISO 8601
-    from datetime import datetime, timezone
-    raw_ts = data.get('timestamp', '')
-    timestamp = ''
-    if raw_ts:
+    for i, key in enumerate(keys, 1):
         try:
-            timestamp = datetime.fromtimestamp(int(raw_ts), tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-        except (ValueError, OSError):
-            timestamp = raw_ts  # already a string
+            data = r.hgetall(key)
+            if not data or not data.get('id'):
+                continue
 
-    solr_doc = {
-        'id': article_id,
-        'title': data.get('title', ''),
-        'content': data.get('article_text', '') or data.get('content', ''),
-        'source': data.get('source_name', 'Unknown'),
-        'url': data.get('sourceUrl', '') or data.get('url', ''),
-        'timestamp': timestamp,
-        'sentiment': dossier.get('sentiment', 0.0),
-        'directive': data.get('category', 'Unknown'),
-        'chimera_score': dossier.get('chimera_score', 0.0),
-    }
-
-    # Skip if no meaningful content
-    if not solr_doc['title'] and not solr_doc['content']:
-        continue
-
-    batch.append(solr_doc)
-
-    if len(batch) >= 50:
-        try:
-            solr.add(batch)
-            success += len(batch)
-            print(f"  ✅ Indexed {success} so far...")
-            batch = []
-        except Exception as e:
-            print(f"  ⚠️  Batch failed, trying individually: {e}")
-            for doc in batch:
-                try:
-                    solr.add([doc])
-                    success += 1
-                except Exception as e2:
-                    print(f"  ❌ Skipped {doc['id'][:12]}: {e2}")
-                    failed += 1
-            batch = []
-
-# Final batch
-if batch:
-    try:
-        solr.add(batch)
-        success += len(batch)
-    except Exception as e:
-        print(f"  ⚠️  Final batch failed, trying individually: {e}")
-        for doc in batch:
+            # Parse dossier
+            dossier = {}
             try:
-                solr.add([doc])
-                success += 1
-            except Exception as e2:
-                print(f"  ❌ Skipped {doc['id'][:12]}: {e2}")
-                failed += 1
+                dossier = json.loads(data.get('dossier', '{}'))
+            except Exception:
+                pass
 
-solr.commit()
-print(f"\n✅ Done. Indexed: {success} | Failed: {failed}")
+            article_id = data.get('id', key.replace('article:', ''))
+            category = data.get('category', '') or classify(
+                data.get('directive', ''), ''
+            )
+            source_lang = data.get('source_lang', 'English')
+
+            doc = {
+                'id': article_id,
+                'title': data.get('title', ''),
+                'content': data.get('original_text', ''),
+                'source': data.get('source_name', data.get('source', 'Unknown')),
+                'url': data.get('sourceUrl', ''),
+                'timestamp': data.get('timestamp', ''),
+                'sentiment': float(dossier.get('sentiment', 0.0)),
+                'directive': data.get('directive', ''),
+                'chimera_score': float(dossier.get('chimera_score', 0.0)),
+                'category': category,
+                'source_lang': source_lang,
+                'original_text': data.get('original_text', ''),
+                'imageUrl': data.get('imageUrl', ''),
+            }
+            batch.append(doc)
+            updated += 1
+
+            if len(batch) >= BATCH_SIZE:
+                solr.add(batch)
+                batch = []
+                print(f"  [{i}/{total}] indexed={updated} errors={errors}")
+
+        except Exception as e:
+            errors += 1
+            print(f"  ⚠️  Error on {key}: {e}")
+
+    # Flush remaining
+    if batch:
+        solr.add(batch)
+
+    solr.commit()
+    print(f"\n✅ Done. indexed={updated} errors={errors}")
+
+    # Quick verification
+    results = solr.search('*:*', rows=0,
+        facet='true',
+        **{'facet.field': ['category', 'source_lang'], 'facet.limit': '20'}
+    )
+    print(f"\n📊 Solr now has {results.hits} documents")
+    for field in ['category', 'source_lang']:
+        facets = results.facets.get('facet_fields', {}).get(field, [])
+        pairs = list(zip(facets[::2], facets[1::2]))
+        print(f"\n{field}:")
+        for name, count in sorted(pairs, key=lambda x: -x[1])[:15]:
+            if count > 0:
+                print(f"  {name}: {count}")
+
+if __name__ == '__main__':
+    main()

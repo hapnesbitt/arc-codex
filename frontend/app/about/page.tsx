@@ -225,6 +225,16 @@ const AboutGateway = () => {
         <p className="mt-8 text-slate-500 text-sm font-mono uppercase tracking-widest" aria-hidden="true">
           A.R.C. Framework v5.2 // Connection Secure
         </p>
+
+        <a
+          href="https://grafana.arc-codex.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 text-slate-700 hover:text-slate-500 transition-colors text-xs font-mono tracking-widest outline-none focus-visible:text-amber-400 focus-visible:underline focus-visible:underline-offset-4"
+          aria-label="Corpus Intelligence Dashboard (Grafana)"
+        >
+          ◈ CORPUS METRICS
+        </a>
       </main>
     </PageWrapper>
   );
