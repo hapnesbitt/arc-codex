@@ -774,7 +774,7 @@ def process_priority_queue(api_client, recently_published):
 
         article_text = None
         title = item.get('title', '')
-        image_url = item.get('image_url', DEFAULT_IMAGE_URL)
+        image_url = item.get('image_url') or DEFAULT_IMAGE_URL
         source_url = item.get('url', '')
 
         try:
