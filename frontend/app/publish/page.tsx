@@ -1,14 +1,14 @@
 // Filename: /frontend/app/publish/page.tsx
-// v7.0 - Accessibility fixes
+// v8.0 - Prompt-to-Article mode
 //
-// Changes from v6.0:
-//   - Skip link: focus: → focus-visible: (no flash on mouse click)
-//   - Loading overlay: role="alert" → role="status" aria-live="polite"
-//     (loading is not an assertive interruption — errors are, spinners aren't)
-//   - SelectorButton / radiogroup: arrow key navigation implemented
-//     (ARIA radiogroup spec requires Left/Right/Up/Down to move between options)
-//   - autosavedAt display wrapped in <time> element
-//   - Mobile FAB aria-label clarified to match form submit label by state
+// Changes from v7.0:
+//   - Added 'prompt' ContentType — user writes a prompt, Ollama generates the article
+//   - Added renderPromptInput() section (purple/wand themed)
+//   - CONTENT_TYPES array extended with prompt option
+//   - handleSubmit routes url/text to /api/submit, prompt to /api/submit_prompt
+//   - Both new endpoints return 202 Accepted (async) — success message updated accordingly
+//   - Title is optional for prompt mode (scribe derives from first line of generated text)
+//   - Autosave includes prompt content type
 
 'use client';
 
@@ -23,7 +23,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import {
   Send, Loader, CheckCircle, RefreshCw, Upload,
   Sparkles, FileText, Link2, Wand2,
-  Rocket, Globe, Crown, Shield,
+  Rocket, Globe, Crown, Shield, PenLine,
 } from 'lucide-react';
 import UploadArea from '@/components/UploadArea';
 import StatusMessage from '@/components/StatusMessage';
@@ -39,7 +39,7 @@ const ALLOWED_FILE_TYPES = [
 ];
 
 // --- TYPES ---
-type ContentType = 'text' | 'url' | 'file';
+type ContentType = 'text' | 'url' | 'file' | 'prompt';
 type Status = 'idle' | 'loading' | 'success' | 'error';
 
 interface DraftData {
@@ -101,6 +101,16 @@ const CONTENT_TYPES: SelectorConfig[] = [
     shadowColor: 'shadow-[0_0_20px_rgba(34,197,94,0.3)]',
     ariaDescription: 'Upload a document file for analysis',
   },
+  {
+    id: 'prompt',
+    label: 'Write Prompt',
+    icon: <PenLine className="h-5 w-5" aria-hidden="true" />,
+    borderColor: 'border-purple-400',
+    bgColor: 'bg-purple-400/10',
+    textColor: 'text-purple-300',
+    shadowColor: 'shadow-[0_0_20px_rgba(168,85,247,0.3)]',
+    ariaDescription: 'Describe what you want Arc Codex to write for you',
+  },
 ];
 
 // --- REUSABLE SECTION COMPONENT ---
@@ -125,7 +135,6 @@ const Section: React.FC<SectionProps> = ({ title, children, gradient, icon, clas
 };
 
 // --- SELECTOR BUTTON ---
-// Individual radio option — focus and checked state managed by parent RadioGroup
 const SelectorButton: React.FC<{
   config: SelectorConfig;
   isActive: boolean;
@@ -139,7 +148,6 @@ const SelectorButton: React.FC<{
     aria-label={config.ariaDescription}
     onClick={onClick}
     ref={buttonRef}
-    // tabIndex managed by parent: only the active/first option is in tab order
     tabIndex={isActive ? 0 : -1}
     className={`p-4 rounded-xl border-2 transition-colors duration-200 flex items-center gap-3 font-serif
       outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950
@@ -154,8 +162,6 @@ const SelectorButton: React.FC<{
 );
 
 // --- RADIO GROUP WRAPPER ---
-// Implements ARIA radiogroup keyboard pattern:
-// Arrow keys move focus+selection between options (roving tabindex).
 const RadioGroup: React.FC<{
   value: ContentType;
   onChange: (value: ContentType) => void;
@@ -222,14 +228,12 @@ export default function PublishPage() {
   const fileInputRef  = useRef<HTMLInputElement>(null);
   const liveRegionRef = useRef<HTMLDivElement>(null);
 
-  // Announce status changes to screen readers via live region
   useEffect(() => {
     if (message && liveRegionRef.current) {
       liveRegionRef.current.textContent = message;
     }
   }, [message, status]);
 
-  // Load draft from localStorage on mount
   useEffect(() => {
     try {
       const raw = localStorage.getItem(AUTOSAVE_KEY);
@@ -245,7 +249,6 @@ export default function PublishPage() {
     }
   }, []);
 
-  // Autosave to localStorage (3s debounce)
   useEffect(() => {
     const id = setTimeout(() => {
       try {
@@ -284,7 +287,8 @@ export default function PublishPage() {
   const handleSubmit = useCallback(async (e?: React.FormEvent) => {
     if (e?.preventDefault) e.preventDefault();
 
-    if (!title.trim()) {
+    // Validation — title optional for prompt mode (scribe derives it)
+    if (contentType !== 'prompt' && !title.trim()) {
       setStatus('error');
       setMessage('A title is required.');
       return;
@@ -304,30 +308,96 @@ export default function PublishPage() {
       setMessage('Please select a file to upload.');
       return;
     }
+    if (contentType === 'prompt' && !content.trim()) {
+      setStatus('error');
+      setMessage('Please write a prompt describing what you want Arc Codex to create.');
+      return;
+    }
+    if (contentType === 'prompt' && content.trim().length < 10) {
+      setStatus('error');
+      setMessage('Prompt is too short — please be more descriptive.');
+      return;
+    }
 
     setStatus('loading');
-    setMessage('Processing with A.R.C. analysis...');
 
+    // --- PROMPT mode → /api/submit_prompt (async, 202) ---
+    if (contentType === 'prompt') {
+      setMessage('Sending prompt to Arc Codex...');
+      try {
+        const resp = await fetch('/api/submit_prompt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: content.trim(), title: title.trim() }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Unknown error from server.');
+
+        setStatus('success');
+        setMessage('Prompt queued! Arc Codex is generating your article — it will appear in the feed shortly.');
+        setShowConfetti(true);
+        clearDraft();
+        setTitle('');
+        setContent('');
+        setTimeout(() => {
+          setShowConfetti(false);
+          router.push('/');
+        }, 3000);
+      } catch (err) {
+        setStatus('error');
+        setMessage(err instanceof Error ? err.message : 'Something went wrong.');
+      }
+      return;
+    }
+
+    // --- URL / TEXT mode → /api/submit (async, 202) ---
+    if (contentType === 'url' || contentType === 'text') {
+      setMessage('Submitting to Arc Codex...');
+      try {
+        const resp = await fetch('/api/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content_type: contentType,
+            content: content.trim(),
+            title: title.trim(),
+          }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Unknown error from server.');
+
+        setStatus('success');
+        setMessage('Submitted! Your content will be published shortly.');
+        setShowConfetti(true);
+        clearDraft();
+        setTitle('');
+        setContent('');
+        setTimeout(() => {
+          setShowConfetti(false);
+          router.push('/');
+        }, 2000);
+      } catch (err) {
+        setStatus('error');
+        setMessage(err instanceof Error ? err.message : 'Something went wrong.');
+      }
+      return;
+    }
+
+    // --- FILE mode → existing /api/submit_content (multipart, unchanged) ---
+    setMessage('Processing with A.R.C. analysis...');
     try {
       const formData = new FormData();
       formData.append('title', title.trim());
       formData.append('content_type', contentType);
       formData.append('category', 'general');
-      if (contentType === 'file' && file) {
-        formData.append('file', file);
-      } else {
-        formData.append('content', content.trim());
-      }
+      if (file) formData.append('file', file);
 
       const resp = await fetch('/api/submit_content', {
         method: 'POST',
         body: formData,
       });
       const data = await resp.json();
-
-      if (!resp.ok) {
-        throw new Error(data.error || 'Unknown error from server.');
-      }
+      if (!resp.ok) throw new Error(data.error || 'Unknown error from server.');
 
       setStatus('success');
       setMessage('Published! Your content is live with full A.R.C. analysis.');
@@ -344,13 +414,11 @@ export default function PublishPage() {
         router.push(redirectTo);
       }, 2000);
     } catch (err) {
-      console.error('Submit failed:', err);
       setStatus('error');
       setMessage(err instanceof Error ? err.message : 'Something went wrong.');
     }
   }, [title, content, contentType, file, clearDraft, router, isProbablyUrl]);
 
-  // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -399,7 +467,6 @@ export default function PublishPage() {
     }
   }, []);
 
-  // Submit button label by state
   const submitLabel =
     status === 'loading' ? 'Publishing, please wait'
     : status === 'success' ? 'Published successfully'
@@ -458,7 +525,7 @@ export default function PublishPage() {
         />
         <div id="url-hint" className="flex justify-between items-center h-8">
           <span className="text-sm text-slate-400 font-serif italic">
-            Paste any article URL — A.R.C. will fetch and analyze it
+            Paste any article or YouTube URL — A.R.C. will fetch and analyze it
           </span>
           {content && isProbablyUrl(content) && (
             <Badge variant="outline" className="bg-green-600/20 text-green-300 border-green-500/30 font-serif">
@@ -486,9 +553,50 @@ export default function PublishPage() {
     </Section>
   );
 
+  const renderPromptInput = () => (
+    <Section
+      title="Describe What You Want"
+      icon={<Wand2 className="w-8 h-8 text-purple-400" />}
+      gradient="border-purple-400/50"
+      sectionId="content-prompt"
+    >
+      <div className="space-y-4">
+        <p className="text-sm text-slate-400 font-serif italic">
+          Arc Codex will write a full article based on your prompt, then publish it with A.R.C. analysis.
+        </p>
+        <label htmlFor="prompt-textarea" className="sr-only">Writing prompt</label>
+        <Textarea
+          id="prompt-textarea"
+          value={content}
+          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setContent(e.target.value)}
+          rows={6}
+          placeholder="Write a long article explaining how someone should decide whether a cat or dog would be better for them..."
+          aria-describedby="prompt-stats"
+          className="bg-slate-800/20 border-slate-600/50 text-slate-100 font-serif text-base leading-relaxed focus:border-purple-400/50 focus:ring-purple-400/25 resize-none transition-colors"
+          disabled={status === 'loading' || status === 'success'}
+          maxLength={2000}
+        />
+        <div id="prompt-stats" className="flex justify-between items-center">
+          <div className="text-sm text-slate-400 font-serif">
+            {content.length}/2000 characters
+            {content.length > 0 && content.length < 10 && (
+              <span className="text-amber-400 ml-2">— be more descriptive</span>
+            )}
+          </div>
+          <Badge variant="outline" className="border-purple-400/30 text-purple-300 font-mono text-xs">
+            Ctrl+Enter to submit
+          </Badge>
+        </div>
+        <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-400/20 text-sm text-purple-300 font-serif">
+          💡 Title is optional in prompt mode — Arc Codex will derive one from the generated article.
+        </div>
+      </div>
+    </Section>
+  );
+
   return (
     <PageWrapper>
-      {/* Skip link — focus-visible only, no flash on mouse click */}
+      {/* Skip link */}
       <a
         href="#publish-form"
         className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:top-4 focus-visible:left-4 focus-visible:z-[300] focus-visible:px-4 focus-visible:py-2 focus-visible:bg-amber-500 focus-visible:text-black focus-visible:font-bold focus-visible:rounded-lg focus-visible:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
@@ -535,21 +643,29 @@ export default function PublishPage() {
             sectionId="title-section"
           >
             <div className="space-y-4">
-              <label htmlFor="title" className="sr-only">Article title</label>
+              <label htmlFor="title" className="sr-only">
+                Article title{contentType === 'prompt' ? ' (optional)' : ''}
+              </label>
               <Input
                 id="title"
                 value={title}
                 type="text"
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTitle(e.target.value)}
-                placeholder="Give your article a title..."
+                placeholder={
+                  contentType === 'prompt'
+                    ? 'Optional — Arc Codex will generate one if left blank'
+                    : 'Give your article a title...'
+                }
                 aria-describedby="title-hint title-counter"
-                aria-required="true"
+                aria-required={contentType !== 'prompt'}
                 className="bg-slate-800/30 border-slate-600/50 text-slate-100 text-lg h-14 focus:border-amber-400/50 focus:ring-amber-400/25 font-serif transition-colors"
                 disabled={status === 'loading' || status === 'success'}
                 maxLength={200}
               />
               <div className="flex justify-between items-center">
-                <span id="title-hint" className="text-sm text-slate-400 font-serif italic">Clear and descriptive works best</span>
+                <span id="title-hint" className="text-sm text-slate-400 font-serif italic">
+                  {contentType === 'prompt' ? 'Optional in prompt mode' : 'Clear and descriptive works best'}
+                </span>
                 <Badge
                   id="title-counter"
                   variant="outline"
@@ -574,9 +690,10 @@ export default function PublishPage() {
 
           {/* Content Input */}
           <div>
-            {contentType === 'text' && renderTextInput()}
-            {contentType === 'url'  && renderUrlInput()}
-            {contentType === 'file' && renderFileUpload()}
+            {contentType === 'text'   && renderTextInput()}
+            {contentType === 'url'    && renderUrlInput()}
+            {contentType === 'file'   && renderFileUpload()}
+            {contentType === 'prompt' && renderPromptInput()}
           </div>
 
           {/* Status Message */}
@@ -591,7 +708,6 @@ export default function PublishPage() {
           >
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
               <div className="flex flex-wrap items-center gap-4">
-                {/* Autosave timestamp — not a live region, just ambient info */}
                 <div className="text-sm text-slate-400 font-serif">
                   {autosavedAt ? (
                     <>Autosaved: <time dateTime={autosavedAt}>{new Date(autosavedAt).toLocaleTimeString()}</time></>
@@ -677,9 +793,9 @@ export default function PublishPage() {
                     )}
                     <span>
                       {status === 'loading'
-                        ? 'Analyzing...'
+                        ? (contentType === 'prompt' ? 'Queuing...' : 'Submitting...')
                         : status === 'success'
-                        ? 'Published!'
+                        ? 'Submitted!'
                         : <><span className="sm:hidden">Publish</span><span className="hidden sm:inline">Publish to Arc Codex</span></>
                       }
                     </span>
@@ -698,7 +814,7 @@ export default function PublishPage() {
         </footer>
       </main>
 
-      {/* Mobile Floating Submit Button — outside form, calls handleSubmit directly */}
+      {/* Mobile Floating Submit Button */}
       <div className="fixed bottom-8 right-8 z-40 md:hidden">
         <Button
           variant="default"
@@ -712,7 +828,7 @@ export default function PublishPage() {
         </Button>
       </div>
 
-      {/* Confetti — purely decorative */}
+      {/* Confetti */}
       {showConfetti && (
         <div className="fixed inset-0 pointer-events-none z-50" aria-hidden="true">
           {Array.from({ length: 50 }).map((_, i) => (
@@ -729,7 +845,7 @@ export default function PublishPage() {
         </div>
       )}
 
-      {/* Loading overlay — role="status" + aria-live="polite" (not assertive) */}
+      {/* Loading overlay */}
       {status === 'loading' && (
         <div
           className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-40 flex items-center justify-center transition-opacity duration-300"
@@ -740,10 +856,12 @@ export default function PublishPage() {
           <div className="text-center p-8 rounded-2xl bg-slate-900/50 border border-amber-400/50 backdrop-blur-xl shadow-[0_0_40px_rgba(251,191,36,0.5)]">
             <div className="w-24 h-24 border-4 border-amber-500/30 border-t-amber-500 rounded-full mx-auto mb-6 animate-spin" aria-hidden="true" />
             <h3 className="text-2xl font-bold text-amber-300 mb-2 font-sans tracking-tight">
-              Processing Your Content
+              {contentType === 'prompt' ? 'Sending to Arc Codex...' : 'Processing Your Content'}
             </h3>
             <p className="text-slate-400 font-serif italic">
-              A.R.C. is analyzing with 48 cognitive patterns...
+              {contentType === 'prompt'
+                ? 'Your article will be generated and appear in the feed shortly.'
+                : 'A.R.C. is analyzing with 48 cognitive patterns...'}
             </p>
           </div>
         </div>

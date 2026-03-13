@@ -1,5 +1,5 @@
 # Arc Codex Project Context
-# VERSION 7.10 - Updated Mar 8, 2026
+# VERSION 7.11 - Updated Mar 13, 2026
 # Restructured into three audience sections: USER / ADMIN / DEVELOPER
 # Comprehensive reference for AI assistants working on this codebase
 #
@@ -113,7 +113,7 @@ admin:
 
   services:
     gunicorn:         {command: "./gunicorn_arc.sh", port: 5005, dir: "backend/", workers: 1, threads: 8, timeout: 600}
-    scribe:           {command: "python3 scribe.py", note: "v50.0 — BROWSER_RECYCLE_INTERVAL=20 prevents fd leak"}
+    scribe:           {command: "python3 scribe.py", note: "v52.0 — Playwright removed, YouTube ingest, prompt-to-article, priority queue consumer"}
     manual_publisher: {command: "python3 manual_publisher.py", note: "v5.1"}
     stream_consumer:  {command: "python3 stream_consumer.py"}
     analyzer:         {command: "python3 analyzer.py"}
@@ -223,8 +223,8 @@ developer:
     ├── watchdog.sh
     ├── backend/
     │   ├── .env
-    │   ├── main.py                    # Flask API (formerly app.py)
-    │   ├── scribe.py                  # v50.0 — RSS scraper + A.R.C. pipeline
+    │   ├── main.py                    # Flask API v48 — /api/submit + /api/submit_prompt
+    │   ├── scribe.py                  # v52.0 — no Playwright, YouTube, prompt-to-article, priority queue
     │   ├── analyzer.py                # v1.0
     │   ├── manual_publisher.py        # v5.1
     │   ├── stream_consumer.py         # v1.0
@@ -289,7 +289,9 @@ developer:
   api_endpoints:
     "GET /api/articles":           "paginated feed — ?limit=N&offset=N"
     "GET /api/articles/<id>":      "single article with full analysis"
-    "POST /api/submit":            "submit URL/text/file for processing"
+    "POST /api/submit":            "submit URL/text for priority queue processing (async 202)"
+    "POST /api/submit_prompt":     "generate article from prompt via Ollama (async 202)"
+    "POST /api/submit_content":    "file upload — multipart, legacy filesystem path"
     "GET /api/search":             "Solr full-text — ?q=query&limit=N&sort=[recent|relevant|score_desc|score_asc]"
     "GET /api/stats":              "article_count, oldest, newest — polled every 30s by search page"
     "GET /api/translate/<id>":     "translate article — ?lang=<language name>"
@@ -438,9 +440,10 @@ developer:
     company_page: "ARC CODEX — https://www.linkedin.com/company/112214417"
 
   playwright_notes:
+    status: "⛔ REMOVED from scribe.py as of v52.0 (Mar 13 2026) — AMD FirePro W2100 radeon UBSAN kernel bug causes hard lockups"
     pattern: "One browser per thread — sync_playwright, ThreadPoolExecutor, cannot share across threads"
-    recycle: "BROWSER_RECYCLE_INTERVAL=20 — browser recycled every 20 uses per thread"
-    leak_symptom: "ps aux | grep chromium | wc -l — normal <30, if 700+ restart scribe"
+    recycle: "BROWSER_RECYCLE_INTERVAL=20 — browser recycled every 20 uses per thread (pre-v52 only)"
+    leak_symptom: "ps aux | grep chromium | wc -l — normal <30, if 700+ restart scribe (pre-v52 only)"
 
   mailer_notes:
     alerts: "Scans last 2min of all logs every 60s — triggers on manual intervention, fd exhaustion, scribe crash, all Ollama failed, Redis failed"
@@ -499,9 +502,36 @@ developer:
       - "Article deduplication (SimHash)"
       - "Netdata custom metrics"
       - "Email digest subscriber management in admin UI"
-      - "Prompt-to-Article (Write tab, grade/tone/image settings)"
+      - "Publish confirmation modal (spec in planned_features above)"
 
   changelog:
+    v7.11: |
+      Mar 13, 2026:
+      - scribe.py v52.0 — Playwright fully removed (AMD FirePro W2100 radeon UBSAN kernel bug):
+        - All fetch tiers now requests-only (simple + stealth headers)
+        - fd exhaustion (errno 24) root cause eliminated
+        - YouTube ingest via yt-dlp (metadata-only, no download)
+          Detects youtube.com/youtu.be/m.youtube.com, structured article_text from title/channel/description
+          Thumbnail becomes og_image, feeds sentinel + counter-analyst normally
+        - Prompt-to-Article: generate_article_from_prompt() calls Ollama with publication-ready system prompt
+          No meta-commentary, quality gate bypassed for origin=prompt
+          Title derived from first line of generated text, markdown stripped (re.sub r'[\*_#`]+')
+        - Priority queue consumer: process_priority_queue() drains scribe:priority_uploads at top of every cycle
+          Supports origin=url, origin=prompt, origin=text
+          Fast user feedback — processed before RSS scanning each cycle
+      - main.py v48 — two new endpoints:
+        - POST /api/submit: url/text → Redis priority queue, returns 202 immediately
+        - POST /api/submit_prompt: prompt → Redis priority queue, returns 202 immediately
+        - Both push to scribe:priority_uploads as JSON with origin field
+        - Old /api/submit_content kept for file uploads (multipart, unchanged)
+      - publish/page.tsx v8.0 — 4th content type "Write Prompt":
+        - PenLine icon, purple theme
+        - Title optional in prompt mode (scribe derives from generated text)
+        - Routes url/text to /api/submit (async 202)
+        - Routes prompt to /api/submit_prompt (async 202)
+        - File uploads still use /api/submit_content (unchanged)
+        - Success message updated to reflect async nature ("will appear shortly")
+      - Commit: Mar 13 2026 session
     v7.10: |
       Mar 8, 2026 (evening):
       - project_context.yaml v7.10: publish confirmation modal fully specified

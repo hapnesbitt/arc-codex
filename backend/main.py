@@ -1,5 +1,5 @@
 # Filename: /home/www/itc_stack/backend/app.py
-# Arc Codex API Engine v47 - PII REDACTION REMOVED
+# Arc Codex API Engine v48 - Priority queue endpoints: /api/submit + /api/submit_prompt
 # NOW INCLUDES: Anti-bot URL fetching with shared fetch_utils
 # Ollama backend for /api/stm with detailed timing and diagnostics
 # FIX: Removed unfair readability penalty that punished technical writing
@@ -1087,6 +1087,112 @@ def submit_content():
     except Exception as e:
         app.logger.error(f"🔥 Unhandled error in submit_content: {e}", exc_info=True)
         return jsonify({'error': 'A critical server error occurred.'}), 500
+
+
+# --- PRIORITY QUEUE ENDPOINTS ---
+REDIS_PRIORITY_QUEUE_KEY = "scribe:priority_uploads"
+
+
+@app.route('/api/submit', methods=['POST'])
+def submit():
+    """
+    Submit a URL or raw text directly into the scribe priority queue.
+    Replaces the old filesystem-based submit_content path for url/text types.
+
+    JSON body:
+        { "content_type": "url" | "text", "content": "...", "title": "..." }
+
+    Returns 202 immediately — scribe processes asynchronously.
+    """
+    if not r:
+        app.logger.error("🔥 Redis unavailable for submit")
+        return jsonify({"error": "Database connection is offline."}), 503
+
+    data = request.get_json(force=True, silent=True) or {}
+    content_type = data.get('content_type', '').strip()
+    content      = (data.get('content') or '').strip()
+    title        = (data.get('title') or '').strip()
+
+    if content_type not in ('url', 'text'):
+        return jsonify({'error': 'content_type must be "url" or "text"'}), 400
+    if not content:
+        return jsonify({'error': 'content is required'}), 400
+
+    if content_type == 'url':
+        try:
+            from urllib.parse import urlparse as _urlparse
+            parsed = _urlparse(content)
+            if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+                return jsonify({'error': 'Invalid URL'}), 400
+        except Exception:
+            return jsonify({'error': 'Invalid URL'}), 400
+
+    payload = {
+        'origin': content_type,
+        'url':    content if content_type == 'url'  else '',
+        'text':   content if content_type == 'text' else '',
+        'title':  title,
+    }
+
+    try:
+        r.lpush(REDIS_PRIORITY_QUEUE_KEY, json.dumps(payload))
+        queue_len = r.llen(REDIS_PRIORITY_QUEUE_KEY)
+        app.logger.info(f"⚡ Queued {content_type} submission: '{title or content[:60]}' (queue depth: {queue_len})")
+        return jsonify({
+            'success': True,
+            'message': 'Submitted. Your content will be published shortly.',
+            'queue_position': queue_len,
+        }), 202
+    except Exception as e:
+        app.logger.error(f"🔥 Failed to queue submission: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to queue submission.'}), 500
+
+
+@app.route('/api/submit_prompt', methods=['POST'])
+def submit_prompt():
+    """
+    Submit a writing prompt. Scribe calls Ollama to generate a full article,
+    then publishes it through the normal pipeline.
+
+    JSON body:
+        { "prompt": "Write a long article about...", "title": "Optional title" }
+
+    Returns 202 immediately — generation and publish happen asynchronously in scribe.
+    """
+    if not r:
+        app.logger.error("🔥 Redis unavailable for submit_prompt")
+        return jsonify({"error": "Database connection is offline."}), 503
+
+    data   = request.get_json(force=True, silent=True) or {}
+    prompt = (data.get('prompt') or '').strip()
+    title  = (data.get('title') or '').strip()
+
+    if not prompt:
+        return jsonify({'error': 'prompt is required'}), 400
+    if len(prompt) < 10:
+        return jsonify({'error': 'Prompt is too short — please be more descriptive'}), 400
+    if len(prompt) > 2000:
+        return jsonify({'error': 'Prompt is too long (max 2000 characters)'}), 400
+
+    payload = {
+        'origin': 'prompt',
+        'prompt': prompt,
+        'title':  title,
+    }
+
+    try:
+        r.lpush(REDIS_PRIORITY_QUEUE_KEY, json.dumps(payload))
+        queue_len = r.llen(REDIS_PRIORITY_QUEUE_KEY)
+        app.logger.info(f"✍️  Queued prompt: '{prompt[:80]}...' (queue depth: {queue_len})")
+        return jsonify({
+            'success': True,
+            'message': 'Prompt received. Your article will be generated and published shortly.',
+            'queue_position': queue_len,
+        }), 202
+    except Exception as e:
+        app.logger.error(f"🔥 Failed to queue prompt: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to queue prompt.'}), 500
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5005, debug=False)
