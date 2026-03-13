@@ -1411,11 +1411,17 @@ def main():
             gc.collect()
 
             logger.info("💤 Cycle complete. Sleeping ten minutes ...")
-            time.sleep(600)
+            for _ in range(60):
+                time.sleep(10)
+                if r.llen(REDIS_PRIORITY_QUEUE_KEY) > 0:
+                    break
 
         except Exception as e:
             logger.error(f"MAIN LOOP ERROR: {e}", exc_info=True)
-            time.sleep(300)
+            for _ in range(30):
+                time.sleep(10)
+                if r.llen(REDIS_PRIORITY_QUEUE_KEY) > 0:
+                    break
 
 
 if __name__ == "__main__":
