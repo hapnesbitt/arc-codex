@@ -3,6 +3,7 @@
 # Corpus intelligence observability stack: Prometheus + Grafana
 #
 # corpus_exporter.py runs NATIVELY on Z230 (not containerized) at :9101
+name: arc-observability
 # so it can reach Redis directly without extra_hosts gymnastics.
 #
 # Usage:

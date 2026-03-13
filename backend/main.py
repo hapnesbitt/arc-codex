@@ -1,5 +1,5 @@
 # Filename: /home/www/itc_stack/backend/app.py
-# Arc Codex API Engine v48 - Priority queue endpoints: /api/submit + /api/submit_prompt
+# Arc Codex API Engine v49 - /api/upload_image for user cover images
 # NOW INCLUDES: Anti-bot URL fetching with shared fetch_utils
 # Ollama backend for /api/stm with detailed timing and diagnostics
 # FIX: Removed unfair readability penalty that punished technical writing
@@ -1166,6 +1166,7 @@ def submit_prompt():
     data   = request.get_json(force=True, silent=True) or {}
     prompt = (data.get('prompt') or '').strip()
     title  = (data.get('title') or '').strip()
+    image_url = (data.get('image_url') or '').strip() or None
 
     if not prompt:
         return jsonify({'error': 'prompt is required'}), 400
@@ -1178,6 +1179,7 @@ def submit_prompt():
         'origin': 'prompt',
         'prompt': prompt,
         'title':  title,
+        'image_url': image_url,
     }
 
     try:
@@ -1192,6 +1194,49 @@ def submit_prompt():
     except Exception as e:
         app.logger.error(f"🔥 Failed to queue prompt: {e}", exc_info=True)
         return jsonify({'error': 'Failed to queue prompt.'}), 500
+
+
+@app.route('/api/upload_image', methods=['POST'])
+def upload_image():
+    """
+    Upload a cover image for an article.
+    Saves to frontend/public/uploads/ — served statically by Next.js/Caddy.
+
+    Returns: { "url": "/uploads/<filename>" }
+    """
+    import hashlib
+
+    file = request.files.get('image')
+    if not file or file.filename == '':
+        return jsonify({'error': 'No image provided'}), 400
+
+    # Validate content type
+    allowed_types = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
+    if file.mimetype not in allowed_types:
+        return jsonify({'error': 'Unsupported image type. Use JPG, PNG, WebP, or GIF.'}), 400
+
+    raw = file.read()
+    if len(raw) > 10 * 1024 * 1024:
+        return jsonify({'error': 'Image must be under 10MB'}), 400
+
+    # Stable filename from content hash — deduplicates identical uploads
+    ext_map = {'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif'}
+    ext = ext_map.get(file.mimetype, 'jpg')
+    content_hash = hashlib.sha256(raw).hexdigest()[:16]
+    filename = f"{content_hash}.{ext}"
+
+    upload_dir = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'public', 'uploads')
+    os.makedirs(upload_dir, exist_ok=True)
+    file_path = os.path.join(upload_dir, filename)
+
+    if not os.path.exists(file_path):
+        with open(file_path, 'wb') as f_out:
+            f_out.write(raw)
+        app.logger.info(f"🖼️  Image saved: {filename} ({len(raw) // 1024}KB)")
+    else:
+        app.logger.info(f"🖼️  Image deduplicated: {filename}")
+
+    return jsonify({'url': f'/uploads/{filename}', 'filename': filename}), 201
 
 
 if __name__ == '__main__':

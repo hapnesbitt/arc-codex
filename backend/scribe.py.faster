@@ -5,19 +5,10 @@
 # The manifest is the single source of truth.
 # ---
 
-# Arc Codex Scribe v52.0
-#
-# Changes from v51.0:
-#   - YouTube ingest: yt-dlp metadata-only extraction (no download)
-#   - Prompt-to-article: user submits a prompt → Ollama generates article text
-#     → normal pipeline (quality gate → sentinel → counter-analyst → publish)
-#   - Priority queue consumer: scribe:priority_uploads now actually wired up
-#     Priority items are processed at the TOP of every cycle before RSS scanning
-#
-# Unchanged from v51.0:
-#   - No Playwright/Chromium (radeon GPU crash prevention on Z230)
-#   - requests tier 1 (simple) → tier 2 (stealth) → skip
-#   - Lazy red/blue/purple analysis (on first article view via analyzer.py)
+# Arc Codex Scribe v51.0 - PLAYWRIGHT REMOVED - requests+trafilatura only
+# Removed: Playwright/Chromium browser (caused fd exhaustion + radeon GPU crashes on Z230)
+# Fetching: requests (tier 1: simple) → requests with stealth headers (tier 2) → skip
+# All other logic unchanged from v50.0
 
 # --- Standard library imports ---
 import time
@@ -53,7 +44,6 @@ import charset_normalizer
 import gzip
 import zlib
 import yaml
-import yt_dlp
 
 # Load environment variables
 load_dotenv()
@@ -66,6 +56,7 @@ manual_upload_event = threading.Event()
 REDIS_PRIORITY_QUEUE_KEY = "scribe:priority_uploads"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 API_BASE_URL = os.environ.get("SCRIBE_API_BASE_URL", "http://127.0.0.1:5005/api")
+WS_URL = os.environ.get("SCRIBE_WS_URL", "ws://127.0.0.1:8765")
 SOLR_URL = os.environ.get("SCRIBE_SOLR_URL", "http://localhost:8983/solr/feeds/")
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "simplenes")
 SCRIBE_SECRET_KEY = os.environ.get("SCRIBE_SECRET_KEY", "default_secret_for_dev")
@@ -76,8 +67,8 @@ DEFAULT_IMAGES = {
     'security':  'https://arc-codex.com/information-warfare.jpg',
     'economics': 'https://arc-codex.com/economic-control.jpg',
     'science':   'https://arc-codex.com/science-medical.jpg',
-    'manual':    'https://arc-codex.com/uploads/arc-codex-manual.jpg',
-    'default':   'https://arc-codex.com/uploads/arc-codex-default.jpg',
+    'manual':    'https://arc-codex.com/manual-upload.jpg',
+    'default':   'https://arc-codex.com/information-warfare.jpg',
 }
 DEFAULT_IMAGE_URL = DEFAULT_IMAGES['default']
 
@@ -91,9 +82,11 @@ def _classify(directive_name='', source_category=''):
     """
     combined = f"{directive_name} {source_category}".lower()
 
+    # --- Explicit overrides for ambiguous terms ---
     if any(kw in combined for kw in ['biotech', 'biopharma', 'genomic']):
         return 'science_health'
 
+    # --- THREAT INTELLIGENCE (check first - site's core mission) ---
     threat_keywords = [
         'threat', 'malware', 'vulnerab', 'exploit', 'phish', 'spam',
         'cyber', 'osint', 'disinformation', 'counterterror', 'homeland',
@@ -108,6 +101,7 @@ def _classify(directive_name='', source_category=''):
     if any(kw in combined for kw in threat_keywords):
         return 'threat_intelligence'
 
+    # --- TECH & SURVEILLANCE ---
     tech_keywords = [
         'ai ', 'ai &', 'ai safety', 'ai align', 'ai risk', 'ai policy',
         'artificial intellig', 'machine learning',
@@ -120,6 +114,7 @@ def _classify(directive_name='', source_category=''):
     if any(kw in combined for kw in tech_keywords):
         return 'tech_surveillance'
 
+    # --- ECONOMIC & FINANCE ---
     econ_keywords = [
         'financ', 'banking', 'bank ', 'invest', 'market',
         'crypto', 'defi', 'bitcoin', 'nft', 'equity',
@@ -136,6 +131,7 @@ def _classify(directive_name='', source_category=''):
     if any(kw in combined for kw in econ_keywords):
         return 'economic_finance'
 
+    # --- SCIENCE & HEALTH ---
     science_keywords = [
         'science', 'medical', 'health', 'pharma', 'biotech',
         'genomic', 'biopharma', 'nuclear', 'climate',
@@ -148,6 +144,7 @@ def _classify(directive_name='', source_category=''):
     return 'general'
 
 
+# Map canonical categories to DEFAULT_IMAGES keys
 _CATEGORY_TO_IMAGE_KEY = {
     'threat_intelligence': 'security',
     'tech_surveillance': 'tech',
@@ -158,11 +155,13 @@ _CATEGORY_TO_IMAGE_KEY = {
 
 
 def get_default_image(directive_name='', source_category=''):
+    """Pick a contextual default image based on directive name and/or source category."""
     cat = _classify(directive_name, source_category)
     return DEFAULT_IMAGES[_CATEGORY_TO_IMAGE_KEY[cat]]
 
 
 def get_canonical_category(directive_name='', source_category=''):
+    """Return the canonical category ID for use in Redis filtering."""
     return _classify(directive_name, source_category)
 
 
@@ -195,7 +194,7 @@ USER_AGENTS = [
 ]
 
 # --- INITIALIZATION ---
-log_formatter = logging.Formatter('%(asctime)s - [SCRIBE v52.0] - %(levelname)s - %(message)s')
+log_formatter = logging.Formatter('%(asctime)s - [SCRIBE v51.0] - %(levelname)s - %(message)s')
 log_handler = logging.FileHandler(LOG_FILE)
 log_handler.setFormatter(log_formatter)
 logger = logging.getLogger('scribe')
@@ -421,8 +420,10 @@ def assess_content_quality(article_text, html_content=None):
 
 
 # --- CONTENT FETCHING ---
-# Playwright removed in v51.0 — no browser on Z230 (radeon GPU crash risk + fd exhaustion)
-# Strategy: requests tier 1 (simple) → tier 2 (stealth headers) → skip
+# Playwright removed in v51.0 due to Chromium radeon GPU crashes on HP Z230 (AMD FirePro W2100)
+# and fd exhaustion under ThreadPoolExecutor.
+# Strategy: requests tier 1 (simple) → requests tier 2 (stealth headers) → skip
+# JS-heavy paywalled sites are skipped gracefully — browser wasn't getting past them anyway.
 
 def detect_and_decode_content(response):
     """Handle compressed and encoded content intelligently"""
@@ -531,7 +532,7 @@ def fetch_with_requests(url, headers, stealth=False):
     Fetch a URL using requests only. No browser, no Playwright.
 
     stealth=False: plain request
-    stealth=True:  adds site-specific referer + sec-fetch headers
+    stealth=True:  adds site-specific referer + cache headers to defeat simple bot checks
     Returns dict with text/image_url/html_content, or None.
     """
     session = None
@@ -590,89 +591,14 @@ def fetch_with_requests(url, headers, stealth=False):
                 pass
 
 
-# --- YOUTUBE INGEST ---
-
-def is_youtube_url(url):
-    """Detect YouTube URLs including youtu.be short links."""
-    try:
-        netloc = urlparse(url).netloc.lower()
-        return netloc in (
-            'www.youtube.com', 'youtube.com',
-            'youtu.be', 'www.youtu.be',
-            'm.youtube.com',
-        )
-    except Exception:
-        return False
-
-
-def fetch_youtube_metadata(url):
-    """
-    Extract YouTube video metadata without downloading.
-    Uses yt-dlp in metadata-only mode.
-    Returns same dict shape as fetch_with_requests.
-    """
-    ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'skip_download': True,
-        'extract_flat': False,
-    }
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-
-        title       = info.get('title', 'Untitled')
-        channel     = info.get('channel') or info.get('uploader', 'Unknown')
-        description = (info.get('description') or '').strip()[:3000]
-        duration    = info.get('duration_string') or str(info.get('duration', ''))
-        upload_date = info.get('upload_date', '')   # YYYYMMDD
-        view_count  = info.get('view_count') or 0
-        thumbnail   = info.get('thumbnail') or DEFAULT_IMAGE_URL
-
-        if upload_date and len(upload_date) == 8:
-            upload_date = f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:]}"
-
-        # Build structured text — this is what the ARC pipeline will analyze
-        article_text = (
-            f"Title: {title}\n"
-            f"Channel: {channel}\n"
-            f"Published: {upload_date}\n"
-            f"Duration: {duration}\n"
-            f"Views: {view_count:,}\n\n"
-            f"Description:\n{description}"
-        ).strip()
-
-        if len(article_text) < MIN_ARTICLE_LENGTH:
-            logger.warning(f"▶️  YouTube metadata too sparse for {url} — skipping")
-            return None
-
-        logger.info(f"▶️  YouTube metadata extracted: '{title[:60]}' ({channel})")
-        return {
-            'text': article_text,
-            'image_url': thumbnail,
-            'html_content': '',
-        }
-
-    except Exception as e:
-        logger.error(f"▶️  YouTube metadata extraction failed for {url}: {e}")
-        return None
-
-
-# --- MAIN FETCH DISPATCHER ---
-
 def fetch_article_data(url):
     """
     Main article fetching function.
 
-    YouTube: yt-dlp metadata extraction (no download)
-    Tier 1:  Simple requests + trafilatura/BS4
-    Tier 2:  Stealth requests (referer + sec-fetch headers)
-    Tier 3:  Skip — no browser on this machine (radeon GPU crash risk)
+    Tier 1: Simple requests + trafilatura/BS4
+    Tier 2: Stealth requests (referer + sec-fetch headers)
+    Tier 3: Skip — no browser on this machine (radeon GPU crash risk)
     """
-    # YouTube fast path
-    if is_youtube_url(url):
-        return fetch_youtube_metadata(url)
-
     headers = {
         'User-Agent': random.choice(USER_AGENTS),
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -688,7 +614,7 @@ def fetch_article_data(url):
     if result:
         return result
 
-    # Tier 2: stealth headers
+    # Tier 2: stealth headers (defeats basic referrer/header checks)
     if is_problematic_news_site(url):
         logger.info(f"🛡️  Protected site detected, trying stealth headers: {url}")
     else:
@@ -698,186 +624,9 @@ def fetch_article_data(url):
     if result:
         return result
 
+    # Tier 3: give up cleanly — no browser available
     logger.warning(f"❌ Both fetch tiers failed for {url} — skipping (no browser fallback)")
     return None
-
-
-# --- PROMPT-TO-ARTICLE ---
-
-def generate_article_from_prompt(prompt_text):
-    """
-    Call Ollama to write a full article from a user-supplied prompt.
-    Returns article text string, or None on failure.
-
-    The system instruction keeps the output clean and publication-ready:
-    no meta-commentary, no "here is your article", just the article itself.
-    """
-    system_instruction = (
-        "You are a professional writer for Arc Codex, an intelligence and analysis platform. "
-        "When given a writing prompt, produce a well-structured, publication-ready article. "
-        "Write only the article itself — no preamble, no 'here is your article', no meta-commentary. "
-        "Use clear prose, factual tone, and logical structure with an introduction, body, and conclusion."
-    )
-
-    full_prompt = f"{system_instruction}\n\nWriting prompt:\n{prompt_text}"
-
-    try:
-        logger.info(f"✍️  Generating article from prompt: '{prompt_text[:80]}...'")
-        article_text, duration, model_used = call_ollama_with_fallback(full_prompt, timeout=900)
-        logger.info(f"✍️  Article generated via {model_used} in {duration:.0f}ms ({len(article_text)} chars)")
-        return article_text.strip()
-    except Exception as e:
-        logger.error(f"✍️  Prompt-to-article generation failed: {e}")
-        return None
-
-
-# --- PRIORITY QUEUE CONSUMER ---
-
-def process_priority_queue(api_client, recently_published):
-    """
-    Drain scribe:priority_uploads at the top of every cycle.
-
-    Items are JSON objects pushed by Flask (POST /api/submit or /api/submit_prompt).
-
-    Supported origins:
-        'url'    — fetch URL, run through normal pipeline
-        'prompt' — generate article from prompt text, publish directly
-        'text'   — raw article text supplied directly (manual publish)
-
-    Each item shape:
-        {
-            "origin": "url" | "prompt" | "text",
-            "url":    "https://...",       # for origin=url or youtube
-            "prompt": "Write about...",    # for origin=prompt
-            "text":   "Article body...",   # for origin=text
-            "title":  "Optional title",
-            "image_url": "https://..."     # optional override
-        }
-
-    Returns count of items successfully published.
-    """
-    published = 0
-
-    while True:
-        raw = r.lpop(REDIS_PRIORITY_QUEUE_KEY)
-        if not raw:
-            break
-
-        try:
-            item = json.loads(raw)
-        except json.JSONDecodeError:
-            logger.error(f"⚡ Priority queue: invalid JSON, discarding: {raw[:100]}")
-            continue
-
-        origin = item.get('origin', 'url')
-        logger.info(f"⚡ Priority item dequeued (origin={origin})")
-
-        article_text = None
-        title = item.get('title', '')
-        image_url = item.get('image_url', DEFAULT_IMAGE_URL)
-        source_url = item.get('url', '')
-
-        try:
-            if origin == 'prompt':
-                prompt_text = item.get('prompt', '').strip()
-                if not prompt_text:
-                    logger.warning("⚡ Priority prompt item has no prompt text — skipping")
-                    continue
-                article_text = generate_article_from_prompt(prompt_text)
-                if not title:
-                    # Derive a title from the first sentence of generated text
-                    first_line = (article_text or '').split('\n')[0].strip()
-                    title = re.sub(r'[\*_#`]+', '', first_line).strip()[:80] or 'Untitled'
-                source_url = ''
-
-            elif origin == 'url':
-                if not source_url:
-                    logger.warning("⚡ Priority url item has no url — skipping")
-                    continue
-                article_data = fetch_article_data(source_url)
-                if not article_data:
-                    logger.warning(f"⚡ Could not fetch priority URL: {source_url}")
-                    continue
-                article_text = article_data['text']
-                if not title:
-                    title = source_url
-                if image_url == DEFAULT_IMAGE_URL and article_data.get('image_url'):
-                    image_url = article_data['image_url']
-
-            elif origin == 'text':
-                article_text = item.get('text', '').strip()
-                if not title:
-                    title = 'Manual Submission'
-
-            else:
-                logger.warning(f"⚡ Unknown priority origin '{origin}' — skipping")
-                continue
-
-            if not article_text or len(article_text) < MIN_ARTICLE_LENGTH:
-                logger.warning(f"⚡ Priority item produced insufficient text ({len(article_text or '')} chars) — skipping")
-                continue
-
-            # Quality gate (skip paywall/auto-gen checks for prompt-generated content)
-            if origin != 'prompt':
-                is_quality, reason = assess_content_quality(article_text)
-                if not is_quality:
-                    logger.info(f"⚡ Priority item failed quality gate: {reason}")
-                    continue
-
-            article_hash = get_article_hash(title, article_text)
-
-            if r.sismember('processed_hashes', article_hash):
-                logger.info(f"⚡ Priority item already processed: {article_hash}")
-                continue
-
-            # Determine source label
-            if origin == 'prompt':
-                source_name = 'User Prompt'
-            elif origin == 'text':
-                source_name = 'Manual Submission'
-            else:
-                source_name = beautify_source_name(
-                    urlparse(source_url).netloc.replace('www.', '') if source_url else 'Unknown',
-                    source_url
-                )
-
-            # Build candidate in the same shape as RSS candidates
-            candidate = {
-                'source_name': source_name,
-                'source_category': item.get('category', ''),
-                'title': title,
-                'sourceUrl': source_url,
-                'url': f"https://arc-codex.com/article/{article_hash}",
-                'article_hash': article_hash,
-                'article_text': article_text,
-                'imageUrl': image_url,
-                'origin': origin,
-                'dossier': {'sentiment': 0.0},
-            }
-
-            # Publish directly — no directive matching for priority items
-            # Use a minimal directive so publish_and_prepare_comments works unchanged
-            target = {
-                'article': candidate,
-                'directive': {
-                    'name': item.get('directive', 'Manual'),
-                    'keywords': [],
-                    'emotion_profile': 'high',
-                    'priority': 1.0,
-                }
-            }
-
-            success = publish_and_prepare_comments(target, recently_published, api_client)
-            if success:
-                r.sadd('processed_hashes', article_hash)
-                published += 1
-                logger.info(f"⚡ Priority item published: '{title[:60]}'")
-
-        except Exception as e:
-            logger.error(f"⚡ Priority queue processing error: {e}", exc_info=True)
-            continue
-
-    return published
 
 
 # --- API CLIENT ---
@@ -905,7 +654,11 @@ class APIClient:
         return self._post('publish_article', article_payload)
 
 
-# --- OLLAMA ANALYSIS FUNCTIONS ---
+# --- OLLAMA FUNCTIONS ---
+
+# NOTE: build_unified_prompt_from_yaml() and ensemble analysis moved to analyzer.py
+# Scribe now publishes fast, analyzer runs on-demand when articles are viewed.
+
 
 def _repair_sentinel_json(raw: str) -> dict | None:
     """Attempt to parse or repair JSON from sentinel output."""
@@ -1163,7 +916,7 @@ def find_best_target(candidates, all_directives, recently_published):
 
 
 def publish_and_prepare_comments(target, recently_published, api_client):
-    """Publish article and generate sentinel + counter-analyst. Red/Blue/Purple is lazy."""
+    """Publish article and generate analysis"""
     article = target.get('article', {})
     directive = target.get('directive', {})
     article_id = article.get('article_hash')
@@ -1263,7 +1016,8 @@ def publish_and_prepare_comments(target, recently_published, api_client):
     except Exception as e:
         logger.warning(f"🤖 Counter-analyst failed (non-fatal): {e}")
 
-    # Red/Blue/Purple deferred — fires on first article view via analyzer.py
+    # Red/Blue/Purple analysis is NOT queued here.
+    # It triggers on-demand when someone views the article (via app.py → analyzer.py)
 
     if directive.get('name'):
         recently_published.append(directive['name'])
@@ -1271,18 +1025,13 @@ def publish_and_prepare_comments(target, recently_published, api_client):
     return True
 
 
-# --- MAIN LOOP ---
-
 def main():
-    logger.info("🚀 Arc Codex Scribe v52.0")
-    logger.info(f"   📡 Models: {OLLAMA_CLOUD_MODEL} → {OLLAMA_LOCAL_FALLBACK}")
-    logger.info(f"   🚫 Playwright/Chromium DISABLED (radeon GPU crash prevention on Z230)")
-    logger.info(f"   ▶️  YouTube ingest: yt-dlp metadata mode")
-    logger.info(f"   ✍️  Prompt-to-article: enabled")
-    logger.info(f"   ⚡ Priority queue: scribe:priority_uploads (processed each cycle)")
-    logger.info(f"   📋 Red/Blue/Purple: deferred to analyzer.py (on-demand)")
-
+    logger.info("🚀 Arc Codex Scribe v51.0 - NO-BROWSER MODE (requests+trafilatura only)")
+    logger.info(f"📡 Models: {OLLAMA_CLOUD_MODEL} → {OLLAMA_LOCAL_FALLBACK}")
+    logger.info(f"📋 Red/Blue/Purple analysis deferred to analyzer.py (on-demand)")
+    logger.info(f"🚫 Playwright/Chromium DISABLED — radeon GPU crash prevention on Z230")
     api_client = APIClient(API_BASE_URL, SCRIBE_SECRET_KEY)
+
     initialize_directories()
     socket.setdefaulttimeout(NETWORK_TIMEOUT_SECONDS)
     recently_published = deque(maxlen=RECENTLY_PUBLISHED_MEMORY)
@@ -1293,21 +1042,13 @@ def main():
         cycle_count += 1
 
         try:
-            # --- PRIORITY QUEUE FIRST ---
-            # User-submitted URLs, prompts, and manual text are always processed
-            # before RSS scanning so the user gets fast feedback.
-            priority_count = process_priority_queue(api_client, recently_published)
-            if priority_count:
-                logger.info(f"⚡ Processed {priority_count} priority item(s)")
-
-            # --- RSS CYCLE ---
             processed_hashes = r.smembers('processed_hashes')
             all_sources = load_json_file(SOURCES_FILE, [])
             all_directives = [d for topic in load_json_file(DIRECTIVES_FILE, [])
                               for key, value in topic.items() if isinstance(value, list) for d in value]
 
             if not all_sources or not all_directives:
-                time.sleep(2)
+                time.sleep(0)
                 continue
 
             logger.info(f"📡 Cycle {cycle_count}: Scanning {SOURCE_BATCH_SIZE} sources...")
@@ -1410,8 +1151,8 @@ def main():
             del candidates
             gc.collect()
 
-            logger.info("💤 Cycle complete. Sleeping two seconds ...")
-            time.sleep(2)
+            logger.info("💤 Cycle complete. Sleeping ten minutes ...")
+            time.sleep(600)
 
         except Exception as e:
             logger.error(f"MAIN LOOP ERROR: {e}", exc_info=True)

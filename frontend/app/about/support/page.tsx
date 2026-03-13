@@ -107,7 +107,7 @@ const SupportPage: React.FC = () => {
                 <Badge role="listitem" variant="outline" className="bg-cyan-600/20 text-cyan-300 border-cyan-500/30 font-sans text-sm">AI Content Detection</Badge>
                 <Badge role="listitem" variant="outline" className="bg-purple-600/20 text-purple-300 border-purple-500/30 font-sans text-sm">Watchline Operator</Badge>
                 <Badge role="listitem" variant="outline" className="bg-green-600/20 text-green-300 border-green-500/30 font-sans text-sm">162-Language Translation</Badge>
-                <Badge role="listitem" variant="outline" className="bg-amber-600/20 text-amber-300 border-amber-500/30 font-sans text-sm">1,200+ Sources Monitored</Badge>
+                <Badge role="listitem" variant="outline" className="bg-amber-600/20 text-amber-300 border-amber-500/30 font-sans text-sm">2,004 Sources Monitored</Badge>
               </div>
               <div className="w-24 h-1 bg-gradient-to-r from-blue-400 to-purple-500 rounded-full animate-pulse" aria-hidden="true" />
             </motion.header>

@@ -4,6 +4,7 @@
 #
 # Redis and Solr run natively on the Z230 — services reach them via
 # host.docker.internal (Docker Desktop) or via host network mode on Linux.
+name: arc-codex
 #
 # Usage:
 #   docker compose up -d              # start all

@@ -1,14 +1,15 @@
 // Filename: /frontend/app/publish/page.tsx
-// v8.0 - Prompt-to-Article mode
+// v9.0 - Publish confirmation modal + image selection
 //
-// Changes from v7.0:
-//   - Added 'prompt' ContentType — user writes a prompt, Ollama generates the article
-//   - Added renderPromptInput() section (purple/wand themed)
-//   - CONTENT_TYPES array extended with prompt option
-//   - handleSubmit routes url/text to /api/submit, prompt to /api/submit_prompt
-//   - Both new endpoints return 202 Accepted (async) — success message updated accordingly
-//   - Title is optional for prompt mode (scribe derives from first line of generated text)
-//   - Autosave includes prompt content type
+// Changes from v8.0:
+//   - Confirmation modal: "Share Story" — Make Public / Keep Private (disabled)
+//     Validation runs first; modal opens only when form is valid
+//     handleRequestSubmit = validate + open modal
+//     handleConfirmedPublish = actual API call (was handleSubmit body)
+//   - Image selection: browse local file or take photo (mobile camera)
+//     Uploads to /api/upload_image → saved to frontend/public/uploads/
+//     Preview shown before publish; og_image set on article
+//     Optional — falls back to OG image from URL if not provided
 
 'use client';
 
@@ -23,7 +24,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import {
   Send, Loader, CheckCircle, RefreshCw, Upload,
   Sparkles, FileText, Link2, Wand2,
-  Rocket, Globe, Crown, Shield, PenLine,
+  Rocket, Globe, Crown, Shield, PenLine, ImagePlus, X as XIcon,
 } from 'lucide-react';
 import UploadArea from '@/components/UploadArea';
 import StatusMessage from '@/components/StatusMessage';
@@ -224,7 +225,12 @@ export default function PublishPage() {
   const [message, setMessage]           = useState('');
   const [autosavedAt, setAutosavedAt]   = useState<string | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [imageFile, setImageFile]           = useState<File | null>(null);
+  const [imagePreview, setImagePreview]     = useState<string | null>(null);
+  const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
   const submitBtnRef  = useRef<HTMLButtonElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef  = useRef<HTMLInputElement>(null);
   const liveRegionRef = useRef<HTMLDivElement>(null);
 
@@ -284,7 +290,8 @@ export default function PublishPage() {
     }
   }, []);
 
-  const handleSubmit = useCallback(async (e?: React.FormEvent) => {
+  // Step 1: validate, then open confirmation modal
+  const handleRequestSubmit = useCallback((e?: React.FormEvent) => {
     if (e?.preventDefault) e.preventDefault();
 
     // Validation — title optional for prompt mode (scribe derives it)
@@ -319,7 +326,31 @@ export default function PublishPage() {
       return;
     }
 
+    // Validation passed — open confirmation modal
+    setShowConfirmModal(true);
+  }, [title, content, contentType, file, isProbablyUrl]);
+
+  // Step 2: user confirmed — actually publish
+  const handleConfirmedPublish = useCallback(async () => {
+    setShowConfirmModal(false);
     setStatus('loading');
+
+    // Upload image if selected (inlined to avoid forward reference)
+    let resolvedImageUrl: string | null = uploadedImageUrl;
+    if (imageFile && !uploadedImageUrl) {
+      try {
+        const fd = new FormData();
+        fd.append('image', imageFile);
+        const imgResp = await fetch('/api/upload_image', { method: 'POST', body: fd });
+        if (imgResp.ok) {
+          const imgData = await imgResp.json();
+          resolvedImageUrl = imgData.url || null;
+          if (resolvedImageUrl) setUploadedImageUrl(resolvedImageUrl);
+        }
+      } catch {
+        // Image upload failed — continue without image (non-fatal)
+      }
+    }
 
     // --- PROMPT mode → /api/submit_prompt (async, 202) ---
     if (contentType === 'prompt') {
@@ -328,7 +359,7 @@ export default function PublishPage() {
         const resp = await fetch('/api/submit_prompt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: content.trim(), title: title.trim() }),
+          body: JSON.stringify({ prompt: content.trim(), title: title.trim(), image_url: resolvedImageUrl || undefined }),
         });
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.error || 'Unknown error from server.');
@@ -361,6 +392,7 @@ export default function PublishPage() {
             content_type: contentType,
             content: content.trim(),
             title: title.trim(),
+            image_url: resolvedImageUrl || undefined,
           }),
         });
         const data = await resp.json();
@@ -417,13 +449,13 @@ export default function PublishPage() {
       setStatus('error');
       setMessage(err instanceof Error ? err.message : 'Something went wrong.');
     }
-  }, [title, content, contentType, file, clearDraft, router, isProbablyUrl]);
+  }, [title, content, contentType, file, clearDraft, router, isProbablyUrl, imageFile, uploadedImageUrl]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
-        if (status !== 'loading' && status !== 'success') handleSubmit();
+        if (status !== 'loading' && status !== 'success') handleRequestSubmit();
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
@@ -433,7 +465,7 @@ export default function PublishPage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [clearDraft, handleSubmit, status]);
+  }, [clearDraft, handleRequestSubmit, status]);
 
   const handleFileChange = useCallback((selectedFile: File | null) => {
     if (selectedFile && ALLOWED_FILE_TYPES.includes(selectedFile.type)) {
@@ -465,6 +497,33 @@ export default function PublishPage() {
       setMessage('No drafts found.');
       setStatus('error');
     }
+  }, []);
+
+  const handleImageChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (!f.type.startsWith('image/')) {
+      setStatus('error');
+      setMessage('Please select an image file.');
+      return;
+    }
+    if (f.size > 10 * 1024 * 1024) {
+      setStatus('error');
+      setMessage('Image must be under 10MB.');
+      return;
+    }
+    setImageFile(f);
+    const reader = new FileReader();
+    reader.onload = (ev) => setImagePreview(ev.target?.result as string);
+    reader.readAsDataURL(f);
+    setUploadedImageUrl(null);
+  }, []);
+
+  const clearImage = useCallback(() => {
+    setImageFile(null);
+    setImagePreview(null);
+    setUploadedImageUrl(null);
+    if (imageInputRef.current) imageInputRef.current.value = '';
   }, []);
 
   const submitLabel =
@@ -633,7 +692,7 @@ export default function PublishPage() {
           <div className="w-24 h-1 bg-gradient-to-r from-amber-400 to-purple-500 rounded-full" aria-hidden="true" />
         </header>
 
-        <form id="publish-form" onSubmit={handleSubmit} aria-label="Publish content" className="space-y-12">
+        <form id="publish-form" onSubmit={handleRequestSubmit} aria-label="Publish content" className="space-y-12">
 
           {/* Title Section */}
           <Section
@@ -695,6 +754,65 @@ export default function PublishPage() {
             {contentType === 'file'   && renderFileUpload()}
             {contentType === 'prompt' && renderPromptInput()}
           </div>
+
+          {/* Image Selection */}
+          <Section
+            title="Cover Image"
+            icon={<ImagePlus className="w-8 h-8 text-pink-400" />}
+            gradient="border-pink-400/50"
+            sectionId="image-section"
+          >
+            <p className="text-sm text-slate-400 font-serif italic">
+              Optional — if not set, Arc Codex will use the article&apos;s OG image automatically.
+            </p>
+            <div className="flex flex-col gap-4">
+              {/* Hidden file input — accepts images + camera on mobile */}
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                aria-label="Select cover image"
+                onChange={handleImageChange}
+                disabled={status === 'loading' || status === 'success'}
+              />
+
+              {imagePreview ? (
+                <div className="relative group w-full max-w-md mx-auto">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={imagePreview}
+                    alt="Cover image preview"
+                    className="w-full h-48 object-cover rounded-xl border border-pink-400/30"
+                  />
+                  <button
+                    type="button"
+                    onClick={clearImage}
+                    aria-label="Remove image"
+                    className="absolute top-2 right-2 p-1.5 rounded-full bg-slate-900/80 border border-slate-600 text-slate-300 hover:text-white hover:border-red-400 transition-colors focus-visible:ring-2 focus-visible:ring-red-400"
+                  >
+                    <XIcon className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                  <div className="mt-2 text-sm text-slate-400 font-serif text-center">
+                    {imageFile?.name} · {imageFile ? (imageFile.size / 1024).toFixed(0) : 0}KB
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={status === 'loading' || status === 'success'}
+                  className="w-full max-w-md mx-auto h-32 rounded-xl border-2 border-dashed border-pink-400/30 hover:border-pink-400/60 text-slate-400 hover:text-pink-300 flex flex-col items-center justify-center gap-2 transition-colors focus-visible:ring-2 focus-visible:ring-pink-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  aria-label="Browse for cover image or take photo"
+                >
+                  <ImagePlus className="h-8 w-8" aria-hidden="true" />
+                  <span className="font-serif text-sm">Browse or take photo</span>
+                  <span className="font-serif text-xs opacity-60">JPG, PNG, WebP · max 10MB</span>
+                </button>
+              )}
+            </div>
+          </Section>
 
           {/* Status Message */}
           <StatusMessage status={status} message={message} />
@@ -819,7 +937,7 @@ export default function PublishPage() {
         <Button
           variant="default"
           size="icon"
-          onClick={() => handleSubmit()}
+          onClick={() => handleRequestSubmit()}
           disabled={status === 'loading' || status === 'success'}
           aria-label={submitLabel}
           className="h-16 w-16 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 shadow-2xl shadow-amber-500/50 border border-amber-400/50 transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
@@ -827,6 +945,75 @@ export default function PublishPage() {
           <Send className="h-6 w-6" aria-hidden="true" />
         </Button>
       </div>
+
+      {/* Publish Confirmation Modal */}
+      {showConfirmModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-modal-title"
+        >
+          <div className="w-full max-w-md rounded-2xl bg-slate-900/95 border border-amber-400/40 backdrop-blur-xl shadow-[0_0_40px_rgba(251,191,36,0.3)] p-8 space-y-6">
+            <div className="space-y-2">
+              <h2 id="confirm-modal-title" className="text-2xl font-bold text-slate-50 font-sans tracking-tight">
+                Share Story
+              </h2>
+              <p className="text-slate-400 font-serif text-sm">
+                Choose how you want to publish this content.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {/* Make Public — primary action */}
+              <button
+                type="button"
+                onClick={handleConfirmedPublish}
+                className="w-full p-4 rounded-xl border-2 border-amber-400 bg-amber-400/10 text-amber-300 font-serif text-left transition-colors hover:bg-amber-400/20 focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:outline-none"
+              >
+                <div className="font-bold text-base">Make Public</div>
+                <div className="text-sm opacity-75 mt-0.5">Published to the Arc Codex feed with full A.R.C. analysis</div>
+              </button>
+
+              {/* Keep Private — disabled until Workspaces */}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="w-full p-4 rounded-xl border-2 border-slate-600/40 bg-slate-800/20 text-slate-500 font-serif text-left cursor-not-allowed select-none" aria-disabled="true">
+                      <div className="font-bold text-base flex items-center gap-2">
+                        Keep Private
+                        <span className="text-xs font-mono bg-slate-700/50 text-slate-400 px-2 py-0.5 rounded-full">Coming soon</span>
+                      </div>
+                      <div className="text-sm opacity-60 mt-0.5">Saved to your private Workspace — visible only to you</div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent className="bg-slate-800 border-slate-700">
+                    <p className="font-serif">Coming soon — Workspaces</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-700/50">
+              <p className="text-xs text-slate-500 font-serif">
+                Don&apos;t share personal information or third-party content without permission.{' '}
+                <a href="/about/terms" className="text-amber-400/70 hover:text-amber-400 underline underline-offset-2">
+                  Usage Policy
+                </a>
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowConfirmModal(false)}
+                className="text-slate-400 hover:text-slate-200 font-serif ml-4 shrink-0 focus-visible:ring-2 focus-visible:ring-amber-400/70"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Confetti */}
       {showConfetti && (
