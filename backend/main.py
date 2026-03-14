@@ -99,6 +99,12 @@ except Exception as e:
 
 # --- SOLR CONNECTION ---
 SOLR_URL = os.getenv("SOLR_URL", "http://localhost:8983/solr/feeds/")
+
+# --- BLUESKY CONFIG ---
+BLUESKY_HANDLE       = os.getenv("BLUESKY_HANDLE", "hapenez.bsky.social")
+BLUESKY_APP_PASSWORD = os.getenv("BLUESKY_APP_PASSWORD", "")
+BLUESKY_API_BASE     = "https://bsky.social/xrpc"
+
 solr = None
 try:
     solr = pysolr.Solr(SOLR_URL)
@@ -1100,10 +1106,16 @@ def submit():
     Replaces the old filesystem-based submit_content path for url/text types.
 
     JSON body:
-        { "content_type": "url" | "text", "content": "...", "title": "..." }
+        {
+            "content_type": "url" | "text",
+            "content":      "...",
+            "title":        "...",
+            "image_url":    "https://..."   # optional — overrides OG image extraction
+        }
 
     Returns 202 immediately — scribe processes asynchronously.
     """
+
     if not r:
         app.logger.error("🔥 Redis unavailable for submit")
         return jsonify({"error": "Database connection is offline."}), 503
@@ -1132,6 +1144,9 @@ def submit():
         'url':    content if content_type == 'url'  else '',
         'text':   content if content_type == 'text' else '',
         'title':  title,
+        'image_url': (data.get('image_url') or '').strip() or None,  # ← add this
+        'visibility': (data.get('visibility') or 'public'),
+        'owner': '',
     }
 
     try:
@@ -1180,6 +1195,8 @@ def submit_prompt():
         'prompt': prompt,
         'title':  title,
         'image_url': image_url,
+        'visibility': (data.get('visibility') or 'public'),
+        'owner': '',
     }
 
     try:
@@ -1239,5 +1256,141 @@ def upload_image():
     return jsonify({'url': f'/uploads/{filename}', 'filename': filename}), 201
 
 
+# --- BLUESKY POST ENDPOINT ---
+# Add to main.py after the LinkedIn endpoints
+
+import requests as requests
+
+BLUESKY_HANDLE     = os.getenv("BLUESKY_HANDLE", "hapenez.bsky.social")
+BLUESKY_APP_PASSWORD = os.getenv("BLUESKY_APP_PASSWORD", "")
+BLUESKY_API_BASE   = "https://bsky.social/xrpc"
+
+def bluesky_get_token():
+    """Authenticate and return (did, accessJwt) or raise."""
+    resp = requests.post(
+        f"{BLUESKY_API_BASE}/com.atproto.server.createSession",
+        json={"identifier": BLUESKY_HANDLE, "password": BLUESKY_APP_PASSWORD},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return data["did"], data["accessJwt"]
+
+def bluesky_resolve_url_card(token, url, title, description=""):
+    """Fetch OG data for a URL card embed (optional — graceful fallback)."""
+    try:
+        resp = requests.post(
+            f"{BLUESKY_API_BASE}/app.bsky.richtext.detectFacets",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"text": url},
+            timeout=5,
+        )
+        # Just return a basic external embed
+        return {
+            "$type": "app.bsky.embed.external",
+            "external": {
+                "$type": "app.bsky.embed.external#external",
+                "uri": url,
+                "title": title[:300],
+                "description": description[:600],
+            }
+        }
+    except Exception:
+        return None
+
+@app.route('/api/post_bluesky', methods=['POST'])
+def post_bluesky():
+    """
+    Manually post an article to Bluesky.
+
+    JSON body:
+        {
+            "article_id": "abc123",
+            "text":       "Optional override text (max 300 chars)"
+        }
+
+    Returns 200 with post URI on success.
+    """
+    if not BLUESKY_APP_PASSWORD:
+        return jsonify({"error": "Bluesky not configured."}), 503
+
+    data = request.get_json(force=True, silent=True) or {}
+    article_id = data.get("article_id", "").strip()
+    if not article_id:
+        return jsonify({"error": "article_id required"}), 400
+
+    # Fetch article from Redis
+    article = r.hgetall(f"article:{article_id}")
+    if not article:
+        return jsonify({"error": "Article not found"}), 404
+
+    title       = article.get("title", "Untitled")
+    source_url  = article.get("sourceUrl") or article.get("url", "")
+    article_url = f"{os.getenv('NEXT_PUBLIC_BACKEND_URL', 'https://arc-codex.com')}/article/{article_id}"
+    blue_team   = article.get("blue_team_analysis", "")
+
+    # Build post text — title + short blurb + article URL
+    blurb = (data.get("text") or blue_team)[:200].strip()
+    if blurb:
+        post_text = f"{title}\n\n{blurb}\n\n{article_url}"
+    else:
+        post_text = f"{title}\n\n{article_url}"
+
+    # Bluesky hard limit: 300 graphemes
+    if len(post_text) > 300:
+        # Trim blurb to fit
+        overhead = len(title) + len(article_url) + 4  # \n\n x2
+        max_blurb = 300 - overhead - 3  # 3 for ellipsis
+        blurb = blurb[:max(0, max_blurb)] + ("..." if max_blurb > 0 else "")
+        post_text = f"{title}\n\n{blurb}\n\n{article_url}" if blurb else f"{title}\n\n{article_url}"
+
+    try:
+        did, token = bluesky_get_token()
+
+        # Detect facets (links/mentions) in the post text
+        facet_resp = requests.post(
+            f"{BLUESKY_API_BASE}/app.bsky.richtext.detectFacets",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"text": post_text},
+            timeout=10,
+        )
+        facets = facet_resp.json().get("facets", []) if facet_resp.ok else []
+
+        # Build embed card
+        embed = bluesky_resolve_url_card(token, article_url, title, blurb)
+
+        record = {
+            "$type": "app.bsky.feed.post",
+            "text": post_text,
+            "createdAt": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+            "langs": ["en"],
+        }
+        if facets:
+            record["facets"] = facets
+        if embed:
+            record["embed"] = embed
+
+        post_resp = requests.post(
+            f"{BLUESKY_API_BASE}/com.atproto.repo.createRecord",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "repo": did,
+                "collection": "app.bsky.feed.post",
+                "record": record,
+            },
+            timeout=10,
+        )
+        post_resp.raise_for_status()
+        result = post_resp.json()
+        uri = result.get("uri", "")
+        app.logger.info(f"🦋 Bluesky post published: {uri}")
+        return jsonify({"success": True, "uri": uri}), 200
+
+    except requests.HTTPError as e:
+        app.logger.error(f"🔥 Bluesky API error: {e.response.text}")
+        return jsonify({"error": f"Bluesky API error: {e.response.status_code}"}), 502
+    except Exception as e:
+        app.logger.error(f"🔥 Bluesky post failed: {e}")
+        return jsonify({"error": str(e)}), 500
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5005, debug=False)

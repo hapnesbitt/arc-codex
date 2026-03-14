@@ -229,16 +229,23 @@ export default function PublishPage() {
   const [imageFile, setImageFile]           = useState<File | null>(null);
   const [imagePreview, setImagePreview]     = useState<string | null>(null);
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
-  const submitBtnRef  = useRef<HTMLButtonElement>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef  = useRef<HTMLInputElement>(null);
-  const liveRegionRef = useRef<HTMLDivElement>(null);
+  const submitBtnRef     = useRef<HTMLButtonElement>(null);
+  const imageInputRef    = useRef<HTMLInputElement>(null);
+  const fileInputRef     = useRef<HTMLInputElement>(null);
+  const liveRegionRef    = useRef<HTMLDivElement>(null);
+  const confirmModalRef  = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (message && liveRegionRef.current) {
       liveRegionRef.current.textContent = message;
     }
   }, [message, status]);
+
+  useEffect(() => {
+    if (showConfirmModal) {
+      setTimeout(() => confirmModalRef.current?.focus(), 50);
+    }
+  }, [showConfirmModal]);
 
   useEffect(() => {
     try {
@@ -949,6 +956,8 @@ export default function PublishPage() {
       {/* Publish Confirmation Modal */}
       {showConfirmModal && (
         <div
+          ref={confirmModalRef}
+          tabIndex={-1}
           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4"
           role="dialog"
           aria-modal="true"

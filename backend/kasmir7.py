@@ -128,13 +128,15 @@ def connect_solr():
 
 # --- Helpers ---
 def normalize_timestamp(raw_ts):
-    """Convert any timestamp format to ISO 8601 for Solr."""
-    if not raw_ts:
-        return ''
+    """Convert any timestamp format to ISO 8601 for Solr date field."""
     try:
-        return datetime.fromtimestamp(int(raw_ts), tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-    except (ValueError, OSError):
-        return raw_ts
+        if not raw_ts:
+            return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        if str(raw_ts).isdigit():
+            return datetime.fromtimestamp(int(raw_ts) / 1000, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        return parser.parse(str(raw_ts)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    except Exception:
+        return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 def solr_delete(solr, article_id):
     """Delete a single doc from Solr WITHOUT committing (caller must commit)."""
@@ -1405,6 +1407,68 @@ def _inspect_by_id(r, solr, article_id):
         print(f"  ARC tags : {', '.join(found) if found else '(none flagged)'}")
         print(f"\n  Purple team excerpt:\n  {purple[:400]}...")
 
+# ==============================================================================
+# My Publications
+# ==============================================================================
+def my_publications(r, solr):
+    """List all manually published articles — Manual Submission, User Prompt, Personal Blog."""
+    MY_SOURCES = {'Manual Submission', 'User Prompt', 'Personal Blog Content - Auto Publish'}
+    print(colored("\n--- [11] My Publications ---", "cyan"))
+
+    all_ids = r.lrange('arc:feed', 0, -1)
+    matches = []
+
+    print(f"Scanning {len(all_ids)} articles...", end='\r')
+    for aid in all_ids:
+        origin = r.hget(f"article:{aid}", "origin") or ''
+        if origin and origin != 'rss':
+            title = r.hget(f"article:{aid}", "title") or 'Untitled'
+            ts_raw = r.hget(f"article:{aid}", "timestamp") or ''
+            try:
+                ts = parser.parse(ts_raw).strftime('%Y-%m-%d %H:%M') if ts_raw else 'unknown'
+            except Exception:
+                ts = ts_raw[:16]
+            matches.append((ts, title, aid, source))
+
+    matches.sort(reverse=True)
+    print(f"Found {len(matches)} publication(s).          ")
+    print("─────────────────────────────────────────────────────────")
+    for i, (ts, title, aid, source) in enumerate(matches, 1):
+        src_color = 'green' if source == 'Manual Submission' else 'magenta' if 'Blog' in source else 'yellow'
+        print(f"  [{i:2}] {ts}  {colored(source[:20], src_color):30}  {title[:55]}")
+    print("─────────────────────────────────────────────────────────")
+
+    if not matches:
+        print(colored("  No manual publications found.", "yellow"))
+        return
+
+    choice = input("\nInspect or remove? Enter number (or q to return): ").strip().lower()
+    if choice == 'q' or choice == '':
+        return
+    try:
+        idx = int(choice) - 1
+        if idx < 0 or idx >= len(matches):
+            print(colored("Invalid selection.", "red"))
+            return
+        ts, title, aid, source = matches[idx]
+        print(colored(f"\n=== {title[:60]} ===", "cyan"))
+        data = r.hgetall(f"article:{aid}")
+        print(f"  ID       : {aid}")
+        print(f"  Source   : {source}")
+        print(f"  Date     : {ts}")
+        print(f"  URL      : {data.get('sourceUrl', 'N/A')}")
+        print(f"  Image    : {data.get('imageUrl', 'N/A')}")
+        s = _get_chimera_score(data)
+        if s is not None:
+            sc = 'red' if s < 0.3 else ('yellow' if s < 0.6 else 'green')
+            print(f"  Chimera  : {colored(f'{s:.3f}', sc)}")
+        action = input("\n  [r] Remove  [q] Back: ").strip().lower()
+        if action == 'r':
+            confirm = input(f"  Remove '{title[:50]}'? (yes/no): ").strip()
+            if confirm == 'yes':
+                _delete_articles(r, solr, [(None, aid, title)], "manual publication")
+    except (ValueError, IndexError):
+        print(colored("Invalid selection.", "red"))
 
 # ==============================================================================
 # Main
@@ -1427,6 +1491,7 @@ def main():
         print("  [8]  Purge Redis Orphans")
         print("  [9]  Intelligence Dashboard")
         print("  [10] A.R.C. Pattern Scanner")
+        print("  [11] My Publications")
         print("  [q]  Quit\n")
 
         choice = input("Select: ").strip().lower()
@@ -1441,6 +1506,7 @@ def main():
         elif choice == '8':  purge_redis_orphans(r, solr)
         elif choice == '9':  intelligence_dashboard(r, solr)
         elif choice == '10': arc_pattern_scanner(r, solr)
+        elif choice == '11': my_publications(r, solr)
         elif choice in ('', 'q', 'quit', 'exit'):
             print("Goodbye.")
             break

@@ -36,7 +36,6 @@ COPY public      ./public
 COPY app         ./app
 COPY components  ./components
 COPY lib         ./lib
-COPY hooks       ./hooks
 
 # NEXT_PUBLIC_* vars must be present at build time
 ARG NEXTAUTH_URL

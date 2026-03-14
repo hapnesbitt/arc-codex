@@ -774,7 +774,7 @@ def process_priority_queue(api_client, recently_published):
 
         article_text = None
         title = item.get('title', '')
-        image_url = item.get('image_url') or DEFAULT_IMAGE_URL
+        image_url = item.get('image_url') or None
         source_url = item.get('url', '')
 
         try:
@@ -801,7 +801,7 @@ def process_priority_queue(api_client, recently_published):
                 article_text = article_data['text']
                 if not title:
                     title = source_url
-                if image_url == DEFAULT_IMAGE_URL and article_data.get('image_url'):
+                if not image_url and article_data.get('image_url'):
                     image_url = article_data['image_url']
 
             elif origin == 'text':
@@ -840,6 +840,10 @@ def process_priority_queue(api_client, recently_published):
                     urlparse(source_url).netloc.replace('www.', '') if source_url else 'Unknown',
                     source_url
                 )
+
+            # Resolve og_image — user-supplied takes priority, then fallback
+            if not image_url:
+                image_url = DEFAULT_IMAGE_URL
 
             # Build candidate in the same shape as RSS candidates
             candidate = {
@@ -1178,7 +1182,7 @@ def publish_and_prepare_comments(target, recently_published, api_client):
     logger.info(f"📰 Publishing: '{article.get('title', 'Untitled')}'")
 
     current_image = article.get('imageUrl', DEFAULT_IMAGE_URL)
-    if current_image == DEFAULT_IMAGE_URL:
+    if not current_image or current_image == DEFAULT_IMAGE_URL:
         smart_image = get_default_image(
             directive_name=directive.get('name', ''),
             source_category=article.get('source_category', '')
@@ -1203,7 +1207,10 @@ def publish_and_prepare_comments(target, recently_published, api_client):
         'blue_team_analysis': '',
         'red_team_analysis': '',
         'purple_team_analysis': '',
-        'sentinel_analysis': ''
+        'sentinel_analysis': '',
+        'origin': article.get('origin', 'rss'),
+        'visibility': article.get('visibility', 'public'),
+        'owner': article.get('owner', ''),
     })
 
     try:

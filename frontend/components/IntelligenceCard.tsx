@@ -417,6 +417,7 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [bskyPosted, setBskyPosted] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
     const baseUrl = `https://arc-codex.com/article/${articleId}`;
@@ -489,6 +490,21 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
         close();
     };
 
+    const handleBluesky = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        try {
+            const resp = await fetch('/api/post_bluesky', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ article_id: articleId }),
+            });
+            if (resp.ok) {
+                setBskyPosted(true);
+                setTimeout(() => { setBskyPosted(false); close(); }, 1500);
+            }
+        } catch { /* silent */ }
+    };
+
     return (
         <div className="relative" ref={menuRef}>
             <Button
@@ -556,6 +572,20 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
                                 <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
                             </svg>
                             <span>Share on LinkedIn</span>
+                        </button>
+                        <button
+                            role="menuitem"
+                            onClick={handleBluesky}
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors focus-visible:outline-none focus-visible:bg-slate-800/80"
+                        >
+                            {bskyPosted ? (
+                                <Check className="h-4 w-4 text-emerald-400" aria-hidden="true" />
+                            ) : (
+                                <svg className="h-4 w-4 text-sky-400" viewBox="0 0 360 320" fill="currentColor" aria-hidden="true">
+                                    <path d="M180 141.964C163.699 110.262 119.308 51.1817 78.0347 26.67C56.326 14.0375 3.49981 -3.09781 3.49981 58.4432C3.49981 70.0484 6.51032 152.417 8.02611 164.966C13.0991 206.358 55.1251 218.468 91.8511 211.868C28.8511 221.896 -1.74363 233.946 21.5634 269.754C55.0434 319.698 119.309 292.734 148.915 278.006C167.735 268.609 178.431 260.768 180 256.477C181.569 260.768 192.265 268.609 211.085 278.006C240.691 292.734 304.957 319.698 338.437 269.754C361.744 233.946 331.149 221.896 268.149 211.868C304.875 218.468 346.901 206.358 351.974 164.966C353.49 152.417 356.5 70.0484 356.5 58.4432C356.5 -3.09781 303.674 14.0375 281.965 26.67C240.692 51.1817 196.301 110.262 180 141.964Z"/>
+                                </svg>
+                            )}
+                            <span>{bskyPosted ? 'Posted!' : 'Post to Bluesky'}</span>
                         </button>
                         <button
                             role="menuitem"
@@ -741,11 +771,12 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                         tabIndex={-1}
                         aria-hidden="true"
                     >
-                        <div className="w-full h-64 bg-slate-950 overflow-hidden">
+                        <div className="w-full h-80 bg-slate-950 overflow-hidden">
                             <img
                                 src={card.imageUrl}
                                 alt=""
-                                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                onError={(e) => { (e.target as HTMLImageElement).src = '/uploads/arc-codex-default.jpg'; }}
+				className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                             />
                         </div>
                     </a>
