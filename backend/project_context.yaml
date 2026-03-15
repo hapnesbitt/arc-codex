@@ -535,14 +535,41 @@ developer:
       - "Article deduplication (SimHash)"
       - "Netdata custom metrics"
       - "Email digest subscriber management in admin UI"
+      - "Workspaces v0.5 — My Feed toggle (logged-in view: public + private articles only)"
       - "Workspaces v1 — private article collections, file uploads, /w/[routename] routes"
       - "vid.mine.nu → arc-codex.com publish bridge"
       - "Bluesky auto-poster daemon (bluesky_poster.py)"
       - "Bluesky image embed via uploadBlob"
       - "huntaegis LinkedIn auto-poster (linkedin_poster.py)"
       - "kasmir7 my_publications backfill for pre-origin articles"
+      - "Source management UI — paste feed URL + pick category, no sources.json editing"
+      - "Username/password auth alongside OAuth (Ross has prior impl on vid.mine.nu)"
+      - "Admin onboarding page — requires username/password auth first"
+      - "Port visibility/private system to huntaegis (Caddy routes, Next.js proxies, main.py, pages)"
 
   changelog:
+    v7.15: |
+      Mar 15, 2026:
+      - about/support/page.tsx v2.0 — complete user guide rewrite:
+        Reading the feed, tone score, A.R.C. analysis (all 3 teams + Counter-Analyst),
+        Sentinel, translation, publishing (4 modes + public/private), sharing, account.
+        Collapsible sections throughout. Replaces old technical docs with real how-to guide.
+      - about/sales/page.tsx v2.0 — updated with:
+        "How It Works" section with 3-team analysis explained concretely,
+        Huntaegis success story with live link to huntaegis.com,
+        Docker deployment section, source count updated to 2,004,
+        CTA links to support/how-to page instead of generic email.
+      - about/contact/page.tsx v2.0 — full visual redesign:
+        Glowing HN monogram hero, staggered entrance animations,
+        color-coded expertise cards, contact rows with per-service hover glow,
+        ambient radial glow, Arc Codex feed CTA panel.
+        hap@arc-codex.com, LinkedIn → arccodexsupport, footer → Hap Nesbitt.
+      - about/page.tsx (gateway) — updated card descriptions and version string:
+        Support card: user guide description, Vision card: Huntaegis mention,
+        A.R.C. Framework v6.2 // Connection Secure
+      - IntelligenceCard.tsx: 🔒 lock icon on private articles (owner-only, uses useUserPrefs)
+      - main.py: removed debug logs (get_feed X-User-Id, submit X-User-Id header)
+      - arc restart gunicorn post-cleanup
     v7.14: |
       Mar 15, 2026:
       - Private articles fully working on arc-codex:

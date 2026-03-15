@@ -441,7 +441,6 @@ def get_feed():
         redis_duration = (time.perf_counter() - redis_start) * 1000
         
         requesting_user = request.headers.get('X-User-Id', '')
-        app.logger.info(f"🔑 get_feed X-User-Id: '{requesting_user}'")
         formatted_feed = []
         for item, langs in zip(feed_data, langs_data):
             if item:
@@ -1124,8 +1123,6 @@ def submit():
     if not r:
         app.logger.error("🔥 Redis unavailable for submit")
         return jsonify({"error": "Database connection is offline."}), 503
-
-    app.logger.info(f"🔑 X-User-Id header: '{request.headers.get('X-User-Id', 'NOT_FOUND')}'")
 
     data = request.get_json(force=True, silent=True) or {}
     content_type = data.get('content_type', '').strip()

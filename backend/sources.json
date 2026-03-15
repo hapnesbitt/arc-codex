@@ -10021,5 +10021,420 @@
     "name": "The Black Vault (FOIA/Intel)",
     "url": "https://www.theblackvault.com/documentarchive/feed/",
     "category": "Media & Discourse"
+  },
+  {
+    "name": "Microsoft Security Response Center",
+    "url": "https://msrc.microsoft.com/blog/feed",
+    "category": "Vulnerability Research"
+  },
+  {
+    "name": "Qualys Security Blog",
+    "url": "https://blog.qualys.com/feed",
+    "category": "Vulnerability Research"
+  },
+  {
+    "name": "Tenable Blog",
+    "url": "https://www.tenable.com/blog/feed",
+    "category": "Vulnerability Research"
+  },
+  {
+    "name": "PortSwigger Research",
+    "url": "https://portswigger.net/research/rss",
+    "category": "Penetration Testing"
+  },
+  {
+    "name": "Offensive Security Blog",
+    "url": "https://www.offensive-security.com/feed/",
+    "category": "Penetration Testing"
+  },
+  {
+    "name": "Pentest Monkey",
+    "url": "https://pentestmonkey.net/feed",
+    "category": "Penetration Testing"
+  },
+  {
+    "name": "SecureAuth Labs",
+    "url": "https://www.secureauth.com/blog/feed/",
+    "category": "Penetration Testing"
+  },
+  {
+    "name": "TrustedSec Blog",
+    "url": "https://www.trustedsec.com/feed/",
+    "category": "Penetration Testing"
+  },
+  {
+    "name": "Bishop Fox Blog",
+    "url": "https://bishopfox.com/blog/feed",
+    "category": "Penetration Testing"
+  },
+  {
+    "name": "NetSPI Blog",
+    "url": "https://www.netspi.com/blog/feed/",
+    "category": "Penetration Testing"
+  },
+  {
+    "name": "Cobalt Strike Blog",
+    "url": "https://cobaltstrike.com/blog/feed/",
+    "category": "Penetration Testing"
+  },
+  {
+    "name": "SentinelOne Blog",
+    "url": "https://www.sentinelone.com/blog/feed/",
+    "category": "Malware & Forensics"
+  },
+  {
+    "name": "Malware Traffic Analysis",
+    "url": "https://www.malware-traffic-analysis.net/blog-entries.rss",
+    "category": "Malware & Forensics"
+  },
+  {
+    "name": "Any.run Blog",
+    "url": "https://any.run/cybersecurity-blog/feed/",
+    "category": "Malware & Forensics"
+  },
+  {
+    "name": "NSA Cybersecurity",
+    "url": "https://www.nsa.gov/Press-Room/Cybersecurity-Advisories-Guidance/rss/",
+    "category": "Government & Policy"
+  },
+  {
+    "name": "European Union Agency for Cybersecurity (ENISA)",
+    "url": "https://www.enisa.europa.eu/publications/rss",
+    "category": "Government & Policy"
+  },
+  {
+    "name": "US-CERT",
+    "url": "https://www.us-cert.gov/ncas/current-activity.xml",
+    "category": "Government & Policy"
+  },
+  {
+    "name": "ZDNet Security",
+    "url": "https://www.zdnet.com/topic/security/rss.xml",
+    "category": "Security News"
+  },
+  {
+    "name": "SC Magazine",
+    "url": "https://www.scmagazine.com/rss",
+    "category": "Security News"
+  },
+  {
+    "name": "Help Net Security",
+    "url": "https://www.helpnetsecurity.com/feed/",
+    "category": "Security News"
+  },
+  {
+    "name": "Black Hills Information Security",
+    "url": "https://www.blackhillsinfosec.com/feed/",
+    "category": "Penetration Testing"
+  },
+  {
+    "name": "Hak5 Blog",
+    "url": "https://shop.hak5.org/blogs/usb-rubber-ducky.atom",
+    "category": "Penetration Testing"
+  },
+  {
+    "name": "SecureWorks Blog",
+    "url": "https://www.secureworks.com/rss?feed=blog",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Cisco Talos",
+    "url": "https://blog.talosintelligence.com/feeds/posts/default",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Elastic Security",
+    "url": "https://www.elastic.co/security-labs/rss/feed.xml",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "The DFIR Report",
+    "url": "https://thedfirreport.com/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Red Canary",
+    "url": "https://redcanary.com/blog/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Dragos",
+    "url": "https://www.dragos.com/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Zscaler Research",
+    "url": "https://www.zscaler.com/blogs/security-research/rss",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "F-Secure Labs",
+    "url": "https://labs.f-secure.com/blog/rss",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Trend Micro News",
+    "url": "https://www.trendmicro.com/vinfo/us/security/rss",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Wiz Blog",
+    "url": "https://www.wiz.io/blog/rss.xml",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Orca Security",
+    "url": "https://orca.security/resources/blog/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Sysdig Blog",
+    "url": "https://sysdig.com/blog/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Lacework Labs",
+    "url": "https://www.lacework.com/blog/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Aqua Security",
+    "url": "https://blog.aquasec.com/rss.xml",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Cloudflare Blog",
+    "url": "https://blog.cloudflare.com/rss/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Datadog Security Labs",
+    "url": "https://www.datadoghq.com/blog/index.xml",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "SpecterOps",
+    "url": "https://posts.specterops.io/feed",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Harmj0y Blog",
+    "url": "https://www.harmj0y.net/blog/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Adam Chester (XPN)",
+    "url": "https://xpnsec.com/feed.xml",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Orange Cyberdefense",
+    "url": "https://www.orangecyberdefense.com/global/rss.xml",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Team Cymru",
+    "url": "https://team-cymru.com/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Bad Packets",
+    "url": "https://badpackets.net/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Spamhaus",
+    "url": "https://www.spamhaus.org/news/rss/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "GData Security",
+    "url": "https://www.gdatasoftware.com/blog/rss.xml",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "ESET WeLiveSecurity",
+    "url": "https://www.welivesecurity.com/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Avast Decoded",
+    "url": "https://decoded.avast.io/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Lumu Technologies",
+    "url": "https://lumu.io/blog/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "OALABS",
+    "url": "https://research.openanalysis.net/feed.xml",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Malpedia",
+    "url": "https://malpedia.caad.fkie.fraunhofer.de/rss",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Volexity Blog",
+    "url": "https://www.volexity.com/blog/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "InQuest Blog",
+    "url": "https://inquest.net/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "GuidePoint Security",
+    "url": "https://www.guidepointsecurity.com/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Arctic Wolf",
+    "url": "https://arcticwolf.com/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "ReliaQuest",
+    "url": "https://www.reliaquest.com/blog/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Blackberry Threat Research",
+    "url": "https://blogs.blackberry.com/en/category/threat-research/feed",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Fortinet FortiGuard",
+    "url": "https://www.fortinet.com/blog/threat-research.rss",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Symantec Enterprise Blog",
+    "url": "https://symantec-enterprise-blogs.security.com/blogs/threat-intelligence/rss",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Sophos News",
+    "url": "https://news.sophos.com/en-us/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Cylance Blog",
+    "url": "https://threatvector.cylance.com/en_us/home/feed.atom",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Netskope Blog",
+    "url": "https://www.netskope.com/blog/feed",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Barracuda Blog",
+    "url": "https://blog.barracuda.com/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Mimecast Blog",
+    "url": "https://www.mimecast.com/blog/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Abnormal Security",
+    "url": "https://abnormalsecurity.com/blog/rss.xml",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Claroty Blog",
+    "url": "https://claroty.com/blog/rss.xml",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Nozomi Networks",
+    "url": "https://www.nozominetworks.com/blog/rss.xml",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "S4 Events Blog",
+    "url": "https://s4xevents.com/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Digital Shadows",
+    "url": "https://www.digitalshadows.com/blog-and-research/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "EclecticIQ",
+    "url": "https://blog.eclecticiq.com/rss.xml",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "LookingGlass",
+    "url": "https://www.lookingglasscyber.com/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Intruder.io",
+    "url": "https://www.intruder.io/blog/rss.xml",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Pen Test Partners",
+    "url": "https://www.pentestpartners.com/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "NCC Group Blog",
+    "url": "https://www.nccgroup.com/uk/about-us/newsroom-and-events/blog/rss",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "F-Secure Press",
+    "url": "https://press.f-secure.com/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "WithSecure Blog",
+    "url": "https://www.withsecure.com/en/whats-new/blog/feed",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Cyberreason Blog",
+    "url": "https://www.cybereason.com/blog/rss.xml",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Deep Instinct",
+    "url": "https://www.deepinstinct.com/blog/rss.xml",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Unit 42 (Global)",
+    "url": "https://unit42.paloaltonetworks.com/category/threat-assessment/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "IronNet Blog",
+    "url": "https://www.ironnet.com/blog/rss.xml",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "BlueVoyant",
+    "url": "https://www.bluevoyant.com/blog/rss.xml",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "QuoIntelligence",
+    "url": "https://quointelligence.eu/feed/",
+    "category": "Threat Intelligence"
+  },
+  {
+    "name": "Kroll Cyber",
+    "url": "https://www.kroll.com/en/insights/cyber-risk/feed",
+    "category": "Threat Intelligence"
   }
 ]

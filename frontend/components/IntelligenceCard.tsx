@@ -32,12 +32,14 @@ import {
     Share2,
     PlayCircle,
     Mail,
-    ScanLine
+    ScanLine,
+    Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card as ShadCard } from "@/components/ui/card";
 import CommentSection from '@/components/CommentSection';
 import TranslateButton, { TranslatedFields } from '@/components/TranslateButton';
+import { useUserPrefs } from '@/components/UserPrefsContext';
 import { linkifyText } from '@/lib/textUtils';
 import type { Article, Comment, Dossier } from '@/lib/types';
 
@@ -614,6 +616,9 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
     const [isRTL, setIsRTL] = useState(false);
     const [currentLang, setCurrentLang] = useState<string | null>(null);
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
+    const { prefs } = useUserPrefs();
+    const isOwner   = !!prefs?.sub && prefs.sub === (card as any).owner;
+    const isPrivate = (card as any).visibility === 'private';
 
     const handleTranslated = (fields: TranslatedFields, rtl: boolean) => {
         setTranslatedFields(fields);
@@ -813,6 +818,15 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
 
                         {/* Action Buttons */}
                         <div className="flex items-center gap-2">
+                            {isPrivate && isOwner && (
+                                <span
+                                    title="Private — only visible to you"
+                                    aria-label="Private article"
+                                    className="text-slate-500"
+                                >
+                                    <Lock className="h-4 w-4" aria-hidden="true" />
+                                </span>
+                            )}
                             <Link href={articleUrl} passHref legacyBehavior>
                                 <a
                                     aria-label="Permalink to this article"
