@@ -1120,6 +1120,8 @@ def submit():
         app.logger.error("🔥 Redis unavailable for submit")
         return jsonify({"error": "Database connection is offline."}), 503
 
+    app.logger.info(f"🔑 X-User-Id header: '{request.headers.get('X-User-Id', 'NOT_FOUND')}'")
+
     data = request.get_json(force=True, silent=True) or {}
     content_type = data.get('content_type', '').strip()
     content      = (data.get('content') or '').strip()
@@ -1146,7 +1148,7 @@ def submit():
         'title':  title,
         'image_url': (data.get('image_url') or '').strip() or None,  # ← add this
         'visibility': (data.get('visibility') or 'public'),
-        'owner': '',
+        'owner': request.headers.get('X-User-Id', ''),
     }
 
     try:
@@ -1196,7 +1198,7 @@ def submit_prompt():
         'title':  title,
         'image_url': image_url,
         'visibility': (data.get('visibility') or 'public'),
-        'owner': '',
+        'owner': request.headers.get('X-User-Id', ''),
     }
 
     try:

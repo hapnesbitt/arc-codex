@@ -770,7 +770,7 @@ def process_priority_queue(api_client, recently_published):
             continue
 
         origin = item.get('origin', 'url')
-        logger.info(f"⚡ Priority item dequeued (origin={origin})")
+        logger.info(f"⚡ Priority item dequeued (origin={origin}, owner={item.get('owner', 'NONE')})")
 
         article_text = None
         title = item.get('title', '')
@@ -856,6 +856,8 @@ def process_priority_queue(api_client, recently_published):
                 'article_text': article_text,
                 'imageUrl': image_url,
                 'origin': origin,
+                'owner': item.get('owner', ''),
+                'visibility': item.get('visibility', 'public'),
                 'dossier': {'sentiment': 0.0},
             }
 

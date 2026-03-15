@@ -1411,31 +1411,33 @@ def _inspect_by_id(r, solr, article_id):
 # My Publications
 # ==============================================================================
 def my_publications(r, solr):
-    """List all manually published articles — Manual Submission, User Prompt, Personal Blog."""
-    MY_SOURCES = {'Manual Submission', 'User Prompt', 'Personal Blog Content - Auto Publish'}
+    """List articles published by the current owner (identified by owner field in Redis)."""
+    # Your Google sub ID — set when X-User-Id header is passed from Next.js session
+    MY_USER_ID = '106447029965347101642'
     print(colored("\n--- [11] My Publications ---", "cyan"))
 
-    all_ids = r.lrange('arc:feed', 0, -1)
+    all_ids = r.zrange('feed', 0, -1)
     matches = []
 
     print(f"Scanning {len(all_ids)} articles...", end='\r')
     for aid in all_ids:
+        owner = r.hget(f"article:{aid}", "owner") or ''
         origin = r.hget(f"article:{aid}", "origin") or ''
-        if origin and origin != 'rss':
+        # Match by owner (new articles) OR by origin != rss (pre-owner articles)
+        if owner == MY_USER_ID or (not owner and origin and origin != 'rss'):
             title = r.hget(f"article:{aid}", "title") or 'Untitled'
             ts_raw = r.hget(f"article:{aid}", "timestamp") or ''
             try:
                 ts = parser.parse(ts_raw).strftime('%Y-%m-%d %H:%M') if ts_raw else 'unknown'
             except Exception:
                 ts = ts_raw[:16]
-            matches.append((ts, title, aid, source))
-
+            matches.append((ts, title, aid, origin))
     matches.sort(reverse=True)
     print(f"Found {len(matches)} publication(s).          ")
     print("─────────────────────────────────────────────────────────")
-    for i, (ts, title, aid, source) in enumerate(matches, 1):
-        src_color = 'green' if source == 'Manual Submission' else 'magenta' if 'Blog' in source else 'yellow'
-        print(f"  [{i:2}] {ts}  {colored(source[:20], src_color):30}  {title[:55]}")
+    for i, (ts, title, aid, origin) in enumerate(matches, 1):
+        src_color = 'green' if origin == 'text' else 'magenta' if origin == 'prompt' else 'yellow'
+        print(f"  [{i:2}] {ts}  {colored(origin[:20], src_color):30}  {title[:55]}")
     print("─────────────────────────────────────────────────────────")
 
     if not matches:
