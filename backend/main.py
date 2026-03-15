@@ -440,16 +440,21 @@ def get_feed():
         
         redis_duration = (time.perf_counter() - redis_start) * 1000
         
+        requesting_user = request.headers.get('X-User-Id', '')
+        app.logger.info(f"🔑 get_feed X-User-Id: '{requesting_user}'")
         formatted_feed = []
         for item, langs in zip(feed_data, langs_data):
             if item:
-                try: 
+                # Filter private articles — only show to owner
+                if item.get('visibility') == 'private' and item.get('owner', '') != requesting_user:
+                    continue
+                try:
                     item['dossier'] = json.loads(item.get('dossier', '{}'))
                 except (json.JSONDecodeError, ValueError):
                     item['dossier'] = {}
                 item['cached_langs'] = list(langs) if langs else []
                 formatted_feed.append(item)
-        
+
         filter_info = f", category: {category_filter}" if category_filter else ""
         app.logger.info(f"✅ Retrieved {len(formatted_feed)} articles from feed in {redis_duration:.2f}ms{filter_info}")
         return jsonify(formatted_feed)

@@ -1,5 +1,5 @@
 # Arc Codex Project Context
-# VERSION 7.12 - Updated Mar 14, 2026
+# VERSION 7.14 - Updated Mar 15, 2026
 # Restructured into three audience sections: USER / ADMIN / DEVELOPER
 # Comprehensive reference for AI assistants working on this codebase
 #
@@ -470,23 +470,26 @@ developer:
       description: "Tone sort on feed page (search already has it)"
 
     publish_confirmation_modal:
-      status: "✅ DONE — v9.0: Share Story modal with Make Public / Keep Private (disabled). Modal auto-focuses on open (confirmModalRef). usePublish.ts deleted (dead code). hooks/ directory removed."
+      status: "✅ DONE — v9.0: Share Story modal with Make Public / Keep Private (both active). Modal auto-focuses on open (confirmModalRef). usePublish.ts deleted (dead code). hooks/ directory removed."
 
     visibility_private_system:
-      status: "PARTIAL — schema in place, UI TODO"
+      status: "DONE (arc-codex) — huntaegis port TODO, lock icon TODO"
       description: |
-        Article visibility and ownership system.
-        Schema fields added to all articles (Mar 14 2026):
+        Article visibility and ownership system — fully working on arc-codex (Mar 15 2026).
+        Schema fields on all articles:
           - origin: 'rss' | 'url' | 'text' | 'prompt' (set by scribe on publish)
           - visibility: 'public' | 'private' (default 'public')
-          - owner: user sub ID (empty until Next.js passes header)
+          - owner: Google/GitHub sub ID (set via X-User-Id header from Next.js session)
+        Architecture:
+          - Caddy routes /api/submit, /api/submit_prompt, /api/get_feed → Next.js (port 3000)
+          - Next.js proxy routes inject X-User-Id from session before forwarding to Flask
+          - Flask stores owner on article, filters private articles from feed for non-owners
+          - publish/page.tsx: Make Public / Keep Private both active, send visibility field
+          - app/page.tsx: SSR initial feed uses auth() to pass X-User-Id to Flask
+          - kasmir7 [11] my_publications: filters by owner == MY_USER_ID (falls back to origin != rss)
         TODO:
-          - main.py: read X-User-Id from Next.js proxy header, store as owner on submit
-          - Next.js route.ts: forward session user ID as X-User-Id on /api/submit and /api/submit_prompt
-          - main.py /api/get_feed: filter out visibility=private unless owner matches X-User-Id
-          - publish/page.tsx: wire Make Public / Keep Private modal to send visibility field
-          - IntelligenceCard.tsx: show lock icon on private articles for owner
-          - kasmir7 my_publications: currently filters by origin != 'rss' (works for new articles only)
+          - IntelligenceCard.tsx: show 🔒 lock icon on private articles for owner
+          - Port full system to huntaegis (Caddy, Next.js routes, main.py, page.tsx, publish/page.tsx)
 
     bluesky:
       status: "PARTIAL — manual button done, auto-poster TODO"
@@ -540,6 +543,27 @@ developer:
       - "kasmir7 my_publications backfill for pre-origin articles"
 
   changelog:
+    v7.14: |
+      Mar 15, 2026:
+      - Private articles fully working on arc-codex:
+        - Caddy: /api/submit, /api/submit_prompt, /api/get_feed routed through Next.js
+        - New Next.js proxy routes: app/api/submit/route.ts, app/api/submit_prompt/route.ts,
+          app/api/get_feed/route.ts — all inject X-User-Id from Auth.js session
+        - app/page.tsx: SSR initial feed now uses auth() + passes X-User-Id to Flask
+        - main.py /api/get_feed: filters visibility=private articles unless owner matches X-User-Id
+        - main.py /api/submit + /api/submit_prompt: store X-User-Id as owner field
+        - publish/page.tsx v10.0: Keep Private button enabled, sends visibility field
+        - scribe.py: owner + visibility fields in priority queue candidate dict
+        - kasmir7 [11] my_publications: filters by owner == MY_USER_ID
+        - BACKEND_INTERNAL_URL added to frontend/.env.local
+      - Smoke test passed: private articles invisible in incognito, visible when logged in ✅
+    v7.13: |
+      Mar 15, 2026:
+      - owner/visibility pipeline wired up:
+        - X-User-Id header flowing from Next.js session → Flask → Redis
+        - origin, visibility, owner fields in scribe candidate dict
+        - kasmir7 my_publications working (10 publications found)
+      - Debug log added to get_feed for X-User-Id tracing (can be removed)
     v7.12: |
       Mar 14, 2026:
       - Huntaegis stack (huntaegis.com) stood up on same Z230:

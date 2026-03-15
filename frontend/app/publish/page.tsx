@@ -226,6 +226,7 @@ export default function PublishPage() {
   const [autosavedAt, setAutosavedAt]   = useState<string | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pendingVisibility, setPendingVisibility] = useState<'public' | 'private'>('public');
   const [imageFile, setImageFile]           = useState<File | null>(null);
   const [imagePreview, setImagePreview]     = useState<string | null>(null);
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
@@ -338,7 +339,7 @@ export default function PublishPage() {
   }, [title, content, contentType, file, isProbablyUrl]);
 
   // Step 2: user confirmed — actually publish
-  const handleConfirmedPublish = useCallback(async () => {
+  const handleConfirmedPublish = useCallback(async (visibility: 'public' | 'private' = 'public') => {
     setShowConfirmModal(false);
     setStatus('loading');
 
@@ -366,7 +367,7 @@ export default function PublishPage() {
         const resp = await fetch('/api/submit_prompt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: content.trim(), title: title.trim(), image_url: resolvedImageUrl || undefined }),
+          body: JSON.stringify({ prompt: content.trim(), title: title.trim(), image_url: resolvedImageUrl || undefined, visibility }),
         });
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.error || 'Unknown error from server.');
@@ -400,13 +401,14 @@ export default function PublishPage() {
             content: content.trim(),
             title: title.trim(),
             image_url: resolvedImageUrl || undefined,
+            visibility,
           }),
         });
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.error || 'Unknown error from server.');
 
         setStatus('success');
-        setMessage('Submitted! Your content will be published shortly.');
+        setMessage(visibility === 'private' ? 'Saved privately! Only you can see this article.' : 'Submitted! Your content will be published shortly.');
         setShowConfetti(true);
         clearDraft();
         setTitle('');
@@ -977,30 +979,25 @@ export default function PublishPage() {
               {/* Make Public — primary action */}
               <button
                 type="button"
-                onClick={handleConfirmedPublish}
+                onClick={() => handleConfirmedPublish('public')}
                 className="w-full p-4 rounded-xl border-2 border-amber-400 bg-amber-400/10 text-amber-300 font-serif text-left transition-colors hover:bg-amber-400/20 focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:outline-none"
               >
                 <div className="font-bold text-base">Make Public</div>
                 <div className="text-sm opacity-75 mt-0.5">Published to the Arc Codex feed with full A.R.C. analysis</div>
               </button>
 
-              {/* Keep Private — disabled until Workspaces */}
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="w-full p-4 rounded-xl border-2 border-slate-600/40 bg-slate-800/20 text-slate-500 font-serif text-left cursor-not-allowed select-none" aria-disabled="true">
-                      <div className="font-bold text-base flex items-center gap-2">
-                        Keep Private
-                        <span className="text-xs font-mono bg-slate-700/50 text-slate-400 px-2 py-0.5 rounded-full">Coming soon</span>
-                      </div>
-                      <div className="text-sm opacity-60 mt-0.5">Saved to your private Workspace — visible only to you</div>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent className="bg-slate-800 border-slate-700">
-                    <p className="font-serif">Coming soon — Workspaces</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              {/* Keep Private */}
+              <button
+                type="button"
+                onClick={() => handleConfirmedPublish('private')}
+                className="w-full p-4 rounded-xl border-2 border-slate-500/60 bg-slate-800/30 text-slate-300 font-serif text-left transition-colors hover:border-slate-400/60 hover:bg-slate-800/50 focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:outline-none"
+              >
+                <div className="font-bold text-base flex items-center gap-2">
+                  Keep Private
+                  <span className="text-xs">🔒</span>
+                </div>
+                <div className="text-sm opacity-75 mt-0.5">Saved privately — visible only to you when logged in</div>
+              </button>
             </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-slate-700/50">
