@@ -656,6 +656,40 @@ def get_stats():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/config', methods=['GET'])
+def get_config():
+    """
+    Return arc_config.yaml values + live Redis runtime state.
+    No secrets — credentials never leave backend/.env.
+    """
+    config_path = os.path.join(os.path.dirname(__file__), '..', 'arc_config.yaml')
+    try:
+        with open(config_path) as f:
+            cfg = yaml.safe_load(f)
+    except Exception as e:
+        app.logger.error(f"Failed to load arc_config.yaml: {e}")
+        return jsonify({"error": "Config file not found"}), 503
+
+    runtime = {
+        "bluesky_autopost":  False,
+        "linkedin_autopost": False,
+        "article_count":     0,
+        "last_publish":      None,
+    }
+    if r:
+        try:
+            runtime["bluesky_autopost"]  = r.get("bluesky:autopost") == "1"
+            runtime["linkedin_autopost"] = r.get("linkedin:autopost") == "1"
+            runtime["article_count"]     = r.zcard("feed")
+            runtime["last_publish"]      = r.get("arc:last_publish")
+        except Exception:
+            pass
+
+    cfg["runtime"]   = runtime
+    cfg["loaded_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    return jsonify(cfg), 200
+
 @app.route('/api/article/<article_id>/comments', methods=['GET'])
 def get_article_comments(article_id):
     if not r:
@@ -1280,24 +1314,58 @@ def bluesky_get_token():
     data = resp.json()
     return data["did"], data["accessJwt"]
 
-def bluesky_resolve_url_card(token, url, title, description=""):
-    """Fetch OG data for a URL card embed (optional — graceful fallback)."""
+def bluesky_upload_thumb(token, og_image_url):
+    """Download og_image and upload to Bluesky blob store. Returns blob ref or None."""
+    if not og_image_url:
+        return None
     try:
-        resp = requests.post(
-            f"{BLUESKY_API_BASE}/app.bsky.richtext.detectFacets",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"text": url},
-            timeout=5,
+        img_resp = requests.get(og_image_url, timeout=10, stream=True)
+        img_resp.raise_for_status()
+        content_type = img_resp.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
+        if not content_type.startswith("image/"):
+            return None
+        img_bytes = img_resp.content
+        # Convert PNG to JPEG — Bluesky corrupts large PNG thumbnails
+        if content_type == "image/png":
+            from PIL import Image
+            import io
+            img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+            buf = io.BytesIO()
+            img.save(buf, "JPEG", quality=85)
+            img_bytes = buf.getvalue()
+            content_type = "image/jpeg"
+        if len(img_bytes) > 1_000_000:
+            img_bytes = img_bytes[:1_000_000]  # Bluesky 1MB blob limit
+        upload_resp = requests.post(
+            f"{BLUESKY_API_BASE}/com.atproto.repo.uploadBlob",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": content_type,
+            },
+            data=img_bytes,
+            timeout=15,
         )
-        # Just return a basic external embed
+        upload_resp.raise_for_status()
+        return upload_resp.json().get("blob")
+    except Exception as e:
+        app.logger.warning(f"Bluesky thumb upload failed: {e}")
+        return None
+
+def bluesky_resolve_url_card(token, url, title, description="", og_image_url=None):
+    """Build external embed card, with optional image thumbnail."""
+    try:
+        external = {
+            "$type": "app.bsky.embed.external#external",
+            "uri": url,
+            "title": title[:300],
+            "description": description[:600],
+        }
+        thumb = bluesky_upload_thumb(token, og_image_url)
+        if thumb:
+            external["thumb"] = thumb
         return {
             "$type": "app.bsky.embed.external",
-            "external": {
-                "$type": "app.bsky.embed.external#external",
-                "uri": url,
-                "title": title[:300],
-                "description": description[:600],
-            }
+            "external": external,
         }
     except Exception:
         return None
@@ -1332,6 +1400,7 @@ def post_bluesky():
     source_url  = article.get("sourceUrl") or article.get("url", "")
     article_url = f"{os.getenv('NEXT_PUBLIC_BACKEND_URL', 'https://arc-codex.com')}/article/{article_id}"
     blue_team   = article.get("blue_team_analysis", "")
+    og_image    = article.get("imageUrl", "")
 
     # Build post text — title + short blurb + article URL
     blurb = (data.get("text") or blue_team)[:200].strip()
@@ -1360,8 +1429,8 @@ def post_bluesky():
         )
         facets = facet_resp.json().get("facets", []) if facet_resp.ok else []
 
-        # Build embed card
-        embed = bluesky_resolve_url_card(token, article_url, title, blurb)
+        # Build embed card (with image thumbnail if available)
+        embed = bluesky_resolve_url_card(token, article_url, title, blurb, og_image_url=og_image)
 
         record = {
             "$type": "app.bsky.feed.post",
@@ -1388,6 +1457,7 @@ def post_bluesky():
         result = post_resp.json()
         uri = result.get("uri", "")
         app.logger.info(f"🦋 Bluesky post published: {uri}")
+        r.sadd("bluesky:posted", article_id)
         return jsonify({"success": True, "uri": uri}), 200
 
     except requests.HTTPError as e:

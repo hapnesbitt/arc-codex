@@ -113,7 +113,7 @@ const SupportPage: React.FC = () => {
           {/* Reading the Feed */}
           <Section id="feed" title="Reading the Feed" icon={<Eye className="w-8 h-8 text-amber-400" />} gradient="border-amber-400/40">
             <p>
-              The main feed shows articles collected from over 1,200 sources worldwide, analyzed by the A.R.C. framework as they arrive. Each card represents one article with its full analysis inline.
+              The main feed shows articles collected from 2,087 sources worldwide, analyzed by the A.R.C. framework as they arrive. Each card represents one article with its full analysis inline.
             </p>
             <div className="space-y-3 mt-4">
               <Collapse label="The Tone Score (circle gauge)">

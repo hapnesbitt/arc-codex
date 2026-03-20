@@ -1,0 +1,316 @@
+#!/usr/bin/env python3
+"""
+character_builder.py — Arc Codex Character Comment Daemon
+v1.0 — Mar 16, 2026
+
+Reads characters.yaml, monitors Redis for fully-analyzed articles,
+and posts character comments to the Redis comment store.
+
+Characters run AFTER the full analysis pipeline — they read the entire
+dossier (article + red + blue + purple + sentinel + counter-analyst)
+and comment on the whole picture.
+
+On/off:  redis-cli set characters:enabled 1|0
+Posted set: characters:posted:{character_handle} (SET of article IDs)
+
+Architecture:
+  - Polls Redis feed for new articles every POLL_INTERVAL seconds
+  - Waits for analysis to complete (all 5 fields populated)
+  - Determines which characters are on shift per schedule
+  - Calls Ollama with character instruction + full dossier
+  - Posts comment to Redis under character name
+"""
+
+import os
+import sys
+import time
+import json
+import random
+import logging
+import hashlib
+import yaml
+import redis
+import requests
+from datetime import datetime, timezone
+from dotenv import load_dotenv
+
+# ── env ────────────────────────────────────────────────────────────────────────
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+
+REDIS_URL        = os.getenv("REDIS_URL", "redis://:simplenes@localhost:6379/0")
+OLLAMA_HOST      = os.getenv("OLLAMA_HOST", "http://192.168.1.185:11434")
+OLLAMA_MODEL     = os.getenv("OLLAMA_MODEL", "gemma3:4b")
+ARTICLE_BASE_URL = os.getenv("NEXT_PUBLIC_BACKEND_URL", "https://arc-codex.com")
+
+POLL_INTERVAL        = 20    # seconds between feed scans
+ANALYSIS_WAIT        = 120   # seconds to wait for full analysis before giving up
+ANALYSIS_CHECK_EVERY = 10    # seconds between analysis completion checks
+ENABLED_KEY          = "characters:enabled"
+
+CHARACTERS_YAML = os.path.join(os.path.dirname(__file__), "..", "characters.yaml")
+
+# ── logging ────────────────────────────────────────────────────────────────────
+log_dir = os.path.join(os.path.dirname(__file__), "..", "logs")
+os.makedirs(log_dir, exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [character_builder] %(levelname)s %(message)s",
+    handlers=[
+        logging.FileHandler(os.path.join(log_dir, "character_builder.log")),
+    ],
+)
+log = logging.getLogger("character_builder")
+
+# ── Redis ──────────────────────────────────────────────────────────────────────
+r = redis.from_url(REDIS_URL, decode_responses=True)
+
+# ── Config ─────────────────────────────────────────────────────────────────────
+def load_characters() -> dict:
+    with open(CHARACTERS_YAML) as f:
+        return yaml.safe_load(f)
+
+# ── Analysis completion check ──────────────────────────────────────────────────
+REQUIRED_FIELDS = ["red_team_analysis", "blue_team_analysis", "purple_team_analysis", "sentinel_analysis"]
+
+def is_analysis_complete(article_id: str) -> bool:
+    """Return True if all analysis fields are populated."""
+    try:
+        pipe = r.pipeline()
+        for field in REQUIRED_FIELDS:
+            pipe.hget(f"article:{article_id}", field)
+        values = pipe.execute()
+        return all(v and len(v) > 20 for v in values)
+    except Exception:
+        return False
+
+def wait_for_analysis(article_id: str) -> bool:
+    """Wait up to ANALYSIS_WAIT seconds for analysis to complete."""
+    deadline = time.time() + ANALYSIS_WAIT
+    while time.time() < deadline:
+        if is_analysis_complete(article_id):
+            return True
+        time.sleep(ANALYSIS_CHECK_EVERY)
+    return False
+
+# ── Dossier builder ────────────────────────────────────────────────────────────
+def build_dossier_text(article_id: str) -> str:
+    """Assemble the full dossier for a character to read."""
+    try:
+        article = r.hgetall(f"article:{article_id}")
+        if not article:
+            return ""
+
+        # Get existing comments including Counter-Analyst
+        raw_comments = r.lrange(f"comments:{article_id}", 0, -1)
+        comments = []
+        for raw in raw_comments:
+            try:
+                c = json.loads(raw)
+                comments.append(f"[{c.get('author', 'Unknown')}]: {c.get('body', '')}")
+            except Exception:
+                continue
+
+        parts = [
+            f"ARTICLE TITLE: {article.get('title', '')}",
+            f"\nARTICLE TEXT:\n{article.get('original_text', '')[:2000]}",
+        ]
+
+        if article.get("red_team_analysis"):
+            parts.append(f"\nRED TEAM (facts):\n{article['red_team_analysis'][:800]}")
+
+        if article.get("blue_team_analysis"):
+            parts.append(f"\nBLUE TEAM (summary):\n{article['blue_team_analysis'][:800]}")
+
+        if article.get("purple_team_analysis"):
+            parts.append(f"\nPURPLE TEAM (analysis):\n{article['purple_team_analysis'][:1200]}")
+
+        if article.get("sentinel_analysis"):
+            try:
+                sentinel = json.loads(article["sentinel_analysis"])
+                parts.append(f"\nSENTINEL VERDICT: {sentinel.get('assessment', '')} "
+                             f"(confidence: {sentinel.get('synthetic_confidence', 0):.2f})")
+                parts.append(f"Summary: {sentinel.get('summary', '')}")
+            except Exception:
+                pass
+
+        if comments:
+            parts.append(f"\nEXISTING COMMENTS:\n" + "\n".join(comments))
+
+        return "\n".join(parts)
+
+    except Exception as e:
+        log.error("Failed to build dossier for %s: %s", article_id, e)
+        return ""
+
+# ── Ollama call ────────────────────────────────────────────────────────────────
+def call_ollama(system_prompt: str, dossier: str) -> str | None:
+    """Call Ollama with character instruction + dossier. Returns comment text."""
+    prompt = f"{dossier}\n\n---\n\nBased on the above, write your comment now."
+    try:
+        resp = requests.post(
+            f"{OLLAMA_HOST}/api/generate",
+            json={
+                "model":  OLLAMA_MODEL,
+                "prompt": prompt,
+                "system": system_prompt,
+                "stream": False,
+                "options": {"temperature": 0.7, "num_predict": 300},
+            },
+            timeout=120,
+        )
+        resp.raise_for_status()
+        text = resp.json().get("response", "").strip()
+        return text if len(text) > 20 else None
+    except Exception as e:
+        log.error("Ollama call failed: %s", e)
+        return None
+
+# ── Comment posting ────────────────────────────────────────────────────────────
+def post_comment(article_id: str, author: str, body: str) -> bool:
+    """Post character comment to Redis comment store.
+    Matches Counter-Analyst format exactly:
+      - comment:{id} hash with fields: id, author, text, article_id, parent_id, timestamp
+      - comments:{article_id} list stores UUID string only (not full JSON)
+    """
+    try:
+        import uuid
+        comment_id = str(uuid.uuid4())
+
+        mapping = {
+            "id":         comment_id,
+            "author":     author,
+            "text":       body,
+            "article_id": article_id,
+            "parent_id":  "",
+            "timestamp":  datetime.now(timezone.utc).isoformat(),
+        }
+
+        pipe = r.pipeline()
+        pipe.hset(f"comment:{comment_id}", mapping=mapping)
+        pipe.rpush(f"comments:{article_id}", comment_id)
+        pipe.execute()
+        return True
+    except Exception as e:
+        log.error("Failed to post comment for %s: %s", article_id, e)
+        return False
+
+# ── Shift logic ────────────────────────────────────────────────────────────────
+def get_active_characters(cfg: dict) -> list[str]:
+    """Return list of character handles that should post on this article."""
+    schedule   = cfg.get("schedule", {})
+    characters = cfg.get("characters", {})
+    active     = []
+
+    # Always-on characters
+    for handle in schedule.get("always", []):
+        if handle in characters:
+            active.append(handle)
+
+    # Random characters — pick based on weight
+    weights = schedule.get("random_weight", {})
+    for handle in schedule.get("random", []):
+        if handle not in characters:
+            continue
+        weight = weights.get(handle, 0.5)
+        if random.random() < weight:
+            active.append(handle)
+
+    return active
+
+# ── Seed ───────────────────────────────────────────────────────────────────────
+def seed_posted_sets(cfg: dict):
+    """Mark all existing articles as already posted for each character."""
+    try:
+        keys = r.keys("article:*")
+        if not keys:
+            return
+        characters = cfg.get("characters", {})
+        for handle in characters:
+            posted_key = f"characters:posted:{handle}"
+            pipe = r.pipeline()
+            for k in keys:
+                article_id = k.split(":", 1)[1]
+                pipe.sadd(posted_key, article_id)
+            pipe.execute()
+        log.info("Seeded posted sets for %d characters, %d articles",
+                 len(characters), len(keys))
+    except Exception as e:
+        log.error("Seed failed: %s", e)
+
+# ── Main loop ──────────────────────────────────────────────────────────────────
+def main():
+    log.info("character_builder v1.0 starting")
+
+    cfg = load_characters()
+    log.info("Loaded %d characters", len(cfg.get("characters", {})))
+
+    seed_posted_sets(cfg)
+
+    while True:
+        try:
+            # Reload config each cycle — live edits to characters.yaml take effect
+            cfg = load_characters()
+
+            if r.get(ENABLED_KEY) != "1":
+                time.sleep(POLL_INTERVAL)
+                continue
+
+            all_ids    = set(k.split(":", 1)[1] for k in r.keys("article:*"))
+            characters = cfg.get("characters", {})
+
+            # Find articles not yet processed by any active character
+            for handle in characters:
+                posted_key  = f"characters:posted:{handle}"
+                posted_ids  = r.smembers(posted_key)
+                new_ids     = all_ids - posted_ids
+
+                if not new_ids:
+                    continue
+
+                active = get_active_characters(cfg)
+                if handle not in active:
+                    # Mark as posted anyway to avoid backlog buildup
+                    pipe = r.pipeline()
+                    for article_id in new_ids:
+                        pipe.sadd(posted_key, article_id)
+                    pipe.execute()
+                    continue
+
+                character = characters[handle]
+
+                for article_id in new_ids:
+                    # Mark immediately to prevent double-posting
+                    r.sadd(posted_key, article_id)
+
+                    log.info("Character %s processing article %s", handle, article_id)
+
+                    # Wait for full analysis if character is eager
+                    if character.get("eager", True):
+                        if not wait_for_analysis(article_id):
+                            log.warning("Analysis incomplete for %s after %ds — skipping %s",
+                                        article_id, ANALYSIS_WAIT, handle)
+                            continue
+
+                    dossier = build_dossier_text(article_id)
+                    if not dossier:
+                        log.warning("Empty dossier for %s — skipping", article_id)
+                        continue
+
+                    comment_text = call_ollama(character["instruction"], dossier)
+                    if not comment_text:
+                        log.error("No comment generated for %s by %s", article_id, handle)
+                        continue
+
+                    success = post_comment(article_id, character["name"], comment_text)
+                    if success:
+                        log.info("✅ %s commented on %s", character["name"], article_id)
+                    else:
+                        log.error("Failed to post comment by %s on %s", handle, article_id)
+
+        except Exception as e:
+            log.exception("Outer loop error: %s", e)
+
+        time.sleep(POLL_INTERVAL)
+
+if __name__ == "__main__":
+    main()

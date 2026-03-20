@@ -97,7 +97,7 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
       siteName: 'Arc Codex',
       images: [
         {
-          url: article.imageUrl || 'https://arc-codex.com/default-article-image.png',
+          url: article.imageUrl || 'https://arc-codex.com/default-article-image.jpg',
           width: 1200,
           height: 630,
           alt: article.title,
@@ -110,7 +110,7 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
       card: 'summary_large_image',
       title: article.title,
       description,
-      images: [article.imageUrl || 'https://arc-codex.com/default-article-image.png'],
+      images: [article.imageUrl || 'https://arc-codex.com/default-article-image.jpg'],
     },
   };
 }

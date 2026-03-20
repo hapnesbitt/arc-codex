@@ -46,7 +46,8 @@ SERVICES=(
     "stream_consumer|$BACKEND_DIR|python3 stream_consumer.py|true|"
     "analyzer|$BACKEND_DIR|python3 analyzer.py|true|"
     "mailer|$BACKEND_DIR|python3 mailer.py|true|"
-    "linkedin_poster|$BACKEND_DIR|python3 linkedin_poster.py|true|"
+    "bluesky_poster|$BACKEND_DIR|python3 bluesky_poster.py|true|"
+    "character_builder|$BACKEND_DIR|python3 character_builder.py|true|"
     "frontend|$ITC_ROOT|docker|false|3000"   # docker sentinel — managed via docker compose
     "watchdog|$ITC_ROOT|./watchdog.sh|false|"
     "corpus_exporter|$BACKEND_DIR|python3 corpus_exporter.py|true|9101"
@@ -536,7 +537,7 @@ cmd_restore() {
 # ==============================================================================
 # COMMAND DISPATCH
 # ==============================================================================
-VALID_SERVICES="gunicorn|scribe|manual_publisher|stream_consumer|analyzer|mailer|linkedin_poster|frontend|watchdog|corpus_exporter"
+VALID_SERVICES="gunicorn|scribe|manual_publisher|stream_consumer|analyzer|mailer|bluesky_poster|character_builder|frontend|watchdog|corpus_exporter"
 
 case "${1:-}" in
     start)        cmd_start "${2:-}" ;;

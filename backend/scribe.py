@@ -179,7 +179,7 @@ COMPLETED_DIR = os.path.join(UPLOAD_DIR, "completed")
 FAILED_DIR = os.path.join(UPLOAD_DIR, "failed")
 PENDING_COMMENTS_DIR = os.path.join(UPLOAD_DIR, "pending_comments")
 
-SOURCE_BATCH_SIZE = 30
+SOURCE_BATCH_SIZE = 50
 NETWORK_TIMEOUT_SECONDS = 15
 MIN_ARTICLE_LENGTH = 200
 RECENTLY_PUBLISHED_MEMORY = 50
@@ -1421,14 +1421,14 @@ def main():
 
             logger.info("💤 Cycle complete. Sleeping ten minutes ...")
             for _ in range(60):
-                time.sleep(10)
+                time.sleep(1)
                 if r.llen(REDIS_PRIORITY_QUEUE_KEY) > 0:
                     break
 
         except Exception as e:
             logger.error(f"MAIN LOOP ERROR: {e}", exc_info=True)
-            for _ in range(30):
-                time.sleep(10)
+            for _ in range(6):
+                time.sleep(1)
                 if r.llen(REDIS_PRIORITY_QUEUE_KEY) > 0:
                     break
 

@@ -505,7 +505,7 @@ text, duration = call_ollama_with_fallback(prompt, model)`}</Block>
           </Section>
 
           {/* Footer */}
-          <footer className="text-center text-sm text-slate-500 pt-8 pb-4 border-t border-slate-700/50">
+          <footer className="text-center text-sm text-slate-500 pt-8 pb-4 border-t border-slate-700/50 space-y-2">
             <p>
               © {new Date().getFullYear()} Arc Codex. Project context v6.2.{' '}
               <a
@@ -515,6 +515,14 @@ text, duration = call_ollama_with_fallback(prompt, model)`}</Block>
                 className="text-amber-300/80 hover:text-amber-200 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 rounded"
               >
                 github.com/hapnesbitt/arc-codex
+              </a>
+            </p>
+            <p>
+              <a
+                href="/about/developer/config"
+                className="text-cyan-400/60 hover:text-cyan-300 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60 rounded text-xs font-mono"
+              >
+                current values →
               </a>
             </p>
           </footer>
