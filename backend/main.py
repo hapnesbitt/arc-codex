@@ -77,6 +77,12 @@ if REDIS_URL:
         app.register_blueprint(translation_bp)
         from user_prefs import user_prefs_bp
         app.register_blueprint(user_prefs_bp)
+        from auth import auth_bp, init_auth
+        app.register_blueprint(auth_bp)
+        init_auth(app,
+            redis_password=os.getenv("REDIS_PASSWORD"),
+            domain=os.getenv("DOMAIN", "arc-codex.com"),
+            from_addr=os.getenv("MAIL_FROM", "ross@arc-codex.com"))
         redis_duration = (time.perf_counter() - start_redis) * 1000
         app.logger.info(f"✅ Successfully connected to Redis in {redis_duration:.2f}ms")
     except Exception as e:

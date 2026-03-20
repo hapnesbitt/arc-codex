@@ -1,0 +1,44 @@
+# auth_integration.py — diff to apply to main.py
+# =================================================
+# Add these two lines after `app = Flask(__name__)` and config setup,
+# but before any route definitions:
+#
+#   from auth import auth_bp, init_auth
+#   app.register_blueprint(auth_bp)
+#   init_auth(app,
+#       redis_password=os.getenv("REDIS_PASSWORD"),
+#       domain=os.getenv("DOMAIN", "arc-codex.com"),
+#       from_addr=os.getenv("MAIL_FROM", "ross@arc-codex.com"))
+#
+# Add to backend/.env:
+#   ARC_ADMIN_PASSWORD=<your admin password>
+#   DOMAIN=arc-codex.com        # or huntaegis.com, neetwatch.arc-codex.com etc
+#   MAIL_FROM=ross@arc-codex.com
+#
+# Add to provision.sh token stamping:
+#   replace_in_dir "$STACK_ROOT" "arc-codex.com" "$DOMAIN"  # already done
+#   # Add to .env template:
+#   echo "DOMAIN=${DOMAIN}" >> "$STACK_ROOT/backend/.env"
+#
+# Routes available after registration:
+#   /auth/register          — create account
+#   /auth/login             — log in
+#   /auth/logout            — log out
+#   /auth/forgot            — request reset email
+#   /auth/reset/<token>     — reset password (from email link)
+#   /auth/admin/users       — admin panel (admin only)
+#
+# To protect any Flask route:
+#   from auth import login_required, admin_required
+#   @app.route("/my-route")
+#   @login_required
+#   def my_route(): ...
+#
+# To get current user:
+#   from auth import current_user
+#   user = current_user()  # dict with username, email, is_admin, created
+#                          # or None if not logged in
+#
+# For vid.mine.nu integration:
+#   Same auth.py, same DB 5, same keyspace.
+#   Register on arc-codex → same password works on vid and all stacks.
