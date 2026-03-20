@@ -228,7 +228,7 @@ _BASE = """
   {% for cat, msg in get_flashed_messages(with_categories=true) %}
     <div class="flash flash-{{ cat }}">{{ msg }}</div>
   {% endfor %}
-  {{ content }}
+  {{ content | safe }}
 </div>
 </body></html>
 """
@@ -236,10 +236,12 @@ _BASE = """
 def _render(title, content, chrome_label=None, extra_class="", domain=None):
     from flask import render_template_string, get_flashed_messages
     d = domain or _domain
-    return render_template_string(_BASE,
+    from flask import Response
+    html = render_template_string(_BASE,
         title=title, content=content, domain=d,
         chrome_label=chrome_label, extra_class=extra_class,
         get_flashed_messages=get_flashed_messages)
+    return Response(html, mimetype='text/html')
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────

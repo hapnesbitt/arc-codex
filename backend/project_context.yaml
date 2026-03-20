@@ -1,5 +1,5 @@
 # Arc Codex Project Context
-# VERSION 7.15 - Updated Mar 20, 2026
+# VERSION 7.16 - Updated Mar 20, 2026
 # Restructured into three audience sections: USER / ADMIN / DEVELOPER
 # Comprehensive reference for AI assistants working on this codebase
 #
@@ -624,6 +624,41 @@ developer:
       status: "DONE — port 9101 (same as arc-codex, network_mode host so no collision)"
 
   changelog:
+    v7.16: |
+      Mar 20, 2026 (afternoon):
+      - Local auth (auth.py) rendering fixed: | safe filter in Jinja2 template
+      - Flask SECRET_KEY added to main.py (app.secret_key from env)
+      - Pillow added to requirements.txt for all stacks (was missing, caused PNG
+        upload failures on huntaegis/neetwatch bluesky_poster)
+      - neetwatch directives.json expanded: single-word fallback keywords added,
+        new Human Rights & Accountability topic (Amnesty, HRW, ACLU, systemic inequality)
+        Now catches: addiction, loneliness, dropout, poverty, inequality, community etc.
+      - huntaegis: about/page.tsx, sales/page.tsx, search/page.tsx v5.0, FeedClient.tsx
+        rethemed to cyber-ops terminal aesthetic (zinc/black, acid green, font-mono)
+      - huntaegis search timestamp bug fixed (epoch ms vs ISO string in get_stats)
+      - vid project_context.yaml created at /mnt/data/newvid/vid_project_context.yaml
+      - vid collection.html: sharing section fixed (handles both is_shared and is_shared_val),
+        publish button updated to say Arc Codex
+      - ross.is_admin bug in vid fixed: redis hset user:ross is_admin 0
+      - lightbox.service systemd unit confirmed (always existed, manages vid on boot)
+      - Sander van der Linden inoculation video published to arc-codex:
+        https://arc-codex.com/article/6cff9baa06238069ff0e3c7e24479d4c
+      Pending TODO for future sessions:
+      - Finish local auth: test login/reset email/admin panel end-to-end
+      - Wire auth.py into huntaegis and neetwatch (Caddy /auth/* block + main.py)
+      - Remove Google OAuth from all stacks
+      - Update UserMenu.tsx to show local auth login/register links
+      - sync.sh: push feature from arc-codex to derivative stacks automatically
+      - Wildcard DNS *.arc-codex.com — instant subdomain provisioning
+      - Template repo: github.com/hapnesbitt/arc-stack-template
+      - Whisper transcript extraction on vid videos → A.R.C. on actual speech
+      - vid→arc publish route: rename publish_to_hapenews → publish_to_arc
+        POST to https://arc-codex.com/api/submit with public share URL
+      - neetwatch: verify directives matching after keyword expansion
+      - GCP gemini-academy Solr connectivity (Cloud Run can't reach localhost:8983)
+      - Arc article embedded video player (public_batch URL from vid)
+      - "Conjecture and Critique" one-page vision document
+      - Distributed democratic compute as AI safety infrastructure (the big vision)
     v7.15: |
       Mar 20, 2026:
       - provision.sh v1.1 — full rapid deployment script:

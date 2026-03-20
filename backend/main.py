@@ -47,6 +47,7 @@ load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
+app.secret_key = os.getenv('SECRET_KEY', os.urandom(32))
 app.logger.setLevel(logging.INFO)
 
 # --- CONFIGURATION & INITIALIZATION ---
