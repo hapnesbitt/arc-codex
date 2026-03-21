@@ -146,6 +146,8 @@ stop_service() {
         rm -f "$pidfile"
         return
     fi
+    # Kill ALL processes matching this service from this directory (prevents zombies)
+    pkill -f "$dir.*python3 $cmd" 2>/dev/null || true
     local pid=$(cat "$pidfile")
     echo "  🛑 Stopping $name (pid $pid)..."
     local pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
@@ -164,6 +166,8 @@ stop_service() {
         [ -n "$pgid" ] && [ "$pgid" != "0" ] && kill -9 -- "-$pgid" 2>/dev/null
         kill -9 "$pid" 2>/dev/null
     fi
+    # Kill orphaned processes from this specific stack directory
+    pgrep -f "cd '$dir'.*$cmd\|$dir.*$cmd" 2>/dev/null | xargs -r kill -9 2>/dev/null || true
     free_port "$port"
     rm -f "$pidfile"
     echo "    ✅ $name stopped"

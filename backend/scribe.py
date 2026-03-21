@@ -760,6 +760,7 @@ def process_priority_queue(api_client, recently_published):
 
     while True:
         raw = r.lpop(REDIS_PRIORITY_QUEUE_KEY)
+        if raw: logger.info(f"⚡ Priority raw item: {raw[:200]}")
         if not raw:
             break
 
@@ -805,7 +806,7 @@ def process_priority_queue(api_client, recently_published):
                     image_url = article_data['image_url']
 
             elif origin == 'text':
-                article_text = item.get('text', '').strip()
+                article_text = (item.get('text') or item.get('content') or '').strip()
                 if not title:
                     title = 'Manual Submission'
 
@@ -813,12 +814,16 @@ def process_priority_queue(api_client, recently_published):
                 logger.warning(f"⚡ Unknown priority origin '{origin}' — skipping")
                 continue
 
-            if not article_text or len(article_text) < MIN_ARTICLE_LENGTH:
+            # Human submissions bypass length check — only bots get the rules
+            has_image = bool(item.get('image_url'))
+            if not has_image and (not article_text or len(article_text) < MIN_ARTICLE_LENGTH):
                 logger.warning(f"⚡ Priority item produced insufficient text ({len(article_text or '')} chars) — skipping")
                 continue
+            if not article_text:
+                article_text = title or 'Photo submission'
 
-            # Quality gate (skip paywall/auto-gen checks for prompt-generated content)
-            if origin != 'prompt':
+            # Quality gate — skip for prompts and human text submissions
+            if origin not in ('prompt', 'text'):
                 is_quality, reason = assess_content_quality(article_text)
                 if not is_quality:
                     logger.info(f"⚡ Priority item failed quality gate: {reason}")

@@ -320,6 +320,8 @@ def main():
 
                 text, url = build_post_text(article, comment)
                 og_image  = article.get("imageUrl", "")
+                if og_image and og_image.startswith("/"):
+                    og_image = f"{ARTICLE_BASE_URL}{og_image}"
                 success   = bsky_post(text, og_image_url=og_image, article_url=url)
 
                 if success:

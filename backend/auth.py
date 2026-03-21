@@ -116,7 +116,7 @@ def admin_required(f):
     def decorated(*args, **kwargs):
         if not session.get("is_admin"):
             flash("Admin access required.", "danger")
-            return redirect(url_for("auth.login"))
+            return redirect("/")
         return f(*args, **kwargs)
     return decorated
 
@@ -174,56 +174,91 @@ _BASE = """
 <title>{{ title }} — {{ domain }}</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; }
-  body { margin: 0; font-family: monospace; background: #09090b; color: #e4e4e7; min-height: 100vh;
+  body { margin: 0; font-family: 'Segoe UI', system-ui, sans-serif;
+         background: #0f172a; color: #e2e8f0; min-height: 100vh;
          display: flex; align-items: center; justify-content: center; padding: 24px; }
-  .card { width: 100%; max-width: 420px; border: 1px solid #27272a; background: #09090b; padding: 40px; }
-  .chrome { display: flex; align-items: center; gap: 6px; margin-bottom: 28px; }
-  .dot { width: 10px; height: 10px; border-radius: 50%; }
-  .dot-r { background: rgba(239,68,68,.5); } .dot-y { background: rgba(234,179,8,.5); } .dot-g { background: rgba(34,197,94,.5); }
-  .chrome-label { margin-left: 8px; font-size: 11px; color: #52525b; letter-spacing: .1em; }
-  h1 { font-size: 22px; font-weight: 900; color: #f4f4f5; margin: 0 0 4px; letter-spacing: -.02em; }
-  .sub { font-size: 12px; color: #52525b; margin: 0 0 28px; }
-  label { display: block; font-size: 11px; color: #71717a; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; }
+  .card { width: 100%; max-width: 420px; background: rgba(15,23,42,.8);
+          border: 1px solid rgba(148,163,184,.15); border-radius: 16px;
+          padding: 40px; backdrop-filter: blur(12px);
+          box-shadow: 0 0 40px rgba(251,191,36,.05); }
+  .logo { text-align: center; margin-bottom: 8px; }
+  .logo-title { font-size: 28px; font-weight: 900; color: #f59e0b;
+                letter-spacing: -.03em; }
+  .logo-sub { font-size: 12px; color: #475569; margin-top: 2px; }
+  h1 { font-size: 18px; font-weight: 700; color: #f1f5f9; margin: 24px 0 4px;
+       text-align: center; }
+  .sub { font-size: 13px; color: #64748b; margin: 0 0 24px; text-align: center; }
+  label { display: block; font-size: 12px; font-weight: 600; color: #94a3b8;
+          text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+  .input-wrap { position: relative; margin-bottom: 16px; }
   input[type=text], input[type=password], input[type=email] {
-    width: 100%; padding: 10px 12px; background: #000; border: 1px solid #3f3f46;
-    color: #e4e4e7; font-family: monospace; font-size: 14px; outline: none; margin-bottom: 18px;
-    transition: border-color .2s; }
-  input:focus { border-color: rgba(34,197,94,.5); }
-  .btn { width: 100%; padding: 11px; background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.4);
-         color: #4ade80; font-family: monospace; font-size: 13px; font-weight: 700; cursor: pointer;
-         letter-spacing: .08em; text-transform: uppercase; transition: all .2s; margin-top: 4px; }
-  .btn:hover { background: rgba(34,197,94,.18); }
-  .btn-danger { background: rgba(239,68,68,.1); border-color: rgba(239,68,68,.4); color: #f87171; }
-  .btn-danger:hover { background: rgba(239,68,68,.18); }
-  .links { margin-top: 20px; text-align: center; font-size: 12px; color: #52525b; }
-  .links a { color: #4ade80; text-decoration: none; }
+    width: 100%; padding: 11px 14px; background: rgba(30,41,59,.8);
+    border: 1px solid rgba(148,163,184,.2); border-radius: 8px;
+    color: #f1f5f9; font-size: 14px; outline: none;
+    transition: border-color .2s, box-shadow .2s; }
+  input:focus { border-color: rgba(251,191,36,.5);
+                box-shadow: 0 0 0 3px rgba(251,191,36,.1); }
+  .pw-wrap { position: relative; }
+  .pw-wrap input { padding-right: 44px; width: 100%; }
+  .pw-toggle { position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+               background: none; border: none; cursor: pointer; color: #64748b;
+               font-size: 16px; padding: 4px; line-height: 1; }
+  .pw-toggle:hover { color: #94a3b8; }
+  .btn { width: 100%; padding: 12px; margin-top: 8px;
+         background: linear-gradient(135deg, #f59e0b, #d97706);
+         border: none; border-radius: 8px; color: #0f172a;
+         font-size: 14px; font-weight: 700; cursor: pointer;
+         transition: opacity .2s, transform .1s; }
+  .btn:hover { opacity: .9; transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn-danger { background: linear-gradient(135deg, #ef4444, #dc2626); color: #fff; }
+  .btn-secondary { background: rgba(148,163,184,.1); border: 1px solid rgba(148,163,184,.2);
+                   color: #94a3b8; border-radius: 8px; }
+  .btn-secondary:hover { background: rgba(148,163,184,.15); opacity: 1; }
+  .links { margin-top: 20px; text-align: center; font-size: 13px; color: #64748b; }
+  .links a { color: #f59e0b; text-decoration: none; font-weight: 500; }
   .links a:hover { text-decoration: underline; }
-  .flash { padding: 10px 14px; margin-bottom: 18px; font-size: 12px; font-family: monospace; border-left: 2px solid; }
-  .flash-danger  { background: rgba(239,68,68,.08);  border-color: rgba(239,68,68,.4);  color: #fca5a5; }
-  .flash-success { background: rgba(34,197,94,.08);  border-color: rgba(34,197,94,.4);  color: #86efac; }
-  .flash-warning { background: rgba(234,179,8,.08);  border-color: rgba(234,179,8,.4);  color: #fde68a; }
-  .flash-info    { background: rgba(96,165,250,.08);  border-color: rgba(96,165,250,.4); color: #bfdbfe; }
+  .divider { display: flex; align-items: center; gap: 12px; margin: 20px 0;
+             color: #334155; font-size: 12px; }
+  .divider::before, .divider::after { content: ''; flex: 1;
+    height: 1px; background: rgba(148,163,184,.1); }
+  .flash { padding: 10px 14px; margin-bottom: 16px; font-size: 13px;
+           border-radius: 8px; border-left: 3px solid; }
+  .flash-danger  { background: rgba(239,68,68,.08);  border-color: #ef4444;  color: #fca5a5; }
+  .flash-success { background: rgba(34,197,94,.08);  border-color: #22c55e;  color: #86efac; }
+  .flash-warning { background: rgba(245,158,11,.08); border-color: #f59e0b;  color: #fde68a; }
+  .flash-info    { background: rgba(96,165,250,.08); border-color: #60a5fa;  color: #bfdbfe; }
   /* Admin table */
   table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 16px; }
-  th { text-align: left; padding: 8px 12px; color: #52525b; text-transform: uppercase;
-       letter-spacing: .08em; border-bottom: 1px solid #27272a; }
-  td { padding: 8px 12px; border-bottom: 1px solid #18181b; color: #a1a1aa; }
-  td:first-child { color: #e4e4e7; }
-  .badge { padding: 2px 8px; font-size: 10px; border: 1px solid; }
-  .badge-admin { color: #4ade80; border-color: rgba(34,197,94,.4); background: rgba(34,197,94,.08); }
-  .badge-user  { color: #71717a; border-color: #3f3f46; }
-  .admin-card { max-width: 900px; }
-  .page-title { font-size: 18px; font-weight: 900; color: #f4f4f5; margin: 0 0 4px; }
-  .input-sm { padding: 6px 10px; font-size: 12px; margin-bottom: 0; }
-  .btn-sm { padding: 6px 12px; font-size: 11px; margin-top: 0; width: auto; }
+  th { text-align: left; padding: 8px 12px; color: #64748b; text-transform: uppercase;
+       letter-spacing: .06em; border-bottom: 1px solid rgba(148,163,184,.1); }
+  td { padding: 8px 12px; border-bottom: 1px solid rgba(148,163,184,.05); color: #94a3b8; }
+  td:first-child { color: #e2e8f0; }
+  .badge { padding: 2px 8px; font-size: 10px; border-radius: 4px; border: 1px solid; }
+  .badge-admin { color: #f59e0b; border-color: rgba(245,158,11,.4); background: rgba(245,158,11,.08); }
+  .badge-user  { color: #64748b; border-color: rgba(148,163,184,.2); }
+  .admin-card { max-width: 960px; }
+  .page-title { font-size: 18px; font-weight: 700; color: #f1f5f9; margin: 0 0 4px; }
+  .input-sm { padding: 6px 10px; font-size: 12px; }
+  .btn-sm { padding: 6px 14px; font-size: 11px; width: auto; margin-top: 0; border-radius: 6px; }
   .row-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 </style>
+<script>
+function togglePw(id) {
+  var el = document.getElementById(id);
+  var btn = el.nextElementSibling;
+  if (el.type === 'password') { el.type = 'text'; btn.textContent = '🙈'; }
+  else { el.type = 'password'; btn.textContent = '👁'; }
+}
+</script>
 </head>
 <body>
 <div class="card {{ extra_class or '' }}">
-  <div class="chrome">
-    <div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div>
-    <span class="chrome-label">{{ chrome_label or (domain + '://auth') }}</span>
+  <div class="logo">
+    <a href="/" style="display:block;text-align:center;text-decoration:none;">
+      <div class="logo-title">Arc Codex</div>
+      <div class="logo-sub">Intelligence infrastructure for the independent mind</div>
+    </a>
   </div>
   {% for cat, msg in get_flashed_messages(with_categories=true) %}
     <div class="flash flash-{{ cat }}">{{ msg }}</div>
@@ -275,21 +310,27 @@ def register():
                 _create_user(username, password, email=email)
                 log.info("New user registered: %s (%s)", username, email)
                 flash("Account created! Please log in.", "success")
-                return redirect(url_for("auth.login"))
+                return redirect("/")
 
     content = """
-<h1>&gt; Create Account</h1>
-<p class="sub">// register — access all arc stacks with one account</p>
+<h1>Create Account</h1>
+<p class="sub">One account for all Arc stacks</p>
 <form method="post">
   <label>Username</label>
   <input type="text" name="username" required minlength="3" placeholder="choose a username" autocomplete="username">
   <label>Email</label>
   <input type="email" name="email" required placeholder="for password resets">
   <label>Password</label>
-  <input type="password" name="password" required minlength="8" placeholder="min 8 characters" autocomplete="new-password">
+  <div class="pw-wrap">
+    <input type="password" id="pw1" name="password" required minlength="8" placeholder="min 8 characters" autocomplete="new-password">
+    <button type="button" class="pw-toggle" onclick="togglePw('pw1')">👁</button>
+  </div>
   <label>Confirm Password</label>
-  <input type="password" name="confirm_password" required minlength="8" placeholder="confirm password" autocomplete="new-password">
-  <button type="submit" class="btn">&gt; create account</button>
+  <div class="pw-wrap">
+    <input type="password" id="pw2" name="confirm_password" required minlength="8" placeholder="confirm password" autocomplete="new-password">
+    <button type="button" class="pw-toggle" onclick="togglePw('pw2')">👁</button>
+  </div>
+  <button type="submit" class="btn">Create Account</button>
 </form>
 <div class="links">
   Already have an account? <a href="{{ url_for('auth.login') }}">Log in</a>
@@ -330,21 +371,26 @@ def login():
                 flash("Login error — please try again.", "danger")
 
     content = """
-<h1>&gt; Log In</h1>
-<p class="sub">// authenticate — one account for all arc stacks</p>
+<h1>Welcome Back</h1>
+<p class="sub">Sign in to Arc Codex</p>
 <form method="post">
   <label>Username</label>
   <input type="text" name="username" required placeholder="your username" autocomplete="username">
   <label>Password</label>
-  <input type="password" name="password" required placeholder="your password" autocomplete="current-password">
-  <button type="submit" class="btn">&gt; log in</button>
+  <div class="pw-wrap">
+    <input type="password" id="pw" name="password" required placeholder="your password" autocomplete="current-password">
+    <button type="button" class="pw-toggle" onclick="togglePw('pw')">👁</button>
+  </div>
+  <button type="submit" class="btn">Log In</button>
 </form>
-<div class="links">
+<div class="divider">or</div>
+<a href="/api/auth/signin" class="btn btn-secondary" style="display:block;text-align:center;text-decoration:none;padding:11px;">
+  Continue with GitHub
+</a>
+<div class="links" style="margin-top:16px">
   <a href="{{ url_for('auth.forgot') }}">Forgot password?</a>
   &nbsp;·&nbsp;
   <a href="{{ url_for('auth.register') }}">Create account</a>
-  &nbsp;·&nbsp;
-  <a href="/api/auth/signin">GitHub login</a>
 </div>
 """
     from flask import render_template_string
@@ -358,7 +404,7 @@ def logout():
     session.clear()
     log.info("User logged out: %s", username)
     flash("Logged out successfully.", "info")
-    return redirect(url_for("auth.login"))
+    return redirect("/")
 
 
 @auth_bp.route("/forgot", methods=["GET", "POST"])
@@ -374,15 +420,15 @@ def forgot():
                 _send_reset_email(email, token, _domain)
         # Always show same message — don't reveal whether email exists
         flash("If that email is registered, a reset link is on its way.", "info")
-        return redirect(url_for("auth.login"))
+        return redirect("/")
 
     content = """
-<h1>&gt; Reset Password</h1>
-<p class="sub">// enter your email to receive a reset link</p>
+<h1>Reset Password</h1>
+<p class="sub">Enter your email to receive a reset link</p>
 <form method="post">
   <label>Email Address</label>
   <input type="email" name="email" required placeholder="your registered email">
-  <button type="submit" class="btn">&gt; send reset link</button>
+  <button type="submit" class="btn">Send Reset Link</button>
 </form>
 <div class="links"><a href="{{ url_for('auth.login') }}">Back to login</a></div>
 """
@@ -396,7 +442,7 @@ def reset(token):
     r = _r()
     if not r:
         flash("Service unavailable.", "danger")
-        return redirect(url_for("auth.login"))
+        return redirect("/")
 
     username = r.get(f"arc:reset:{token}")
     if not username:
@@ -415,17 +461,23 @@ def reset(token):
             r.delete(f"arc:reset:{token}")
             log.info("Password reset for user: %s", username)
             flash("Password updated! Please log in.", "success")
-            return redirect(url_for("auth.login"))
+            return redirect("/")
 
     content = f"""
 <h1>&gt; New Password</h1>
 <p class="sub">// resetting password for: {username}</p>
 <form method="post">
   <label>New Password</label>
-  <input type="password" name="password" required minlength="8" placeholder="min 8 characters" autocomplete="new-password">
+  <div class="pw-wrap">
+    <input type="password" id="pw1" name="password" required minlength="8" placeholder="min 8 characters" autocomplete="new-password">
+    <button type="button" class="pw-toggle" onclick="togglePw('pw1')">👁</button>
+  </div>
   <label>Confirm Password</label>
-  <input type="password" name="confirm_password" required minlength="8" placeholder="confirm password" autocomplete="new-password">
-  <button type="submit" class="btn">&gt; set password</button>
+  <div class="pw-wrap">
+    <input type="password" id="pw2" name="confirm_password" required minlength="8" placeholder="confirm password" autocomplete="new-password">
+    <button type="button" class="pw-toggle" onclick="togglePw('pw2')">👁</button>
+  </div>
+  <button type="submit" class="btn">Set Password</button>
 </form>
 """
     return _render("Reset Password", content)

@@ -219,7 +219,7 @@ export default function PublishPage() {
   const router = useRouter();
   const [title, setTitle]               = useState('');
   const [content, setContent]           = useState('');
-  const [contentType, setContentType]   = useState<ContentType>('url');
+  const [contentType, setContentType]   = useState<ContentType>('text');
   const [file, setFile]                 = useState<File | null>(null);
   const [status, setStatus]             = useState<Status>('idle');
   const [message, setMessage]           = useState('');
@@ -308,12 +308,12 @@ export default function PublishPage() {
       setMessage('A title is required.');
       return;
     }
-    if (contentType === 'text' && !content.trim()) {
+    if (contentType === 'text' && !content.trim() && !imageFile && !uploadedImageUrl) {
       setStatus('error');
       setMessage('Content is required.');
       return;
     }
-    if (contentType === 'url' && (!content.trim() || !isProbablyUrl(content.trim()))) {
+    if (contentType === 'url' && (!content.trim() || !isProbablyUrl(content.trim())) && !imageFile && !uploadedImageUrl) {
       setStatus('error');
       setMessage('Please provide a valid URL (starting with http:// or https://)');
       return;
@@ -393,12 +393,17 @@ export default function PublishPage() {
     if (contentType === 'url' || contentType === 'text') {
       setMessage('Submitting to Arc Codex...');
       try {
+        // If image attached but no valid URL, submit as text
+        const effectiveContentType = (contentType === 'url' && !isProbablyUrl(content.trim()))
+          ? 'text' : contentType;
+        const effectiveContent = effectiveContentType === 'text' && !content.trim()
+          ? (title.trim() || 'Photo submission') : content.trim();
         const resp = await fetch('/api/submit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            content_type: contentType,
-            content: content.trim(),
+            content_type: effectiveContentType,
+            content: effectiveContent,
             title: title.trim(),
             image_url: resolvedImageUrl || undefined,
             visibility,
@@ -780,7 +785,6 @@ export default function PublishPage() {
                 ref={imageInputRef}
                 type="file"
                 accept="image/*"
-                capture="environment"
                 className="hidden"
                 aria-label="Select cover image"
                 onChange={handleImageChange}
