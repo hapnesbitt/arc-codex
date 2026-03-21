@@ -1427,8 +1427,8 @@ def main():
 
         except Exception as e:
             logger.error(f"MAIN LOOP ERROR: {e}", exc_info=True)
-            for _ in range(6):
-                time.sleep(1)
+            for _ in range(60):
+                time.sleep(6)
                 if r.llen(REDIS_PRIORITY_QUEUE_KEY) > 0:
                     break
 

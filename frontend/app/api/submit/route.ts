@@ -1,20 +1,34 @@
-/**
- * Arc Codex — Submit Proxy
- * frontend/app/api/submit/route.ts
- *
- * Server-side proxy between the browser and Flask /api/submit.
- * Injects X-User-Id from session so Flask can store owner on the article.
- * If user is not authenticated, still proxies but with empty X-User-Id.
- */
-
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { cookies } from "next/headers";
 
 const BACKEND = process.env.BACKEND_INTERNAL_URL ?? "http://localhost:5005";
 
+async function getLocalAuthUserId(): Promise<string> {
+    try {
+        const cookieStore = await cookies();
+        const cookieHeader = cookieStore.getAll()
+            .map(c => `${c.name}=${c.value}`)
+            .join('; ');
+        const meRes = await fetch(`${BACKEND}/api/me`, {
+            cache: 'no-store',
+            headers: { Cookie: cookieHeader },
+        });
+        if (meRes.ok) {
+            const me = await meRes.json();
+            if (me.logged_in && me.username) return me.username;
+        }
+    } catch { /* silent */ }
+    return "";
+}
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
     const session = await auth();
-    const userId = session?.user?.id ?? "";
+    let userId = session?.user?.id ?? "";
+
+    if (!userId) {
+        userId = await getLocalAuthUserId();
+    }
 
     const body = await req.json().catch(() => ({}));
 

@@ -1,15 +1,10 @@
 // File: /frontend/app/ClientLayout.tsx
-// VERSION: v2 — Bug fixes + accessibility hardening + next/image
+// VERSION: v3 — Local auth integration
 //
-// Changes from v1:
-//   - window.confirm() removed — two-step state pattern matching UserMenu
-//   - deleteAccount() wrapped in try/catch with user-facing error display
-//   - handleCommitChanges calls clearPreferredLang() when tempLang is empty
-//   - Both <aside> landmarks get distinct aria-labels
-//   - Skip link: focus: → focus-visible:
-//   - MobileAuthButton trigger gets triggerRef — focus returns on sheet close
-//   - Escape handler calls closeSheet() so focus always returns correctly
-//   - <img> → <Image> from next/image (domain allowlist via next.config.mjs)
+// Changes from v2:
+//   - MobileAuthButton: Google signIn replaced with Login/Register links + GitHub only
+//   - Fetches /api/me for local auth state on mobile (same as UserMenu)
+//   - Admin panel link shown in mobile sheet when is_admin
 
 'use client';
 
@@ -20,7 +15,7 @@ import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BookOpen, Send, Search, Activity, Home, LogIn,
-  X, Globe, Check, AlertCircle, Trash2,
+  X, Globe, Check, AlertCircle, Trash2, Shield, UserCircle,
 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import styles from './LayoutTheme.module.css';
@@ -30,11 +25,35 @@ import UserMenu from '@/components/UserMenu';
 import LANGUAGES from '@/lib/languages.json';
 
 // ---------------------------------------------------------------------------
+// useLocalAuth — shared hook for Flask session state
+// ---------------------------------------------------------------------------
+
+interface LocalAuth {
+  logged_in: boolean;
+  username: string | null;
+  is_admin: boolean;
+}
+
+function useLocalAuth(): LocalAuth {
+  const [localAuth, setLocalAuth] = useState<LocalAuth>({ logged_in: false, username: null, is_admin: false });
+
+  useEffect(() => {
+    fetch("/api/me", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data?.logged_in) setLocalAuth(data); })
+      .catch(() => {});
+  }, []);
+
+  return localAuth;
+}
+
+// ---------------------------------------------------------------------------
 // MobileAuthButton
 // ---------------------------------------------------------------------------
 
 const MobileAuthButton = () => {
   const { data: session, status } = useSession();
+  const localAuth = useLocalAuth();
   const { prefs, savePreferredLang, clearPreferredLang, deleteAccount } = useUserPrefs();
   const [isOpen, setIsOpen]               = useState(false);
   const [tempLang, setTempLang]           = useState("");
@@ -118,6 +137,7 @@ const MobileAuthButton = () => {
     setDeleteError(null);
   };
 
+  // ── OAuth authenticated (GitHub) — full prefs sheet ──────────────────────
   if (status === 'authenticated' && session?.user?.image) {
     return (
       <>
@@ -198,30 +218,29 @@ const MobileAuthButton = () => {
                       aria-selected={tempLang === name}
                       onClick={() => setTempLang(name)}
                       className={cn(
-                        "w-full flex items-center justify-between px-4 py-4 rounded-xl border transition-all outline-none focus-visible:ring-2 focus-visible:ring-amber-500",
+                        "w-full text-left px-4 py-2.5 rounded-xl text-sm transition-all focus-visible:ring-2 focus-visible:ring-amber-500 outline-none",
                         tempLang === name
-                          ? "bg-amber-500/10 border-amber-500/50 text-amber-400"
-                          : "bg-white/5 border-transparent text-slate-400"
+                          ? "bg-amber-500/20 text-amber-300 font-bold"
+                          : "text-slate-400 hover:bg-white/5 hover:text-white"
                       )}
                     >
-                      <span className="text-sm font-bold">{name}</span>
-                      {tempLang === name && <Check size={16} className="text-amber-500" aria-hidden="true" />}
+                      {name}
                     </button>
                   ))}
                 </div>
 
-                <div className="space-y-3">
+                <div className="border-t border-white/10 pt-4">
                   <button
                     onClick={handleCommitChanges}
-                    disabled={isSaving || tempLang === (prefs?.preferred_lang ?? "")}
-                    aria-label={isSaving ? "Saving language preference" : "Save language preference"}
-                    className="w-full py-4 rounded-xl bg-amber-500 text-black font-black text-xs uppercase tracking-widest disabled:opacity-30 transition-all hover:bg-amber-400 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-amber-300 outline-none"
+                    disabled={isSaving}
+                    aria-busy={isSaving}
+                    className="w-full py-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-black uppercase tracking-widest hover:bg-amber-500/20 disabled:opacity-50 transition-colors mb-3 focus-visible:ring-2 focus-visible:ring-amber-500 outline-none"
                   >
-                    {isSaving ? "Syncing..." : "Commit Selection"}
+                    {isSaving ? "Saving..." : "Save Preference"}
                   </button>
 
                   {deleteError && (
-                    <div role="alert" className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[10px]">
+                    <div role="alert" className="flex items-start gap-2 px-3 py-2 mb-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-[10px]">
                       <AlertCircle size={14} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
                       <span>{deleteError}</span>
                     </div>
@@ -276,22 +295,48 @@ const MobileAuthButton = () => {
     );
   }
 
+  // ── Local auth authenticated — minimal mobile indicator ───────────────────
+  if (localAuth.logged_in) {
+    return (
+      <div className="group relative flex flex-col items-center flex-1">
+        <div className="relative rounded-xl p-1.5 bg-black/40 border border-green-400/20">
+          <UserCircle size={24} className="text-green-400" aria-hidden="true" />
+        </div>
+        <span className="mt-2 text-[8px] uppercase font-bold tracking-widest text-green-400" aria-hidden="true">
+          {localAuth.username}
+        </span>
+        {localAuth.is_admin && (
+          <a
+            href="/auth/admin/users"
+            className="mt-1 text-[7px] uppercase font-black tracking-widest text-green-500 hover:text-green-300 transition-colors"
+            aria-label="Admin panel"
+          >
+            admin
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  // ── Not authenticated — Login / Register / GitHub ─────────────────────────
   return (
-    <button
-      onClick={() => signIn('google')}
-      className="group relative flex flex-col items-center flex-1 outline-none"
-      aria-label="Sign in with Google"
-    >
-      <motion.div
-        whileHover={{ y: -5 }}
-        className="relative rounded-xl p-3 transition-all bg-black/40 border border-white/5 group-hover:bg-white/5 group-focus-visible:ring-2 group-focus-visible:ring-white"
+    <div className="group relative flex flex-col items-center flex-1">
+      <a
+        href="/auth/login"
+        className="group relative flex flex-col items-center outline-none"
+        aria-label="Log in"
       >
-        <LogIn size={20} className="text-slate-500 group-hover:text-white" aria-hidden="true" />
-      </motion.div>
-      <span className="mt-2 text-[8px] uppercase font-bold tracking-widest text-slate-500 group-hover:text-white" aria-hidden="true">
-        Sign in
-      </span>
-    </button>
+        <motion.div
+          whileHover={{ y: -5 }}
+          className="relative rounded-xl p-3 transition-all bg-black/40 border border-white/5 hover:bg-white/5 group-focus-visible:ring-2 group-focus-visible:ring-white"
+        >
+          <LogIn size={20} className="text-slate-500 group-hover:text-white" aria-hidden="true" />
+        </motion.div>
+        <span className="mt-2 text-[8px] uppercase font-bold tracking-widest text-slate-500 group-hover:text-white" aria-hidden="true">
+          Log In
+        </span>
+      </a>
+    </div>
   );
 };
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 bluesky_poster.py — Arc Codex auto-poster for Bluesky
-v1.1 — og_image thumb upload via uploadBlob
+v1.2 — URL removed from post text (embed card handles it)
 
 On/off:  redis-cli set bluesky:autopost 1|0
 Posted set: bluesky:posted (SET of article IDs, prevents duplicates)
@@ -129,7 +129,9 @@ def bsky_upload_thumb(og_image_url: str) -> dict | None:
         return None
 
 # ── Post ───────────────────────────────────────────────────────────────────────
-def bsky_post(text: str, og_image_url: str = "") -> bool:
+def bsky_post(text: str, og_image_url: str = "", article_url: str = "") -> bool:
+    if not og_image_url:
+        og_image_url = "https://arc-codex.com/uploads/arc-codex-default.jpg"
     """
     Create a Bluesky post with optional image thumbnail in the link card.
     Re-authenticates once on 401 before giving up.
@@ -140,12 +142,12 @@ def bsky_post(text: str, og_image_url: str = "") -> bool:
 
     # Build embed card with thumb if available
     thumb = bsky_upload_thumb(og_image_url)
-    article_uri = _extract_url(text)
+    article_uri = article_url
     if article_uri:
         external = {
             "$type": "app.bsky.embed.external#external",
             "uri": article_uri,
-            "title": text.split("\n")[0][:300],
+            "title": "",
             "description": "",
         }
         if thumb:
@@ -240,7 +242,8 @@ def get_counter_analyst_comment(article_id: str, wait: bool = True) -> str | Non
             return None
         time.sleep(5)
 
-def build_post_text(article: dict, comment: str | None) -> str:
+def build_post_text(article: dict, comment: str | None) -> tuple[str, str]:
+    """Returns (post_text, article_url). URL is NOT in post_text — embed card handles it."""
     title = article.get("title", "").strip()
     slug  = article.get("slug", article.get("id", ""))
     url   = f"{ARTICLE_BASE_URL}/article/{slug}"
@@ -251,11 +254,11 @@ def build_post_text(article: dict, comment: str | None) -> str:
         purple = article.get("purple_team_analysis", "")
         body = (purple[:200] + "…") if len(purple) > 200 else purple
 
-    MAX_BODY = 300 - len(url) - 4
-    if len(title) + 2 + len(body) > MAX_BODY:
-        body = body[:MAX_BODY - len(title) - 5] + "…"
+    MAX_BODY = 295 - len(title)
+    if len(body) > MAX_BODY:
+        body = body[:MAX_BODY - 1] + "…"
 
-    return f"{title}\n\n{body}\n\n{url}"
+    return f"{title}\n\n{body}", url
 
 def seed_posted_set():
     try:
@@ -315,9 +318,9 @@ def main():
                     log.warning("No counter-analyst for %s after %ds — using purple excerpt",
                                 article_id, CA_WAIT)
 
-                text      = build_post_text(article, comment)
+                text, url = build_post_text(article, comment)
                 og_image  = article.get("imageUrl", "")
-                success   = bsky_post(text, og_image_url=og_image)
+                success   = bsky_post(text, og_image_url=og_image, article_url=url)
 
                 if success:
                     log.info("Posted article %s to Bluesky", article_id)

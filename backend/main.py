@@ -15,7 +15,7 @@ from pypdf import PdfReader
 import os
 import datetime
 import time
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, Response, session
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import redis
@@ -327,6 +327,13 @@ def call_ollama(prompt_text: str, model: str = None, timeout: int = 3600):
 
 
 # --- API ENDPOINTS ---
+@app.route('/api/me', methods=['GET'])
+def api_me():
+    """Returns current local auth session state for frontend."""
+    if session.get('username'):
+        return jsonify({'logged_in': True, 'username': session.get('username'), 'is_admin': bool(session.get('is_admin'))})
+    return jsonify({'logged_in': False, 'username': None, 'is_admin': False})
+
 @app.route('/api/publish_article', methods=['POST'])
 def publish_article():
     if not r: 
@@ -447,7 +454,7 @@ def get_feed():
         
         redis_duration = (time.perf_counter() - redis_start) * 1000
         
-        requesting_user = request.headers.get('X-User-Id', '')
+        requesting_user = request.headers.get('X-User-Id') or session.get('username', '')
         formatted_feed = []
         for item, langs in zip(feed_data, langs_data):
             if item:
@@ -1191,7 +1198,7 @@ def submit():
         'title':  title,
         'image_url': (data.get('image_url') or '').strip() or None,  # ← add this
         'visibility': (data.get('visibility') or 'public'),
-        'owner': request.headers.get('X-User-Id', ''),
+        'owner': request.headers.get('X-User-Id') or session.get('username', ''),
     }
 
     try:
@@ -1241,7 +1248,7 @@ def submit_prompt():
         'title':  title,
         'image_url': image_url,
         'visibility': (data.get('visibility') or 'public'),
-        'owner': request.headers.get('X-User-Id', ''),
+        'owner': request.headers.get('X-User-Id') or session.get('username', ''),
     }
 
     try:
