@@ -1287,10 +1287,23 @@ def upload_image():
     raw = file.read()
     if len(raw) > 10 * 1024 * 1024:
         return jsonify({'error': 'Image must be under 10MB'}), 400
+    # Resize to social-card safe dimensions (max 1200x630, keeps aspect ratio)
+    from PIL import Image
+    import io
+    try:
+        img = Image.open(io.BytesIO(raw))
+        img = img.convert('RGB')
+        img.thumbnail((1200, 630), Image.LANCZOS)
+        out = io.BytesIO()
+        img.save(out, format='JPEG', quality=85, optimize=True)
+        raw = out.getvalue()
+        ext = 'jpg'
+    except Exception as e:
+        app.logger.warning(f"⚠️  Image resize failed, using original: {e}")
+        ext_map = {'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif'}
+        ext = ext_map.get(file.mimetype, 'jpg')
 
     # Stable filename from content hash — deduplicates identical uploads
-    ext_map = {'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif'}
-    ext = ext_map.get(file.mimetype, 'jpg')
     content_hash = hashlib.sha256(raw).hexdigest()[:16]
     filename = f"{content_hash}.{ext}"
 

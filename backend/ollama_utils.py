@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 
 OLLAMA_URL            = os.environ.get("OLLAMA_URL", "http://192.168.1.185:11434")
 OLLAMA_CLOUD_MODEL    = os.environ.get("OLLAMA_CLOUD_MODEL", "nemotron-3-nano:30b-cloud")
-OLLAMA_LOCAL_FALLBACK = os.environ.get("OLLAMA_LOCAL_FALLBACK", "qwen2.5:7b")
+OLLAMA_LOCAL_FALLBACK  = os.environ.get("OLLAMA_LOCAL_FALLBACK", "mistral:7b")
+OLLAMA_LOCAL_FALLBACK2 = os.environ.get("OLLAMA_LOCAL_FALLBACK2", "llama3.2:latest")
 
 TRANSLATION_LOCK_KEY      = "translation:active"
 TRANSLATION_LOCK_MAX_WAIT = 60  # seconds to wait before proceeding anyway
@@ -69,7 +70,7 @@ def call_ollama_with_fallback(prompt_text: str, timeout: int = 900):
     """
     _wait_for_translation()
 
-    for model, label in [(OLLAMA_CLOUD_MODEL, "cloud"), (OLLAMA_LOCAL_FALLBACK, "local")]:
+    for model, label in [(OLLAMA_CLOUD_MODEL, "cloud"), (OLLAMA_LOCAL_FALLBACK, "local"), (OLLAMA_LOCAL_FALLBACK2, "local2")]:
         try:
             logger.info(f"{'🌩️' if label == 'cloud' else '🖥️ '} Trying {label} model: {model}")
             payload = {"model": model, "prompt": prompt_text, "stream": False}
@@ -91,4 +92,4 @@ def call_ollama_with_fallback(prompt_text: str, timeout: int = 900):
         except Exception as e:
             logger.warning(f"{label.capitalize()} model error: {e}, trying next")
 
-    raise Exception(f"All Ollama models failed (tried {OLLAMA_CLOUD_MODEL}, {OLLAMA_LOCAL_FALLBACK})")
+    raise Exception(f"All Ollama models failed (tried {OLLAMA_CLOUD_MODEL}, {OLLAMA_LOCAL_FALLBACK}, {OLLAMA_LOCAL_FALLBACK2})")

@@ -180,6 +180,8 @@ def bsky_post(text: str, og_image_url: str = "", article_url: str = "") -> bool:
                 json=payload,
                 timeout=15,
             )
+            if resp.status_code == 400:
+                log.error("Bluesky 400 response: %s", resp.text[:300])
             if resp.status_code == 401 and attempt == 0:
                 log.warning("Bluesky 401 — re-authenticating")
                 bsky_login()

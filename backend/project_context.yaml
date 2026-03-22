@@ -1,5 +1,5 @@
 # Arc Codex Project Context
-# VERSION 7.18 - Updated Mar 21, 2026
+# VERSION 7.19 - Updated Mar 22, 2026
 # Restructured into three audience sections: USER / ADMIN / DEVELOPER
 # Comprehensive reference for AI assistants working on this codebase
 #
@@ -9,7 +9,7 @@
 #   BUT the priority queue key 'scribe:priority_uploads' is NOT namespaced.
 #   ALL THREE scribes compete for the SAME queue key.
 #   SYMPTOM: user submissions vanish silently — consumed by wrong stack's scribe.
-#   CURRENT FIX: huntaegis-stack.service and neetwatch-stack.service are DISABLED.
+#   CURRENT FIX: huntaegis-stack.service and neetwatch-stack.service are DISABLED at boot.
 #   Only arc-codex scribe runs. Huntaegis/neetwatch must be started manually.
 #   REAL FIX NEEDED: namespace the queue key per stack:
 #     arc-codex:    REDIS_PRIORITY_QUEUE_KEY = "arc:priority_uploads"
@@ -82,6 +82,18 @@ user:
     endpoints: [/api/rss, /api/feed.xml]
     content: Full A.R.C. analysis in each item (Red/Blue/Purple + Chimera Score)
     filters: "?category=threat_intelligence, ?limit=10"
+    substack: "https://rossnesbitt.substack.com — RSS imported, manual post-to-subscribers flow"
+
+  social:
+    bluesky: "hapenez.bsky.social — auto-posts via bluesky_poster.py"
+    mastodon: "rossnesbitt@mastodon.social — auto-posts via mastodon_poster.py"
+    substack: "https://rossnesbitt.substack.com — manual publish from share menu"
+
+  research_menu: >
+    IntelligenceCard has a magnifying glass (ResearchMenu) button alongside permalink/copy/share.
+    Dropdown opens article title pre-filled in: Google, Claude, ChatGPT, Perplexity.
+    Enables readers to instantly research further or get a second AI opinion.
+    Perplexity chosen over Gemini — Gemini does not support URL query prefilling natively.
 
   core_principles:
     - "I. Attack ideas, never people"
@@ -128,20 +140,25 @@ admin:
 
   services:
     gunicorn:         {command: "./gunicorn_arc.sh", port: 5005, dir: "backend/", workers: 1, threads: 8, timeout: 600}
-    scribe:           {command: "python3 scribe.py", note: "v50.0 — BROWSER_RECYCLE_INTERVAL=20 prevents fd leak"}
+    scribe:           {command: "python3 scribe.py", note: "v52.0 — BROWSER_RECYCLE_INTERVAL=20 prevents fd leak"}
     manual_publisher: {command: "python3 manual_publisher.py", note: "v5.1"}
     stream_consumer:  {command: "python3 stream_consumer.py"}
     analyzer:         {command: "python3 analyzer.py"}
-    mailer:           {command: "python3 mailer.py", note: "v1.0 ACTIVE — alerts + 7am digest"}
+    mailer:           {command: "python3 mailer.py", note: "v1.0 ACTIVE — alerts + 7am digest, ALERT_COOLDOWN=14400 (4h)"}
+    bluesky_poster:   {command: "python3 bluesky_poster.py", note: "v1.2 — on/off: redis-cli set bluesky:autopost 1|0"}
+    mastodon_poster:  {command: "python3 mastodon_poster.py", note: "v1.0 — on/off: redis-cli set mastodon:autopost 1|0"}
     linkedin_poster:  {command: "python3 linkedin_poster.py", note: "v1.0 — auto-posts to LinkedIn, on/off via Redis"}
     frontend:         {command: "docker compose up -d --no-deps frontend", port: 3000, note: "Docker container arc-frontend"}
     watchdog:         {command: "./watchdog.sh", note: "60s check loop, restarts crashed services"}
+    character_builder: {command: "python3 character_builder.py"}
+    corpus_exporter:  {command: "python3 corpus_exporter.py", note: "Prometheus metrics port 9101 — feeds Grafana"}
 
   boot:
     mechanism: systemd
     unit_file: /etc/systemd/system/itc-stack.service
     note: Unit name is legacy (itc era) — do not rename without testing
     after: [network-online.target, redis.service]
+    disabled_at_boot: [huntaegis-stack.service, neetwatch-stack.service]
 
   crontab:
     backup_ssd:  "0 3 * * * /home/www/arc_stack/arc.sh backup"
@@ -183,15 +200,24 @@ admin:
     url: "redis://:simplenes@localhost:6379/0"
     admin_cli: "redis-cli -a simplenes"
     translation_lock: "translation:active — TTL 300s. Prevents model thrashing on M1."
+    autopost_keys: "bluesky:autopost, mastodon:autopost, linkedin:autopost — set 1|0 to enable/disable"
+    posted_sets: "bluesky:posted, mastodon:posted, linkedin:posted — SET of article IDs (dedup)"
 
   ollama:
     host: "http://192.168.1.185:11434"
     architecture: "ALL inference on M1 — Z230 never used for inference"
-    primary: "devstral cloud (weekly credit limit)"
-    fallback: "gemma3:4b Q4_K_M (local on M1, 3.6GB)"
+    primary: "devstral-2:123b-cloud (weekly credit limit — 429 on exhaustion)"
+    fallback1: "mistral:7b (local on M1 — better JSON compliance than gemma3)"
+    fallback2: "llama3.2:latest (local on M1 — last resort)"
+    env_vars: "OLLAMA_CLOUD_MODEL, OLLAMA_LOCAL_FALLBACK, OLLAMA_LOCAL_FALLBACK2"
     translation_model: "MedAIBase/TranslateGemma:4b (M1, 7.8GB F16 — /api/chat required)"
     translation_fields_local: "[title, original_text] — 2 fields, speed constraint"
     translation_fields_pro: "[title, original_text, red_team_analysis, blue_team_analysis, purple_team_analysis]"
+    fallback_resilience: |
+      _repair_sentinel_json() has 5 recovery strategies + prose fallback:
+      If all JSON parsing fails but response len > 50 chars, returns UNCERTAIN verdict.
+      run_sentinel_analysis() fills missing keys with safe defaults instead of returning None.
+      Net effect: Sentinel always produces a result, even on 7b fallback models.
 
   email:
     mta: Postfix 3.10.2
@@ -203,7 +229,8 @@ admin:
     file: backend/kasmir7.py
     description: Interactive admin console v7
     functions: ["1-Search", "2-Emergency removal", "3-Trim", "4-Inspect", "5-Solr re-index",
-                "6-Solr diagnostics", "7-Purge Solr orphans", "8-Purge Redis orphans"]
+                "6-Solr diagnostics", "7-Purge Solr orphans", "8-Purge Redis orphans",
+                "11-My Publications"]
 
   nodejs:
     path: /home/ross/.nvm/versions/node/v22.16.0/bin
@@ -226,8 +253,8 @@ developer:
     backend: "Python 3.x / Flask / gunicorn (port 5005, 1 worker, 8 threads, timeout 600)"
     frontend: "Next.js 16.1.6 / React 19 / TypeScript / Tailwind CSS / shadcn-ui"
     database: Redis
-    search: "Apache Solr — core: feeds, 4767 docs. Fields added Mar 8: category (string), source_lang (string), original_text (text_general). Reindexed via reindex_solr.py."
-    ai: "Ollama on M1 — devstral cloud + gemma3:4b (analysis) + TranslateGemma:4b (translation)"
+    search: "Apache Solr — core: feeds, ~3500+ docs. Fields: category, source_lang, original_text."
+    ai: "Ollama on M1 — devstral-2:123b-cloud → mistral:7b → llama3.2:latest (3-tier fallback)"
     auth: "Auth.js v5 (next-auth@5.0.0-beta.30) — Google + GitHub + LinkedIn OAuth, JWT sessions"
     reverse_proxy: Caddy
 
@@ -239,22 +266,24 @@ developer:
     ├── backend/
     │   ├── .env
     │   ├── main.py                    # Flask API (formerly app.py)
-    │   ├── scribe.py                  # v50.0 — RSS scraper + A.R.C. pipeline
+    │   ├── scribe.py                  # v52.0 — RSS scraper + A.R.C. pipeline
     │   ├── analyzer.py                # v1.0
     │   ├── manual_publisher.py        # v5.1
     │   ├── stream_consumer.py         # v1.0
-    │   ├── mailer.py                  # v1.0 ACTIVE — alerts + digest
-    │   ├── ollama_utils.py            # WARNING: ONLY Ollama implementation. Has translation lock wait.
+    │   ├── mailer.py                  # v1.0 ACTIVE — alerts + digest, 4h cooldown
+    │   ├── ollama_utils.py            # 3-tier fallback: devstral→mistral:7b→llama3.2
+    │   ├── bluesky_poster.py          # v1.2 — URL share intent (not account poster)
+    │   ├── mastodon_poster.py         # v1.0 — auto-posts to mastodon.social
     │   ├── stream_utils.py
-    │   ├── rss_feed.py
+    │   ├── rss_feed.py                # Arc Codex branded (HapEnews removed Mar 22 2026)
     │   ├── translation.py             # TranslateGemma:4b via /api/chat
     │   ├── user_prefs.py              # loopback-only security
-    │   ├── prompts.yaml               # v7.0
+    │   ├── prompts.yaml               # v6.2
+    │   ├── directives.json            # v2.0 — 928 lines, 10 topics, broad keyword net
     │   ├── arc_benchmark.py
     │   ├── kasmir7.py                 # Admin console v7
     │   ├── gunicorn_arc.sh            # 1 worker, 8 threads, 600s timeout
     │   ├── sources.json               # ~1200+ RSS sources
-    │   ├── directives.json
     │   └── project_context.yaml      # THIS FILE
     └── frontend/
         ├── .env
@@ -270,14 +299,15 @@ developer:
         ├── hooks/
         │   └── useUserPrefs.ts        # Legacy — use UserPrefsContext instead
         ├── public/
-        │   └── arc-codex-logo.jpg     # 1024x1024 brand logo
+        │   ├── arc-codex-logo.jpg     # 1024x1024 brand logo
+        │   └── uploads/               # User-uploaded images (auto-resized to 1200x630 JPEG on ingest)
         ├── app/
         │   └── icon.jpg               # favicon — copy of arc-codex-logo.jpg (Next.js auto-serves)
         ├── components/
         │   ├── UserPrefsContext.tsx   # WARNING: single source of truth for prefs
         │   ├── UserMenu.tsx
-        │   ├── TranslateButton.tsx    # 68 languages, English first
-        │   ├── IntelligenceCard.tsx
+        │   ├── TranslateButton.tsx    # 162 languages, English first
+        │   ├── IntelligenceCard.tsx   # v7.0 — ResearchMenu + ShareMenu, see notes
         │   ├── FeedClient.tsx         # WARNING: DO NOT RESTRUCTURE
         │   └── CopyAllButton.tsx
         └── app/
@@ -291,7 +321,7 @@ developer:
             │   └── user/prefs/route.ts   # Uses BACKEND_INTERNAL_URL (server-side)
             ├── article/[slug]/page.tsx
             ├── publish/page.tsx           # v5.0
-            ├── search/page.tsx            # v4.0 — command-center aesthetic, PageWrapper, directive-colored cards
+            ├── search/page.tsx            # v4.0 — command-center aesthetic
             └── about/
                 ├── page.tsx
                 ├── sales/page.tsx
@@ -313,8 +343,10 @@ developer:
     "POST /api/user/prefs":        "upsert on login (loopback only)"
     "PATCH /api/user/prefs":       "update preferred_lang"
     "DELETE /api/user/prefs":      "GDPR deletion"
-    "GET /api/rss":                "RSS 2.0 with full analysis"
+    "GET /api/rss":                "RSS 2.0 with full analysis — Arc Codex branded"
     "GET /api/feed.xml":           "alias for /api/rss"
+    "POST /api/upload_image":      "upload cover image — auto-resized to 1200x630 JPEG via Pillow"
+    "POST /api/post_bluesky":      "manual Bluesky post for article (account poster)"
 
   blueprint_registry: |
     app.register_blueprint(rss_blueprint)
@@ -322,15 +354,18 @@ developer:
     from user_prefs import user_prefs_bp;   app.register_blueprint(user_prefs_bp)
 
   redis_schemas:
-    article:      "article:{id} hash — id, title, url, source, original_text, timestamp, directive, category, source_lang, chimera_score, red/blue/purple_team_analysis, sentinel_verdict, og_image, slug"
+    article:      "article:{id} hash — id, title, url, source, original_text, timestamp, directive, category, source_lang, chimera_score, red/blue/purple_team_analysis, sentinel_verdict, og_image, slug, imageUrl, origin, visibility, owner"
     comment:      "comments:{article_id} list of JSON"
     reaction:     "reactions:{comment_id} hash — like, dislike, heart, happy, sad, angry"
     translation:  "translation:{article_id}:{lang} JSON TTL 24h — {title, original_text, rtl} (local) or 5-field (pro)"
     user_sso:     "user:{google_sub} hash — email, name, picture, preferred_lang, created_at, last_seen"
     stream:       "analysis:pending Redis Stream / consumer group: analysis_workers"
     trans_lock:   "translation:active TTL 300s — held while TranslateGemma running"
-    mailer_dedup: "mailer:alerted:{key} TTL 3600s"
+    mailer_dedup: "mailer:alerted:{key} TTL 14400s (4h)"
     mailer_digest: "mailer:digest:{YYYY-MM-DD} TTL 90000s"
+    last_publish: "arc:last_publish — ISO UTC timestamp set by scribe on every publish"
+    autopost:     "bluesky:autopost, mastodon:autopost, linkedin:autopost — 1|0"
+    posted_sets:  "bluesky:posted, mastodon:posted, linkedin:posted — SET of article IDs"
 
   auth_notes:
     library: "next-auth@5.0.0-beta.30"
@@ -343,6 +378,12 @@ developer:
 
   ai_notes:
     ollama_return: "call_ollama_with_fallback() returns TUPLE (text, duration_ms, model). Use result[0] for text."
+    ollama_fallback_chain: "devstral-2:123b-cloud → mistral:7b → llama3.2:latest. Configure via OLLAMA_LOCAL_FALLBACK and OLLAMA_LOCAL_FALLBACK2 in .env."
+    sentinel_resilience: |
+      _repair_sentinel_json() tries 5 recovery strategies.
+      Final fallback: if model returned prose (no JSON braces), returns UNCERTAIN with summary note.
+      run_sentinel_analysis(): missing required keys filled with defaults, not None.
+      Net: Sentinel never silently fails — always produces a result.
     translation_danger: "NEVER auto-translate on feed mount — 33 cards x Ollama = gunicorn starvation. Click-only."
     translation_model: "TranslateGemma:4b needs /api/chat (NOT /api/generate), ISO 639-1 codes, system preamble, temp 0.2"
     translation_lock: "translation.py sets Redis translation:active. ollama_utils waits up to 60s before analysis calls."
@@ -352,12 +393,65 @@ developer:
     counter_analyst_fatal: false
     stream_delivery: "Redis Streams only — no filesystem JSON writes"
     chimera_score_caveat: "Calibrated on English. Non-English articles may score abnormally."
-    source_lang_detection: "langdetect 1.0.9 in backend venv. scribe.py detects language at ingest, stores source_lang field. backfill_source_lang.py ran Mar 8 — 4697 articles backfilled. Dominant: English 4652, German 30, Swedish 10, Spanish 7."
+
+  image_upload_notes: |
+    /api/upload_image (main.py) auto-resizes all uploads via Pillow:
+    - img.thumbnail((1200, 630)) — preserves aspect ratio, fits within social card dimensions
+    - Converts all formats to JPEG, quality=85
+    - Content hash computed on RESIZED bytes (dedup still works)
+    - Reason: iPhone photos (4032x3024, 3.7MB) were silently dropped by Bluesky card crawler
+    - Result: og:image renders correctly on Bluesky, Mastodon, and other crawlers
+
+  directives_notes: |
+    directives.json v2.0 (Mar 22, 2026):
+    - 928 lines, 10 topic groups, ~300+ keywords total
+    - New topics: World Affairs (priority 97), Healthcare (priority 87)
+    - All existing topics massively expanded with real headline keywords
+    - General News priority bumped 1→50 as true catch-all
+    - Removed: "survivors" from Epstein directive (too generic — matched unrelated articles)
+    - Added dance/ballet/choreograph/performance/theater keywords to General News
+    - Key fix: named entities (Trump, OpenAI, Anthropic, Claude, DOGE, CDC etc.) now in keywords
+
+  intelligencecard_notes: |
+    IntelligenceCard.tsx v7.0 (Mar 22, 2026):
+    Header button row: [Permalink] [Copy] [ResearchMenu] [ShareMenu]
+
+    ResearchMenu (magnifying glass icon):
+    - Google: google.com/search?q={title}
+    - Claude: claude.ai/new?q={title}
+    - ChatGPT: chatgpt.com/?q={title}
+    - Perplexity: perplexity.ai/?q={title}
+    Note: Gemini dropped — does not support URL query prefilling natively.
+
+    ShareMenu (share icon):
+    - Bluesky: bsky.app/intent/compose?text={sharePayload} (reader's account)
+    - Mastodon: mastodon.social/share?text={sharePayload} (reader's account)
+    - Facebook: facebook.com/sharer.php?u={url}
+    - Substack: clipboard copy + open substack.com/publish/post/new
+    - Email: mailto: with title + payload
+    Note: X/LinkedIn removed Mar 22. All labels one word for clean UI.
+
+  mastodon_notes:
+    instance: mastodon.social
+    handle: "@rossnesbitt@mastodon.social"
+    app: "Arc Codex — app ID 8424769"
+    scope: "write:statuses (write:media needed for image upload — token needs updating)"
+    file: backend/mastodon_poster.py
+    on_off: "redis-cli -a simplenes set mastodon:autopost 1|0"
+    posted_set: "mastodon:posted — SET of article IDs (prevents duplicates)"
+    seed_on_start: "All existing articles seeded on startup — no spam flood"
+    image_note: "Media upload 403 on current token (missing write:media scope). Posts still go out without image via link preview."
+    post_format: |
+      {title}
+
+      {counter-analyst comment or purple excerpt}
+
+      {article URL}
 
   security_notes:
     redis_bind: "127.0.0.1 only — fixed Mar 7 2026 (was 0.0.0.0)"
-    disabled_services: [zabbix-server, zabbix-agent, mariadb, snmpd, unbound]
-    reason: "Zabbix+MariaDB redundant with Netdata; SNMP/Unbound not needed"
+    disabled_services: [zabbix-server, zabbix-agent, mariadb, snmpd, unbound, huntaegis-stack, neetwatch-stack]
+    reason: "Zabbix+MariaDB redundant with Netdata; SNMP/Unbound not needed; huntaegis/neetwatch disabled pending priority queue namespace fix"
 
   frontend_gotchas:
     feedclient: "NEVER restructure — surgical deletions only. Directive filter: useSearchParams reads ?directive=X, resets feed on change, passes to /api/get_feed. isFirstRender ref prevents wipe on mount."
@@ -376,14 +470,12 @@ developer:
     logo: "public/arc-codex-logo.jpg (1024x1024) — displayed in sidebar desktop nav, 64x64 rounded"
     favicon: "app/icon.jpg — copy of logo, auto-served by Next.js App Router"
     search_sort: "4 options: relevant, recent, score_desc (Tone high→low), score_asc (Tone low→high)"
-    directives_cleanup: "Mar 8 2026 — directives.json cleaned: 24→19 directives, 8 topics. Removed: Minecraft Automation, Home & Garden Monetization, Health/Wellness & Beauty, Travel & Transport, Online Community Monitoring. Topics: System Directives, Finance & Economics, Technology & AI, Intelligence & Security, Governance & Policy, Media & Information Integrity, Science & Environment, General. Greek god categoryLabels.js and allDirectives in utils.js are dead code — pending removal."
     share_payload: |
       IntelligenceCard share/copy uses: title + counter-analyst comment + URL.
       Falls back to title + URL if no comment exists.
       "The article" → "This article" normalization applied at share time.
-      LinkedIn button: copies payload to clipboard AND opens share dialog simultaneously.
-      Copy button on card uses same payload.
-    counter_analyst_prompt: "prompts.yaml rule added: 'Start with This article not The article'"
+    rss_branding: "rss_feed.py rebranded Mar 22 2026 — HapEnews/whirled-news/hapenews- all replaced with Arc Codex/arc-codex.com/arc-codex-"
+    opaque_response_blocking: "Console warning for external images (sustainability-times, thequantuminsider etc) — pre-existing, not a bug, browser security feature blocking cross-origin images without CORS headers"
 
   docker_notes:
     status: "✅ RESOLVED — Docker frontend fully operational, auto-starts via systemd on reboot"
@@ -395,61 +487,22 @@ developer:
     fix: "ENV HOSTNAME='' (empty string) in Dockerfile.frontend runner stage — was '0.0.0.0' which caused request routing failure on Linux with network_mode: host"
     health_check: "Uses wget -qO- (not curl — Alpine has no curl). Container shows healthy. ✅"
     solr_core: "feeds (NOT arc_codex — cold_archive and docker-compose.yml must use 'feeds')"
-    files:
-      - Dockerfile.frontend
-      - Dockerfile.backend
-      - docker-compose.yml (9 services)
-    arc_sh_integration: |
-      Frontend managed entirely via docker compose through arc.sh.
-      start/stop/restart/status all docker-aware via "docker" sentinel in SERVICES array.
-      is_running() checks "docker ps --filter name=arc-frontend" for frontend.
-      cmd_build() runs docker compose build + up (no npm run build needed).
-      watchdog.sh monitors container via docker compose ps, auto-restarts if down.
-      sleep 6 after docker up (was 3 — caused false "failed" message).
-    next_steps:
-      - Tune docker-compose.yml health check interval/timeout
-      - USB provisioning script for new nodes
-      - Cluster registration via Redis pub/sub
 
   linkedin_notes:
     app_name: arc-codex
     client_id: 77gih47e82m35z
-    app_url: https://developer.linkedin.com/apps/77gih47e82m35z
     scope: "openid profile w_member_social"
     token_expiry: "~60 days — re-run linkedin_auth.py to refresh. Last refreshed: Mar 8 2026. Next due: ~May 7 2026."
     env_vars: [LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET, LINKEDIN_ACCESS_TOKEN, LINKEDIN_MEMBER_ID, LINKEDIN_REFRESH_TOKEN]
     troubleshooting: |
       Token expiry is the #1 failure mode — silent 401s in the log.
-      Symptoms: service running, autopost=1, but no posts. Check log for 401.
       Fix: source venv/bin/activate && cd backend && python3 linkedin_auth.py
-      Then: sed -i to replace LINKEDIN_ACCESS_TOKEN and LINKEDIN_REFRESH_TOKEN in backend/.env
-      Then: ./arc.sh restart linkedin_poster
-      Token expires ~60 days from issue. Current expiry: ~May 7, 2026.
-      Test after refresh: redis-cli srem linkedin:posted <any_article_id> — picks up in 15s + jitter.
-    log_gotcha: |
-      Log appears empty if you tail immediately after restart (arc.sh logs command
-      restarts the service instead of tailing). Use:
-      tail -f /home/www/arc_stack/logs/linkedin_poster.log directly.
+
   github_oauth_notes:
     app_name: Arc Codex
     client_id: Ov23liSxxBCqJjE7nXGM
-    app_url: https://github.com/settings/developers
     callback_url: https://arc-codex.com/api/auth/callback/github
     env_vars: [GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET]
-    avatar_domain: avatars.githubusercontent.com (added to next.config.mjs remotePatterns)
-    files_changed: [frontend/lib/auth.ts, frontend/components/UserMenu.tsx, frontend/next.config.mjs]
-    on_off_switch: "redis-cli -a $REDIS_PASSWORD set linkedin:autopost 1|0"
-    posted_set: "linkedin:posted — SET of article IDs already posted (prevents duplicates)"
-    post_format: |
-      {title}
-
-      {counter-analyst comment — normalized "This article" not "The article"}
-
-      {article URL}
-    fallback: "purple_team_analysis excerpt if no counter-analyst comment within 60s"
-    jitter: "30-180s random delay after article detection"
-    seed_on_start: "All existing articles seeded as posted on startup — no spam"
-    company_page: "ARC CODEX — https://www.linkedin.com/company/112214417"
 
   playwright_notes:
     pattern: "One browser per thread — sync_playwright, ThreadPoolExecutor, cannot share across threads"
@@ -458,9 +511,10 @@ developer:
 
   mailer_notes:
     alerts: "Scans last 2min of all logs every 60s — triggers on manual intervention, fd exhaustion, scribe crash, all Ollama failed, Redis failed"
-    dedup: "1 alert per issue per hour via Redis TTL"
+    dedup: "1 alert per issue per 4 HOURS via Redis TTL (ALERT_COOLDOWN=14400)"
     digest: "Daily 7am — top 10 articles by chimera_score, color-coded"
-    pipeline_stall: "Alerts if no new articles in 2 hours"
+    pipeline_stall: "Alerts if no new articles in 2 hours. arc:last_publish key read first (fast path)."
+    orphan_warning: "arc restart spawns new process but may not kill old one cleanly. Check ps aux | grep mailer after restart. Kill orphans manually if pid count > 1."
 
   translation_notes:
     fields_translated: [title, original_text, red_team_analysis, blue_team_analysis, purple_team_analysis]
@@ -474,236 +528,88 @@ developer:
     model_local: "TranslateGemma:4b on M1 — title + original_text"
     model_pro: "devstral fallback — analysis fields if TranslateGemma fails"
     default: "TRANSLATABLE_FIELDS_PRO — all 5 fields always attempted"
+
   changelog:
-    v7.10: |
-      Mar 8, 2026 (evening):
-      - project_context.yaml v7.10: publish confirmation modal fully specified
-        in planned_features. search_page_filters marked done.
-      - Commit 4bba1f8: 7 files, directive click-filter + search lang/topic
-        filters + directives cleanup all in one coherent commit.
-    v7.9: |
-      Mar 8, 2026:
-      - Solr reindex complete: 4725 articles indexed, category + source_lang + original_text fields populated
-        category distribution: general 1409, economic_finance 1300, tech_surveillance 1106,
-        threat_intelligence 543, science_health 367
-        source_lang distribution: English 4652, German 30, Swedish 10, Spanish 7, Vietnamese 6, others
-      - directives.json cleaned: 24 → 19 directives, 8 clean topic groups
-        Removed: Minecraft Automation, Home & Garden Monetization, Health/Wellness & Beauty,
-        Travel & Transport, Online Community Monitoring
-        New topics: Finance & Economics, Technology & AI, Intelligence & Security,
-        Governance & Policy, Media & Information Integrity, Science & Environment, General
-      - prompts.yaml v6.1: HapENews → Arc Codex in mission statement
-      - Directive filter on feed: IntelligenceCard footer directive label is now a clickable
-        Link to /?directive=<encoded>. FeedClient reads useSearchParams, resets feed on
-        directive change (isFirstRender guard prevents mount wipe), passes &directive= to
-        /api/get_feed. main.py get_feed accepts directive_filter param, batch-scans Redis
-        hget directive field. Amber filter banner with ✕ Clear button shown when active.
-      - mailer.py digest score fix: chimera_score lives inside dossier JSON blob —
-        parse dossier when top-level chimera_score is 0
-      - langdetect 1.0.9 installed, source_lang field on all articles (backfilled 4697)
-        Smart TranslateButton auto-fires when article source_lang != user preferred_lang
-      - LinkedIn OAuth added as third sign-in provider (client_id: 77gih47e82m35z)
-      - TODO: search/page.tsx — add language + directive filters backed by Solr
-      - TODO: remove dead code: categoryLabels.js Greek god system, allDirectives in utils.js
-    v7.8: |
-      Mar 7, 2026 (evening):
-      - PageWrapper duplicate resolved:
-        - layout/PageWrapper.tsx was a re-export stub pointing at components/PageWrapper.tsx
-        - Deleted root file without checking stub first — broke build
-        - Restored real component content to layout/PageWrapper.tsx from git history
-        - Lesson: always cat before rm
-        - All pages now import from @/components/layout/PageWrapper (correct)
-      - privacy/page.tsx updated:
-        - OAuth auth language (Google/GitHub/LinkedIn)
-        - Private by default added to core principles
-        - Education Workspaces coming soon section
-        - No model training commitment
-        - Date updated to March 7, 2026
-      - terms/page.tsx updated:
-        - OAuth auth language
-        - No model training clause in IP section
-        - Private Workspaces section with student confidentiality
-        - Academic integrity statement
-        - Date updated to March 7, 2026
-      - hapnesbitt/README.md created on GitHub:
-        - Bio, Arc Codex description, stack, background, availability
-      - ROADMAP: Arc Codex Workspaces (v1 scope):
-        - User claims a route name (e.g. /w/12thgradeEnglish) at signup or in settings
-        - Upload folder or individual files (PDF, DOCX, TXT, URL list)
-        - Full A.R.C. scoring pipeline on each document
-        - Results at /w/[routename] — auth required, owner only by default
-        - Optional: share workspace publicly or via secret link
-        - Same IntelligenceCard display, filtered to workspace context
-        - LinkedIn OAuth as third sign-in provider (ties into workspaces)
-        - Private by default — submissions never public until owner chooses
-        - Never used to train models, never shared with third parties
-        - Teacher use case: upload class papers, score whole class at once
-        - Student use case: upload draft, see gap between intent and output
-        - Touches: auth, file ingestion, Solr schema, frontend routing, scoring pipeline
-        - Estimated: 2-3 sessions
-    v7.7: |
-      Mar 7, 2026 (afternoon):
-      - arc.sh restore command implemented:
-        - Interactive — lists all SSD + cold backups by number with sizes
-        - Requires typing 'yes' to confirm before touching anything
-        - Stops stack, extracts tarball to ITC_ROOT, restarts stack
-        - Added to dispatch and usage text
-      - mailer.py pipeline stall fix:
-        - arc:last_publish Redis key added — scribe sets on every publish
-        - Fast path in check_pipeline_stall() reads arc:last_publish directly
-        - Fallback to full key scan if key missing (pre-fix data)
-        - Removed [:100] sample limit (was causing false stall alerts)
-        - Seeded arc:last_publish with current newest article timestamp
-      - publish/page.tsx mobile fix:
-        - "Publish to Arc Codex" button overflowed on mobile
-        - Mobile shows "Publish", desktop shows "Publish to Arc Codex"
-        - FAB aria-label also shortened to "Publish"
+    v7.19: |
+      Mar 22, 2026:
+      - Image upload auto-resize (main.py /api/upload_image):
+        - Pillow img.thumbnail((1200, 630)) — preserves aspect ratio
+        - All formats converted to JPEG quality=85
+        - Hash computed on resized bytes (dedup preserved)
+        - Fixes silent Bluesky card crawler drop for large iPhone photos
+      - Mastodon auto-poster live (mastodon_poster.py v1.0):
+        - Instance: mastodon.social, handle: @rossnesbitt
+        - On/off: redis-cli set mastodon:autopost 1|0
+        - Seeds all existing articles on startup (no spam)
+        - Same post format as Bluesky: title + counter-analyst + URL
+        - Note: write:media scope missing from current token — images not uploading
+      - Ollama 3-tier fallback chain:
+        - devstral-2:123b-cloud → mistral:7b → llama3.2:latest
+        - OLLAMA_LOCAL_FALLBACK=mistral:7b, OLLAMA_LOCAL_FALLBACK2=llama3.2:latest in .env
+        - ollama_utils.py loop extended to 3 models
+      - Sentinel JSON resilience hardened:
+        - _repair_sentinel_json(): prose fallback returns UNCERTAIN if len(cleaned) > 50
+        - run_sentinel_analysis(): missing keys filled with defaults (not None)
+        - Net: Sentinel never silently fails on fallback models
+      - directives.json v2.0:
+        - 928 lines (was 406), 10 topic groups
+        - New: World Affairs (priority 97), Healthcare (priority 87)
+        - All topics massively expanded with real headline keywords
+        - General News priority 1→50 (true catch-all)
+        - "survivors" removed from Epstein directive (false positive on unrelated articles)
+        - dance/ballet/choreograph keywords added to General News
+      - RSS rebranding: rss_feed.py — HapEnews/whirled-news all replaced with Arc Codex/arc-codex.com
+      - Substack: https://rossnesbitt.substack.com live — RSS imported, manual publish flow
+      - mailer.py: ALERT_COOLDOWN 3600→14400 (1h→4h)
+      - huntaegis-stack.service + neetwatch-stack.service disabled at boot (systemctl disable)
+      - Orphan process cleanup: kill stale mailer/bluesky_poster PIDs after restart
+      - IntelligenceCard.tsx: ResearchMenu component added:
+        - Magnifying glass button alongside permalink/copy/share
+        - Dropdown: Google, Claude, ChatGPT, Perplexity (title pre-filled in each)
+        - Gemini dropped — no native URL prefill support
+      - IntelligenceCard.tsx: ShareMenu cleaned up:
+        - X/LinkedIn removed
+        - All labels one word: Bluesky, Mastodon, Facebook, Substack, Email
+        - Bluesky/Mastodon now use URL share intent (reader's account, not ours)
+        - Mastodon: mastodon.social/share?text={payload}
+    v7.18: |
+      Mar 21, 2026:
+      - Full private article system: origin/visibility/owner Redis schema
+      - Caddy routing for private articles
+      - Next.js Auth.js session-injected proxies
+      - Flask get_feed filtering for private articles
+      - 🔒 lock icon in IntelligenceCard.tsx for private articles
+      - kasmir7.py [11] My Publications
+      - About/sales/contact page redesigns
+      - Huntaegis ports 5006/3002, Redis DB 1, own branding
+      - A11y pass complete: IntelligenceCard, CommentSection, TranslateButton,
+        FeedClient, UserPrefsContext, UserMenu, ClientLayout, layout.tsx,
+        not-found.tsx, textUtils.ts (XSS fix), usePublish.ts, publish/page.tsx
     v7.14: |
       Mar 9, 2026:
       - translation.py: switched TRANSLATABLE_FIELDS from LOCAL to PRO
         - Now translates all 5 fields: title, original_text, red/blue/purple team analysis
         - Verified working: Telugu translation confirmed for all 5 prose fields
-        - Sentinel excluded by design (JSON forensic schema)
-        - Counter-analyst comment known gap (separate Redis store, not in article hash)
       - prompts.yaml v6.2:
         - Purple team now cites ARC codes explicitly: "Patterns detected: ARC-XXXX Name"
-        - Removed NEVER list codes constraint — enables kasmir scanner + corpus_exporter
-      - project_context.yaml v7.14:
-        - planned_features replaced with translation_notes
-        - Todo list cleared — rediscover organically
-        - Fixed pre-existing YAML indentation bugs (mailer_digest, linkedin_notes)
       - Grafana corpus intelligence stack v1.0 live:
         - corpus_exporter.py port 9101, hourly Redis scan
-        - Prometheus + Grafana in docker-compose.grafana.yml
         - https://grafana.arc-codex.com — corpus health dashboard
-        - arc.sh: grafana-start/stop/status + corpus_exporter service
-    v7.6: |
-      Mar 7, 2026:
-      - Gmail PTR relay fix:
-        - Postfix now relays outbound via [smtp.gmail.com]:587
-        - App password stored in secret/mail
-        - DKIM signing preserved end-to-end
-        - Fixes Gmail 550 5.7.25 PTR rejection
-        - Config: /etc/postfix/sasl_passwd (hashed), postfix restarted
-      - Browser changes:
-        - Chromium (snap) removed — hard lockups due to radeon UBSAN kernel bug
-        - Brave installed then removed — same radeon GPU crash
-        - Epiphany (WebKit) installed — stable, 343MB RSS vs Firefox 2.5GB/tab
-        - Root cause: AMD FirePro W2100 radeon driver UBSAN array-index-out-of-bounds
-        - All Chromium-based browsers disabled-gpu workaround insufficient for snap
-      - First Arc Codex article published by founder:
-        - "Gmail is Now Rejecting Email from Self-Hosted Servers Without PTR Records"
-        - URL: https://arc-codex.com/article/35ccc8dcac12169d0dab4d86c23818d6
-      - Memory profile: 26GB/31GB used — Firefox (7GB+), gunicorn (2.6GB), Solr (800MB), scribe (800MB)
-      - No swap configured (SSD preservation — intentional)
-    v7.5: |
-      Mar 7, 2026:
-      - GitHub OAuth added (second sign-in provider)
-        - Auth.js provider: GitHub (next-auth/providers/github)
-        - App: arc-codex, client_id: Ov23liSxxBCqJjE7nXGM
-        - Callback: https://arc-codex.com/api/auth/callback/github
-        - UserMenu: GitHub sign-in button added below Google
-        - next.config.mjs: avatars.githubusercontent.com added to remotePatterns
-      - Arc Codex logo + favicon deployed
-        - public/arc-codex-logo.jpg (1024x1024) — sidebar desktop nav
-        - app/icon.jpg — auto-served as favicon by Next.js App Router
-      - About pages updated:
-        - contact/page.tsx: LinkedIn + GitHub + hapnesbitt@outlook.com, Hap Nesbitt byline
-        - sales/page.tsx: A.R.C. framework accuracy, 1200+ sources, Counter-Analyst, LinkedIn
-        - support/page.tsx: arc.sh command reference, 162 languages, Next.js 16.1.6
-        - developer/page.tsx: v6.2 — mobile overflow fix, linkedin_poster, updated services
-      - GitHub repo live: https://github.com/hapnesbitt/arc-codex
-        - Cleaned history: removed longclassicalpiano.mp3 (136MB) and secret/ dir
-        - Google OAuth credentials rotated after brief exposure
-        - .gitignore: added secret/, **/*.mp3
-      - System hardening:
-        - Redis bound to 127.0.0.1 (was 0.0.0.0)
-        - Disabled: zabbix-server, zabbix-agent, mariadb, snmpd, unbound
-        - Freed 2.9GB systemd journals
+    v7.9: |
+      Mar 8, 2026:
+      - Solr reindex complete: 4725 articles indexed
+      - directives.json v1.0: 24→19 directives, 8 clean topic groups
+      - Directive filter on feed live
+      - LinkedIn OAuth added as third sign-in provider
     v7.4: |
       Mar 7, 2026:
       - LinkedIn auto-poster live (linkedin_poster.py v1.0)
-        - Managed service in arc.sh + watchdog
-        - On/off: redis-cli set linkedin:autopost 1|0
-        - Post format: title + counter-analyst comment + URL
-        - 30-180s jitter, waits up to 60s for counter-analyst comment
-        - Seeds all existing articles on startup to prevent spam
-        - LinkedIn Developer app: arc-codex (client_id: 77gih47e82m35z)
-        - Scope: w_member_social — posts to personal feed
-        - Token refresh: re-run linkedin_auth.py every ~60 days
-      - Arc Codex logo added (ARC_CODEX1.jpg 1024x1024)
-        - Sidebar desktop nav: replaces "A-C Home" text
-        - Favicon: app/icon.jpg auto-served by Next.js
-      - System hardening:
-        - Redis bound to 127.0.0.1 (was 0.0.0.0 — WAN exposed)
-        - Disabled: zabbix-server, zabbix-agent, mariadb, snmpd, unbound
-        - Freed 2.9GB systemd journal logs
-        - Removed old snap revisions (thunderbird 995, chromium 3369)
-    v7.3: |
-      Mar 6, 2026:
-      - Docker frontend RESOLVED: ENV HOSTNAME="" fix in Dockerfile.frontend
-      - arc.sh + watchdog.sh fully Docker-aware for frontend service
-        - "docker" sentinel in SERVICES array triggers docker compose paths
-        - is_running() checks docker ps for frontend
-        - cmd_build() uses docker compose build + up
-        - watchdog auto-restarts container if it goes down
-      - Frontend auto-starts via systemd on reboot, survives hard crash ✅
-      - Publish confirmed working through Docker frontend
-      - sleep 6 after docker up (was 3 — false "failed" message on start)
-      - Fixed: Solr core arc_codex → feeds in backup-cold
-      - Fixed: Redis BGSAVE now uses password from env
-    v7.2: |
-      Mar 6, 2026:
-      - IntelligenceCard.tsx: share/copy payload now includes Counter-Analyst comment
-        (title + comment + URL). Falls back to title + URL if no comment.
-        "The article" → "This article" normalization at share time.
-      - LinkedIn share button added to desktop share menu — copies payload to
-        clipboard and opens LinkedIn share dialog in one click.
-      - prompts.yaml: Counter-Analyst now instructed to start with "This article"
-      - search/page.tsx v4.0: command-center aesthetic matching developer/about pages
-        (PageWrapper, amber-glow cards, backdrop-blur, directive-colored result cards,
-        radar pulse empty state, font-mono accents)
-      - about/developer/page.tsx v6.1: full ARIA pass (aria-expanded/controls on
-        Collapse, dl/dt/dd for stack grid, ul/li for API/gotchas, role=note on Warn,
-        reduced motion, skip link)
-      - Dual backup strategy live: SSD fast (daily, 5 kept) + cold archive on
-        /mnt/data (weekly, 30 kept, includes Redis RDB + Solr data)
-      - Docker CE 29.3.0 installed, both images build clean
-        Frontend container hang on request unresolved — running native frontend for now
-      - Solr core confirmed as "feeds" (not arc_codex)
-      - gunicorn --preload deadlock: restart clears it; consider removing --preload
-        if deadlocks recur after repeated stop/starts
-    v7.1: |
-      Mar 1, 2026:
-      - article/[slug]/page.tsx: "Back to Feed" replaced with Home pill (lucide Home icon, pill shape)
-      - UserMenu.tsx: English added to COMMON_LANGUAGES (alphabetical, between Dutch and French)
-      - auth.ts + route.ts: fixed NEXT_PUBLIC_BACKEND_URL → BACKEND_INTERNAL_URL for all server-side
-        Flask calls. Root cause: NEXT_PUBLIC_ routed through Caddy/WAN, loopback guard 403'd silently.
-        Effect: preferred_lang now persists across sign-out/sign-in. last_seen now updates on every login.
-      - Removed root node_modules/ and package.json (npm Playwright leftovers — scribe uses venv pip version)
+      - Arc Codex logo deployed
     v7.0: |
       Mar 1, 2026:
-      - mailer.py v1.0 ACTIVE — alerts + digest, DKIM/SPF/DMARC verified
-      - ALL inference on M1 (analysis + translation)
-      - Translation lock: Redis translation:active, ollama_utils backs off 60s
-      - TranslateGemma local = [title, original_text] only
-      - English added first in TranslateButton (foreign->English use case)
-      - Playwright browser recycle every 20 uses (730->6 chromium procs)
-      - fd limit 65536 via systemd override
-      - gunicorn: timeout 600s, threads 8
-      - frontend/.env.local fixed: NEXT_PUBLIC_BACKEND_URL=https://arc-codex.com
-      - BACKEND_INTERNAL_URL added for server-side proxy
-      - search page v2.1: 4 sort options + Home pill
-      - main.py /api/search: score_desc/score_asc via chimera_score Solr sort
-      - /api/stats endpoint for live article counter
-    v6.0: "Feb 28, 2026: project_context restructured, TranslateGemma:4b wired up, live article counter"
-    v5.3: "Feb 27, 2026: UserPrefsContext, auto-translate REMOVED, mobile auth"
+      - mailer.py v1.0 ACTIVE
+      - ALL inference on M1
+      - Translation lock: Redis translation:active
     v5.2: "Feb 27, 2026: Google SSO, Auth.js v5, user_prefs blueprint"
-    v5.1: "Feb 27, 2026: Translation 67 langs + RTL, Redis cache"
-    v5.0: "Feb 27, 2026: itc_stack->arc_stack, Solr orphan purge, kasmir7 v7"
-    v4.1: "Feb 26, 2026: Email infra, search v2.0, publish v5.0"
     v4.0: "Feb 25, 2026: Arc Codex rebrand, ollama_utils extracted"
-    v3.5: "Feb 18, 2026: Solr search, zero-dependency markdown"
-    v3.4: "Feb 18, 2026: Sentinel, Counter-Analyst, reactions"
-    v3.3: "Feb 14, 2026: Redis Streams, RSS feed"
     v3.0: "Feb 12, 2026: Initial document"

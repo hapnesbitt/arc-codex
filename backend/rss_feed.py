@@ -1,5 +1,5 @@
 """
-rss_feed.py - RSS 2.0 Feed Generator for HapEnews
+rss_feed.py - RSS 2.0 Feed Generator for Arc Codex
 Register as a Flask blueprint in app.py.
 
 Exposes /rss (or /feed.xml) returning valid RSS 2.0 with A.R.C. analysis
@@ -126,8 +126,8 @@ def rss_feed():
         rss.set('xmlns:atom', 'http://www.w3.org/2005/Atom')
         channel = SubElement(rss, 'channel')
         
-        SubElement(channel, 'title').text = 'HapEnews — A.R.C. Intelligence Feed'
-        SubElement(channel, 'link').text = 'https://whirled-news.barrel-of-knowledge.info'
+        SubElement(channel, 'title').text = 'Arc Codex — A.R.C. Intelligence Feed'
+        SubElement(channel, 'link').text = 'https://arc-codex.com'
         SubElement(channel, 'description').text = (
             'News analysis through the Argumentative Resilience Codex. '
             'Three-team AI analysis: Facts Only, Executive Summary, and Full Take.'
@@ -136,12 +136,12 @@ def rss_feed():
         SubElement(channel, 'lastBuildDate').text = datetime.now(timezone.utc).strftime(
             '%a, %d %b %Y %H:%M:%S +0000'
         )
-        SubElement(channel, 'generator').text = 'HapEnews A.R.C. Framework'
+        SubElement(channel, 'generator').text = 'Arc Codex A.R.C. Framework'
         SubElement(channel, 'ttl').text = '30'
         
         # Self-referencing atom link (best practice)
         atom_link = SubElement(channel, 'atom:link')
-        atom_link.set('href', 'https://whirled-news.barrel-of-knowledge.info/api/rss')
+        atom_link.set('href', 'https://arc-codex.com/api/rss')
         atom_link.set('rel', 'self')
         atom_link.set('type', 'application/rss+xml')
         
@@ -163,12 +163,12 @@ def rss_feed():
             # Link to article page
             slug = article.get('slug', aid)
             SubElement(item, 'link').text = (
-                f"https://whirled-news.barrel-of-knowledge.info/article/{slug}"
+                f"https://arc-codex.com/article/{slug}"
             )
             
             # Use article_id as GUID
             guid = SubElement(item, 'guid')
-            guid.text = f"hapenews-{aid}"
+            guid.text = f"arc-codex-{aid}"
             guid.set('isPermaLink', 'false')
             
             # Publication date
@@ -215,7 +215,7 @@ def _empty_feed():
     """Return a valid but empty RSS feed."""
     rss = Element('rss', version='2.0')
     channel = SubElement(rss, 'channel')
-    SubElement(channel, 'title').text = 'HapEnews — A.R.C. Intelligence Feed'
+    SubElement(channel, 'title').text = 'Arc Codex — A.R.C. Intelligence Feed'
     SubElement(channel, 'description').text = 'No articles available.'
     xml_bytes = tostring(rss, encoding='unicode', xml_declaration=False)
     xml_output = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_bytes

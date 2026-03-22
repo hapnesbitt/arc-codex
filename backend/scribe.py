@@ -514,7 +514,16 @@ def extract_with_beautifulsoup(html_content, url):
         return article_text if len(article_text) > MIN_ARTICLE_LENGTH else None
     except Exception as e:
         logger.error(f"BeautifulSoup extraction failed: {e}")
-        return None
+        # Last resort — model returned prose instead of JSON
+    if len(cleaned) > 50:
+        return {
+            "synthetic_confidence": 0.0,
+            "assessment": "UNCERTAIN",
+            "indicators": [],
+            "human_signals": [],
+            "summary": "Sentinel analysis incomplete — fallback model returned prose instead of JSON."
+        }
+    return None
 
 
 def _make_session(headers, referer=None):
@@ -967,8 +976,16 @@ def _repair_sentinel_json(raw: str) -> dict | None:
             "summary": summary_match.group(1) if summary_match else f"{assess_match.group(1)} (confidence: {conf_match.group(1)})"
         }
 
+    # Last resort — model returned prose instead of JSON
+    if len(cleaned) > 50:
+        return {
+            "synthetic_confidence": 0.0,
+            "assessment": "UNCERTAIN",
+            "indicators": [],
+            "human_signals": [],
+            "summary": "Sentinel analysis incomplete — fallback model returned prose instead of JSON."
+        }
     return None
-
 
 def run_sentinel_analysis(article_text: str, timeout: int = 900) -> dict | None:
     """Run the Sentinel forensic pass independently of the ensemble pipeline."""
@@ -1013,8 +1030,13 @@ CONSTRAINTS:
 
         required_keys = {'synthetic_confidence', 'assessment', 'summary'}
         if not required_keys.issubset(sentinel_data.keys()):
-            logger.warning(f"⚠️  Sentinel response missing keys: {required_keys - sentinel_data.keys()}")
-            return None
+            missing = required_keys - sentinel_data.keys()
+            logger.warning(f"⚠️  Sentinel response missing keys: {missing} — filling with defaults")
+            sentinel_data.setdefault('synthetic_confidence', 0.0)
+            sentinel_data.setdefault('assessment', 'UNCERTAIN')
+            sentinel_data.setdefault('summary', 'Sentinel analysis incomplete — partial response from fallback model.')
+            sentinel_data.setdefault('indicators', [])
+            sentinel_data.setdefault('human_signals', [])
 
         conf = sentinel_data.get('synthetic_confidence', 0.0)
         sentinel_data['synthetic_confidence'] = max(0.0, min(1.0, float(conf)))

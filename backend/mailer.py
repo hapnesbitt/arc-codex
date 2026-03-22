@@ -40,7 +40,7 @@ ALERT_FROM    = "ross@arc-codex.com"
 ALERT_TO      = "rossnesbitt@gmail.com"
 DIGEST_HOUR   = 7       # 7am local time
 CHECK_INTERVAL = 60     # seconds between alert checks
-ALERT_COOLDOWN = 3600   # seconds before re-alerting on same issue (1 hour)
+ALERT_COOLDOWN = 14400   # seconds before re-alerting on same issue (4 hours)
 
 LOG_FILES = {
     "scribe":    "/home/www/arc_stack/logs/scribe.log",
