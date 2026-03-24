@@ -99,6 +99,7 @@ def _inc(key: str, field: str, amount: int = 1) -> None:
 
 
 @lru_cache(maxsize=256)
+
 def _classify(directive_name='', source_category=''):
     """Classify content into one of 5 canonical categories using keyword matching.
 
@@ -198,7 +199,7 @@ PENDING_COMMENTS_DIR = os.path.join(UPLOAD_DIR, "pending_comments")
 SOURCE_BATCH_SIZE = 50
 NETWORK_TIMEOUT_SECONDS = 15
 MIN_ARTICLE_LENGTH = 200
-RECENTLY_PUBLISHED_MEMORY = 10
+RECENTLY_PUBLISHED_MEMORY = 50
 MAX_CONCURRENT_SCRAPERS = 5
 MAX_CONCURRENT_ANALYZERS = 10
 FILE_LOCK = threading.Lock()
@@ -1205,31 +1206,7 @@ def find_best_target(candidates, all_directives, recently_published):
             potential_targets.append({'score': final_score, 'article': cand, 'directive': directive})
 
     if not potential_targets:
-        # Fallback: ignore recently_published, pick best scoring candidate from all directives
-        logger.info("⚠️  No candidates matched active directives — trying fallback (ignoring recently_published)")
-        for directive in all_directives:
-            for cand in candidates:
-                text_to_search = (cand.get('title', '') + ' ' + cand.get('article_text', '')).lower()
-                keywords = directive.get('keywords', [])
-                if not any(re.search(r'\b' + re.escape(keyword) + r'\b', text_to_search, re.IGNORECASE) for keyword in keywords):
-                    continue
-                sentiment = cand.get('dossier', {}).get('sentiment', 0)
-                emotion_score = 0.5
-                profile = directive.get('emotion_profile', 'high')
-                if isinstance(profile, numbers.Number):
-                    emotion_score = max(0, 1.0 - abs(sentiment - profile))
-                elif profile == 'high':
-                    emotion_score = abs(sentiment)
-                elif profile == 'low':
-                    emotion_score = 1.0 - abs(sentiment)
-                elif profile == 'high_positive':
-                    emotion_score = max(0, sentiment)
-                elif profile == 'high_negative':
-                    emotion_score = abs(min(0, sentiment))
-                final_score = directive.get('priority', 1.0) + emotion_score
-                potential_targets.append({'score': final_score, 'article': cand, 'directive': directive})
-        if not potential_targets:
-            return None
+        return None
 
     potential_targets.sort(key=lambda x: x['score'], reverse=True)
     best_target = potential_targets[0]

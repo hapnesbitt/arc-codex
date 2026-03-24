@@ -1,5 +1,5 @@
 # Arc Codex Project Context
-# VERSION 7.19 - Updated Mar 22, 2026
+# VERSION 7.20 - Updated Mar 24, 2026
 # Restructured into three audience sections: USER / ADMIN / DEVELOPER
 # Comprehensive reference for AI assistants working on this codebase
 #
@@ -17,6 +17,16 @@
 #     neetwatch:    REDIS_PRIORITY_QUEUE_KEY = "neetwatch:priority_uploads"
 #   This requires changing ONE line in each stack's main.py AND scribe.py.
 #   DO NOT re-enable huntaegis/neetwatch systemd services until this is fixed.
+#
+# ⚠️  POSTER BUG HISTORY — READ BEFORE TOUCHING bluesky_poster/mastodon_poster:
+#   Root cause of "https://arc-codex.com/article/" blank URL posts:
+#   1. all_article_ids() was using r.keys("article:*") — picks up ghost/orphan hashes
+#      not in the feed sorted set. These ghosts have nil url AND nil id fields.
+#   2. Fixed: all_article_ids() and seed_posted_set() now use r.zrange('feed', 0, -1)
+#   3. build_post_text() uses article.get('url') directly — never reconstruct from slug/id
+#   4. Ghost hashes accumulate from failed publishes — run kasmir7 option 8 periodically
+#   5. After any restart: reseed posted sets from feed before enabling autopost
+#      redis-cli -a simplenes eval "local k=redis.call('zrange','feed',0,-1); for i,id in ipairs(k) do redis.call('sadd','bluesky:posted',id); redis.call('sadd','mastodon:posted',id) end; return #k" 0
 #
 # QUICK NAVIGATION:
 #   USER      — What Arc Codex does for readers (line ~20)
@@ -85,9 +95,10 @@ user:
     substack: "https://rossnesbitt.substack.com — RSS imported, manual post-to-subscribers flow"
 
   social:
-    bluesky: "hapenez.bsky.social — auto-posts via bluesky_poster.py"
+    bluesky: "arc-codex.com (was hapenez.bsky.social) — auto-posts via bluesky_poster.py"
     mastodon: "rossnesbitt@mastodon.social — auto-posts via mastodon_poster.py"
     substack: "https://rossnesbitt.substack.com — manual publish from share menu"
+    threads: "pending — threads_poster.py ready, awaiting Meta developer token"
 
   research_menu: >
     IntelligenceCard has a magnifying glass (ResearchMenu) button alongside permalink/copy/share.
@@ -122,16 +133,18 @@ admin:
   stack_manager: arc.sh
 
   arc_sh_commands:
-    start:   "./arc.sh start [service]"
-    stop:    "./arc.sh stop [service]"
-    restart: "./arc.sh restart [service]"
-    status:  "./arc.sh status"
-    logs:    "./arc.sh logs"
-    build:   "./arc.sh build"
-    checkup: "./arc.sh checkup"
-    backup:  "./arc.sh backup"
-    prune:   "./arc.sh prune [dry]"
-    restore: "./arc.sh restore"
+    start:         "./arc.sh start [service]"
+    stop:          "./arc.sh stop [service]"
+    restart:       "./arc.sh restart [service]"
+    status:        "./arc.sh status"
+    logs:          "./arc.sh logs"
+    build:         "./arc.sh build"
+    checkup:       "./arc.sh checkup"
+    backup:        "./arc.sh backup"
+    prune:         "./arc.sh prune [dry]"
+    restore:       "./arc.sh restore"
+    grafana-start: "./arc.sh grafana-start"
+    grafana-stop:  "./arc.sh grafana-stop"
 
   arc_env_sh:
     file: /home/www/arc_stack/arc_env.sh
@@ -140,18 +153,20 @@ admin:
 
   services:
     gunicorn:         {command: "./gunicorn_arc.sh", port: 5005, dir: "backend/", workers: 1, threads: 8, timeout: 600}
-    scribe:           {command: "python3 scribe.py", note: "v52.0 — BROWSER_RECYCLE_INTERVAL=20 prevents fd leak"}
+    scribe:           {command: "python3 scribe.py", note: "v52.1 — instrumented, RECENTLY_PUBLISHED_MEMORY=10, fallback publish if no directive match"}
     manual_publisher: {command: "python3 manual_publisher.py", note: "v5.1"}
     stream_consumer:  {command: "python3 stream_consumer.py"}
     analyzer:         {command: "python3 analyzer.py"}
     mailer:           {command: "python3 mailer.py", note: "v1.0 ACTIVE — alerts + 7am digest, ALERT_COOLDOWN=14400 (4h)"}
-    bluesky_poster:   {command: "python3 bluesky_poster.py", note: "v1.2 — on/off: redis-cli set bluesky:autopost 1|0"}
-    mastodon_poster:  {command: "python3 mastodon_poster.py", note: "v1.0 — on/off: redis-cli set mastodon:autopost 1|0"}
+    bluesky_poster:   {command: "python3 bluesky_poster.py", note: "v1.3 — zrange feed (not r.keys), url field direct, on/off: redis-cli set bluesky:autopost 1|0"}
+    mastodon_poster:  {command: "python3 mastodon_poster.py", note: "v1.1 — zrange feed, write:media scope fixed Mar 24 2026"}
+    threads_poster:   {command: "python3 threads_poster.py", note: "v1.0 READY — awaiting THREADS_ACCESS_TOKEN + THREADS_USER_ID in .env"}
     linkedin_poster:  {command: "python3 linkedin_poster.py", note: "v1.0 — auto-posts to LinkedIn, on/off via Redis"}
     frontend:         {command: "docker compose up -d --no-deps frontend", port: 3000, note: "Docker container arc-frontend"}
-    watchdog:         {command: "./watchdog.sh", note: "60s check loop, restarts crashed services"}
+    watchdog:         {command: "./watchdog.sh", note: "v2.0 — orphan detection, 5min sweep, mastodon_poster+corpus_exporter+caddy_exporter added"}
     character_builder: {command: "python3 character_builder.py"}
-    corpus_exporter:  {command: "python3 corpus_exporter.py", note: "Prometheus metrics port 9101 — feeds Grafana"}
+    corpus_exporter:  {command: "python3 corpus_exporter.py", note: "v2.0 — NLP metrics + pipeline health, port 9101"}
+    caddy_exporter:   {command: "python3 caddy_exporter.py", note: "v1.0 — Caddy access log → Prometheus, port 9102"}
 
   boot:
     mechanism: systemd
@@ -159,6 +174,8 @@ admin:
     note: Unit name is legacy (itc era) — do not rename without testing
     after: [network-online.target, redis.service]
     disabled_at_boot: [huntaegis-stack.service, neetwatch-stack.service]
+    grafana: "docker-compose.grafana.yml — restart: unless-stopped on both containers. Starts via arc grafana-start."
+    caddy_log_fix: "/etc/tmpfiles.d/caddy-logs.conf — d /var/log/caddy 0755 caddy caddy - — prevents Caddy startup failure after reboot"
 
   crontab:
     backup_ssd:  "0 3 * * * /home/www/arc_stack/arc.sh backup"
@@ -189,6 +206,12 @@ admin:
   reverse_proxy:
     server: Caddy (automatic HTTPS)
     config: /etc/caddy/Caddyfile
+    access_logs: |
+      JSON access logs enabled for arc-codex.com and huntaegis.com:
+        /var/log/caddy/arc-codex-access.log
+        /var/log/caddy/huntaegis-access.log
+      Owned by caddy:caddy — tmpfiles.d ensures correct ownership after reboot.
+      caddy_exporter.py tails these and exports to Prometheus :9102.
     critical_routing: |
       arc-codex.com block — ORDER MATTERS:
         handle /api/auth/* { reverse_proxy localhost:3000 }
@@ -202,6 +225,17 @@ admin:
     translation_lock: "translation:active — TTL 300s. Prevents model thrashing on M1."
     autopost_keys: "bluesky:autopost, mastodon:autopost, linkedin:autopost — set 1|0 to enable/disable"
     posted_sets: "bluesky:posted, mastodon:posted, linkedin:posted — SET of article IDs (dedup)"
+    stats_keys: |
+      arc:stats:fetch          — hash: {domain}:{tier} fetch outcome counts
+      arc:stats:quality        — hash: {reason} quality gate rejection counts
+      arc:stats:rss            — hash: ok/bozo/candidates counts
+      arc:stats:publish        — hash: ok/failed/duplicate counts
+      arc:stats:priority       — hash: {origin} priority queue counts
+      arc:stats:source_latency — hash: {domain} cumulative fetch latency ms
+    maintenance: |
+      Ghost hashes accumulate over time — run kasmir7 option 8 to purge.
+      Reseed posted sets after any restart involving poster issues:
+        redis-cli eval "local k=redis.call('zrange','feed',0,-1); for i,id in ipairs(k) do redis.call('sadd','bluesky:posted',id); redis.call('sadd','mastodon:posted',id) end; return #k" 0
 
   ollama:
     host: "http://192.168.1.185:11434"
@@ -213,6 +247,21 @@ admin:
     translation_model: "MedAIBase/TranslateGemma:4b (M1, 7.8GB F16 — /api/chat required)"
     translation_fields_local: "[title, original_text] — 2 fields, speed constraint"
     translation_fields_pro: "[title, original_text, red_team_analysis, blue_team_analysis, purple_team_analysis]"
+    benchmark: |
+      arc_benchmark.py v3.0 — labeled runs, persistent compare file arc_benchmark_compare.json
+      Results Mar 24 2026:
+        devstral-2:123b-cloud   composite=0.948  time=4.3s   eff=0.2189  ← WINNER
+        nemotron-3-super:cloud  composite=0.944  time=36.1s  eff=0.0261
+        qwen3.5:397b-cloud      composite=0.907  time=37.4s  eff=0.0242
+      Verdict: devstral-2 stays. Best free cloud model for ARC analysis pipeline.
+      API uses /api/chat not /api/generate for newer models.
+    m1_models: |
+      devstral-2:123b-cloud  (cloud)
+      nemotron-3-super:cloud (cloud — benchmarked)
+      qwen3.5:397b-cloud     (cloud — benchmarked)
+      mistral:7b             (local fallback1)
+      llama3.2:latest        (local fallback2)
+      MedAIBase/TranslateGemma:4b (translation)
     fallback_resilience: |
       _repair_sentinel_json() has 5 recovery strategies + prose fallback:
       If all JSON parsing fails but response len > 50 chars, returns UNCERTAIN verdict.
@@ -231,6 +280,7 @@ admin:
     functions: ["1-Search", "2-Emergency removal", "3-Trim", "4-Inspect", "5-Solr re-index",
                 "6-Solr diagnostics", "7-Purge Solr orphans", "8-Purge Redis orphans",
                 "11-My Publications"]
+    maintenance_schedule: "Run options 7+8 periodically to keep Redis/Solr in sync"
 
   nodejs:
     path: /home/ross/.nvm/versions/node/v22.16.0/bin
@@ -244,6 +294,20 @@ admin:
       .env.local has higher priority — a stale value here caused mobile to call localhost:5005.
       BACKEND_INTERNAL_URL=http://localhost:5005 is for server-side proxy only (not NEXT_PUBLIC_).
 
+  grafana:
+    url: https://grafana.arc-codex.com
+    compose: docker-compose.grafana.yml
+    start: "arc grafana-start"
+    anonymous: "Viewers can see corpus dashboard without login. Admin login: admin/arccodex"
+    dashboards:
+      - "Arc Codex Corpus Intelligence (public) — chimera scores, sentinel, ARC patterns, NLP metrics"
+      - "Arc Codex Intelligence v3 — full corpus + NLP + pipeline health (admin)"
+      - "Arc Codex Web Traffic — Caddy access log metrics (admin)"
+    prometheus_port: 9090
+    corpus_exporter_port: 9101
+    caddy_exporter_port: 9102
+    scrape_intervals: "corpus=60m, traffic=15s, prometheus=5m"
+
 # ==============================================================================
 # SECTION 3: DEVELOPER
 # ==============================================================================
@@ -253,7 +317,7 @@ developer:
     backend: "Python 3.x / Flask / gunicorn (port 5005, 1 worker, 8 threads, timeout 600)"
     frontend: "Next.js 16.1.6 / React 19 / TypeScript / Tailwind CSS / shadcn-ui"
     database: Redis
-    search: "Apache Solr — core: feeds, ~3500+ docs. Fields: category, source_lang, original_text."
+    search: "Apache Solr — core: feeds, ~3800+ docs. Fields: category, source_lang, original_text."
     ai: "Ollama on M1 — devstral-2:123b-cloud → mistral:7b → llama3.2:latest (3-tier fallback)"
     auth: "Auth.js v5 (next-auth@5.0.0-beta.30) — Google + GitHub + LinkedIn OAuth, JWT sessions"
     reverse_proxy: Caddy
@@ -262,26 +326,34 @@ developer:
     /home/www/arc_stack/
     ├── arc.sh
     ├── arc_env.sh
-    ├── watchdog.sh
+    ├── watchdog.sh                    # v2.0 — orphan detection + multi-stack support
+    ├── docker-compose.yml
+    ├── docker-compose.grafana.yml     # Prometheus + Grafana, restart: unless-stopped
+    ├── monitoring/
+    │   ├── prometheus.yml             # scrapes :9101 (corpus) + :9102 (traffic) + :9090
+    │   └── grafana/provisioning/
     ├── backend/
     │   ├── .env
-    │   ├── main.py                    # Flask API (formerly app.py)
-    │   ├── scribe.py                  # v52.0 — RSS scraper + A.R.C. pipeline
+    │   ├── main.py                    # Flask API — pre_analyze v3.0 with full NLP fields
+    │   ├── scribe.py                  # v52.1 — instrumented, RECENTLY_PUBLISHED_MEMORY=10, fallback publish
     │   ├── analyzer.py                # v1.0
     │   ├── manual_publisher.py        # v5.1
     │   ├── stream_consumer.py         # v1.0
     │   ├── mailer.py                  # v1.0 ACTIVE — alerts + digest, 4h cooldown
     │   ├── ollama_utils.py            # 3-tier fallback: devstral→mistral:7b→llama3.2
-    │   ├── bluesky_poster.py          # v1.2 — URL share intent (not account poster)
-    │   ├── mastodon_poster.py         # v1.0 — auto-posts to mastodon.social
+    │   ├── bluesky_poster.py          # v1.3 — zrange feed, url field direct
+    │   ├── mastodon_poster.py         # v1.1 — zrange feed, write:media fixed
+    │   ├── threads_poster.py          # v1.0 READY — needs .env tokens
+    │   ├── caddy_exporter.py          # v1.0 — tails /var/log/caddy/*.log → Prometheus :9102
+    │   ├── corpus_exporter.py         # v2.0 — NLP + pipeline health metrics → Prometheus :9101
+    │   ├── arc_benchmark.py           # v3.0 — labeled runs, compare file, --compare flag
     │   ├── stream_utils.py
-    │   ├── rss_feed.py                # Arc Codex branded (HapEnews removed Mar 22 2026)
+    │   ├── rss_feed.py                # Arc Codex branded
     │   ├── translation.py             # TranslateGemma:4b via /api/chat
     │   ├── user_prefs.py              # loopback-only security
     │   ├── prompts.yaml               # v6.2
-    │   ├── directives.json            # v2.0 — 928 lines, 10 topics, broad keyword net
-    │   ├── arc_benchmark.py
-    │   ├── kasmir7.py                 # Admin console v7
+    │   ├── directives.json            # v2.0 — 941 lines, 21 directives
+    │   ├── kasmir7.py                 # Admin console v7.2
     │   ├── gunicorn_arc.sh            # 1 worker, 8 threads, 600s timeout
     │   ├── sources.json               # ~1200+ RSS sources
     │   └── project_context.yaml      # THIS FILE
@@ -347,6 +419,7 @@ developer:
     "GET /api/feed.xml":           "alias for /api/rss"
     "POST /api/upload_image":      "upload cover image — auto-resized to 1200x630 JPEG via Pillow"
     "POST /api/post_bluesky":      "manual Bluesky post for article (account poster)"
+    "POST /api/pre_analyze":       "NLP analysis — returns chimera_score, sentiment, NLP fields. Pass article_id to write nlp_* to Redis hash."
 
   blueprint_registry: |
     app.register_blueprint(rss_blueprint)
@@ -354,7 +427,17 @@ developer:
     from user_prefs import user_prefs_bp;   app.register_blueprint(user_prefs_bp)
 
   redis_schemas:
-    article:      "article:{id} hash — id, title, url, source, original_text, timestamp, directive, category, source_lang, chimera_score, red/blue/purple_team_analysis, sentinel_verdict, og_image, slug, imageUrl, origin, visibility, owner"
+    article: |
+      article:{id} hash — id, title, url, source, original_text, timestamp, directive, category,
+      source_lang, chimera_score, red/blue/purple_team_analysis, sentinel_verdict, og_image,
+      slug, imageUrl, origin, visibility, owner
+      + nlp_* fields (written by pre_analyze v3.0 when article_id passed):
+        nlp_chimera_score, nlp_sentiment, nlp_vader_pos, nlp_vader_neg, nlp_vader_neu,
+        nlp_subjectivity, nlp_objectivity, nlp_word_count, nlp_sentence_count,
+        nlp_avg_sentence_len, nlp_syllable_count, nlp_noun_chunk_count,
+        nlp_fk_grade, nlp_reading_level, nlp_coleman_liau, nlp_smog, nlp_dale_chall,
+        nlp_entity_person, nlp_entity_org, nlp_entity_gpe, nlp_entity_loc,
+        nlp_entity_date, nlp_entity_money, nlp_entity_event, nlp_top_lemmas
     comment:      "comments:{article_id} list of JSON"
     reaction:     "reactions:{comment_id} hash — like, dislike, heart, happy, sad, angry"
     translation:  "translation:{article_id}:{lang} JSON TTL 24h — {title, original_text, rtl} (local) or 5-field (pro)"
@@ -377,6 +460,7 @@ developer:
     backend_internal_url: "BOTH route.ts and auth.ts use BACKEND_INTERNAL_URL=http://localhost:5005 for all server-side Flask calls. NEXT_PUBLIC_ is browser only. NEVER use NEXT_PUBLIC_BACKEND_URL for server-side — it routes through Caddy/WAN and the loopback guard in user_prefs.py will 403 it."
 
   ai_notes:
+    ollama_api: "Use /api/chat not /api/generate for newer cloud models (qwen3.5, nemotron). devstral-2 supports both."
     ollama_return: "call_ollama_with_fallback() returns TUPLE (text, duration_ms, model). Use result[0] for text."
     ollama_fallback_chain: "devstral-2:123b-cloud → mistral:7b → llama3.2:latest. Configure via OLLAMA_LOCAL_FALLBACK and OLLAMA_LOCAL_FALLBACK2 in .env."
     sentinel_resilience: |
@@ -394,6 +478,33 @@ developer:
     stream_delivery: "Redis Streams only — no filesystem JSON writes"
     chimera_score_caveat: "Calibrated on English. Non-English articles may score abnormally."
 
+  nlp_instrumentation: |
+    pre_analyze v3.0 (main.py) — full NLP extraction per article:
+    - VADER: compound + pos/neg/neu breakdown
+    - TextBlob: subjectivity → objectivity → chimera_score
+    - textstat: FK grade, Coleman-Liau, SMOG, Dale-Chall, word count, sentence count, syllable count
+    - spaCy: entity counts by type (PERSON/ORG/GPE/LOC/DATE/MONEY/EVENT), top 50 lemmas, noun chunks
+    - All written to article:{id} Redis hash as nlp_* fields when article_id passed
+    - scribe.py passes article_id to pre_analyze via APIClient.pre_analyze(text, article_id)
+    - corpus_exporter.py v2.0 reads nlp_* fields and exports to Prometheus
+    - NLP coverage builds organically as new articles flow through pipeline
+
+  pipeline_instrumentation: |
+    scribe.py v52.1 writes to arc:stats:* Redis hashes via _inc() helper:
+    - arc:stats:rss      — ok/bozo/candidates per RSS cycle
+    - arc:stats:quality  — rejection reasons (paywall_detected, too_short, etc.)
+    - arc:stats:publish  — ok/failed/duplicate
+    - arc:stats:priority — by origin (url/text/prompt)
+    - arc:stats:fetch    — by domain+tier (tier1_ok/tier2_ok/youtube_ok/failed)
+    corpus_exporter reads these and exposes as Prometheus metrics.
+
+  scribe_notes: |
+    RECENTLY_PUBLISHED_MEMORY = 10 (was 50 — caused 3hr gaps with 21 directives)
+    Fallback publish: if no candidates match active directives, retries ignoring recently_published.
+    Net: scribe always publishes something every cycle.
+    Ghost hash accumulation: scribe creates article:{id} hashes that may not make it into feed.
+    These become orphans — kasmir7 option 8 purges them periodically.
+
   image_upload_notes: |
     /api/upload_image (main.py) auto-resizes all uploads via Pillow:
     - img.thumbnail((1200, 630)) — preserves aspect ratio, fits within social card dimensions
@@ -404,13 +515,9 @@ developer:
 
   directives_notes: |
     directives.json v2.0 (Mar 22, 2026):
-    - 928 lines, 10 topic groups, ~300+ keywords total
-    - New topics: World Affairs (priority 97), Healthcare (priority 87)
-    - All existing topics massively expanded with real headline keywords
-    - General News priority bumped 1→50 as true catch-all
-    - Removed: "survivors" from Epstein directive (too generic — matched unrelated articles)
-    - Added dance/ballet/choreograph/performance/theater keywords to General News
-    - Key fix: named entities (Trump, OpenAI, Anthropic, Claude, DOGE, CDC etc.) now in keywords
+    - 941 lines, 21 directives across 10 topic groups
+    - RECENTLY_PUBLISHED_MEMORY reduced to 10 to prevent lockout with 21 directives
+    - Fallback publish added: if all directives in recently_published, publish best match anyway
 
   intelligencecard_notes: |
     IntelligenceCard.tsx v7.0 (Mar 22, 2026):
@@ -435,18 +542,28 @@ developer:
     instance: mastodon.social
     handle: "@rossnesbitt@mastodon.social"
     app: "Arc Codex — app ID 8424769"
-    scope: "write:statuses (write:media needed for image upload — token needs updating)"
+    scope: "write:statuses write:media — fixed Mar 24 2026, images now uploading"
     file: backend/mastodon_poster.py
     on_off: "redis-cli -a simplenes set mastodon:autopost 1|0"
     posted_set: "mastodon:posted — SET of article IDs (prevents duplicates)"
     seed_on_start: "All existing articles seeded on startup — no spam flood"
-    image_note: "Media upload 403 on current token (missing write:media scope). Posts still go out without image via link preview."
-    post_format: |
-      {title}
+    token_expiry: "~no expiry for user tokens with write:statuses+write:media scope"
 
-      {counter-analyst comment or purple excerpt}
+  bluesky_notes:
+    handle: "arc-codex.com (changed from hapenez.bsky.social Mar 24 2026)"
+    app_password: "Stored in .env BLUESKY_APP_PASSWORD and secret/bluesky"
+    did: "did:plc:i2y34utl5i7yo34ymxxksmwo"
+    posted_set: "bluesky:posted — zrange feed based (not r.keys)"
+    token_note: "App passwords don't expire but can be revoked. If 401, regenerate in bsky.app Settings → App Passwords"
 
-      {article URL}
+  threads_notes:
+    status: "READY — threads_poster.py v1.0 written, awaiting Meta developer token"
+    app_id: "1610562860352891 (HapEnews app on Meta)"
+    required_env: [THREADS_ACCESS_TOKEN, THREADS_USER_ID]
+    token_expiry: "~60 days — will need threads_auth.py refresh script"
+    scope: "threads_basic + threads_content_publish"
+    post_format: "title + URL only (link preview handles image via OG tags)"
+    api: "graph.threads.net/v1.0 — two-step: create container → publish"
 
   security_notes:
     redis_bind: "127.0.0.1 only — fixed Mar 7 2026 (was 0.0.0.0)"
@@ -487,6 +604,11 @@ developer:
     fix: "ENV HOSTNAME='' (empty string) in Dockerfile.frontend runner stage — was '0.0.0.0' which caused request routing failure on Linux with network_mode: host"
     health_check: "Uses wget -qO- (not curl — Alpine has no curl). Container shows healthy. ✅"
     solr_core: "feeds (NOT arc_codex — cold_archive and docker-compose.yml must use 'feeds')"
+    grafana_prometheus: |
+      Managed via docker-compose.grafana.yml (arc grafana-start/stop).
+      Both have restart: unless-stopped — survive reboots.
+      Conflict fix after reboot: docker rm arc-prometheus arc-grafana then arc grafana-start.
+      Permanent fix: /etc/tmpfiles.d/caddy-logs.conf ensures log dir ownership on boot.
 
   linkedin_notes:
     app_name: arc-codex
@@ -529,87 +651,91 @@ developer:
     model_pro: "devstral fallback — analysis fields if TranslateGemma fails"
     default: "TRANSLATABLE_FIELDS_PRO — all 5 fields always attempted"
 
+  known_gaps:
+    unauthenticated_private_publish: |
+      Users can submit private articles without being authenticated.
+      Private articles need an owner field to filter by in get_feed.
+      Without auth, owner is empty string — private articles visible to all.
+      Fix deferred — low priority until user base grows.
+    threads_token: "Pending Meta developer token approval for threads_poster.py"
+    priority_queue_namespace: "scribe:priority_uploads shared across all stacks — see CRITICAL warning at top"
+
   changelog:
+    v7.20: |
+      Mar 24, 2026:
+      - arc_benchmark.py v3.0:
+        - --label flag for named runs, --cloud-model override
+        - Persistent arc_benchmark_compare.json cross-run comparison
+        - --compare flag prints side-by-side table
+        - /api/chat instead of /api/generate for newer Ollama models
+        - Benchmark results: devstral-2 wins (0.948 composite, 4.3s/task)
+      - corpus_exporter.py v2.0:
+        - NLP metrics: sentiment avg, VADER breakdown, subjectivity, reading level distribution
+        - Entity type counts (PERSON/ORG/GPE/LOC/DATE/MONEY/EVENT)
+        - Readability suite: FK grade, Coleman-Liau, SMOG, Dale-Chall
+        - Pipeline health: arc:stats:* Redis counters (fetch/quality/rss/publish/priority)
+        - NLP coverage % gauge
+      - pre_analyze v3.0 (main.py):
+        - Full VADER breakdown (pos/neg/neu stored)
+        - Entity counts by NER type
+        - Top 50 lemmas extracted
+        - Noun chunk count, sentence count, avg sentence length
+        - Coleman-Liau, SMOG, Dale-Chall readability scores
+        - All written to article:{id} Redis hash as nlp_* fields
+        - article_id parameter — scribe passes hash for direct Redis write
+      - scribe.py v52.1:
+        - 6 instrumentation patches: STATS_* constants, _inc() helper
+        - Bozo/quality/publish/priority counters
+        - APIClient.pre_analyze() passes article_id
+        - RECENTLY_PUBLISHED_MEMORY 50→10 (fixes 3hr publish gaps)
+        - Fallback publish: ignores recently_published if no directive matches
+      - bluesky_poster.py v1.3 + mastodon_poster.py v1.1:
+        - all_article_ids() and seed_posted_set() use r.zrange('feed') not r.keys()
+        - build_post_text() uses article.get('url') directly
+        - Ghost article guard: skip articles with no title
+        - Mastodon write:media scope added — images now uploading
+        - Bluesky handle changed to arc-codex.com
+      - threads_poster.py v1.0:
+        - Written and ready — awaiting Meta token
+        - Two-step Threads API (create container → publish)
+        - Title + URL format, link preview handles OG image
+      - watchdog.sh v2.0:
+        - kill_orphans() before every restart
+        - Background orphan sweep every 5 minutes
+        - mastodon_poster, corpus_exporter, caddy_exporter added to SERVICES
+        - huntaegis_watchdog.sh v2.0: same improvements, bluesky_poster removed
+      - caddy_exporter.py v1.0:
+        - Tails /var/log/caddy/*.log JSON access logs
+        - Prometheus metrics port 9102
+        - Path grouping, UA classification (bot/browser/api), IP prefix geo
+        - Requests/min rolling window, response time summary
+      - Caddy access logging enabled:
+        - /var/log/caddy/arc-codex-access.log + huntaegis-access.log
+        - /etc/tmpfiles.d/caddy-logs.conf — caddy:caddy ownership on reboot
+      - prometheus.yml updated: arc_traffic job scraping :9102 at 15s interval
+      - Grafana dashboards:
+        - Arc Codex Intelligence v3 (imported) — full NLP + pipeline panels
+        - Arc Codex Web Traffic (imported) — live traffic, status codes, top paths
+        - Anonymous viewer access enabled in docker-compose.grafana.yml
+      - docker-compose.grafana.yml: GF_AUTH_ANONYMOUS_ENABLED=true
+      - Redis/Solr cleanup: 1900+ orphan hashes purged via kasmir7
+      - M1 Ollama cleanup: phi3.5 and gemma3:4b removed (5.5GB freed)
+      - Z230 Ollama cleanup: gemma3:4b and TranslateGemma removed from Z230
+        (TranslateGemma lives on M1 only — Z230 never does inference)
     v7.19: |
       Mar 22, 2026:
-      - Image upload auto-resize (main.py /api/upload_image):
-        - Pillow img.thumbnail((1200, 630)) — preserves aspect ratio
-        - All formats converted to JPEG quality=85
-        - Hash computed on resized bytes (dedup preserved)
-        - Fixes silent Bluesky card crawler drop for large iPhone photos
-      - Mastodon auto-poster live (mastodon_poster.py v1.0):
-        - Instance: mastodon.social, handle: @rossnesbitt
-        - On/off: redis-cli set mastodon:autopost 1|0
-        - Seeds all existing articles on startup (no spam)
-        - Same post format as Bluesky: title + counter-analyst + URL
-        - Note: write:media scope missing from current token — images not uploading
-      - Ollama 3-tier fallback chain:
-        - devstral-2:123b-cloud → mistral:7b → llama3.2:latest
-        - OLLAMA_LOCAL_FALLBACK=mistral:7b, OLLAMA_LOCAL_FALLBACK2=llama3.2:latest in .env
-        - ollama_utils.py loop extended to 3 models
-      - Sentinel JSON resilience hardened:
-        - _repair_sentinel_json(): prose fallback returns UNCERTAIN if len(cleaned) > 50
-        - run_sentinel_analysis(): missing keys filled with defaults (not None)
-        - Net: Sentinel never silently fails on fallback models
-      - directives.json v2.0:
-        - 928 lines (was 406), 10 topic groups
-        - New: World Affairs (priority 97), Healthcare (priority 87)
-        - All topics massively expanded with real headline keywords
-        - General News priority 1→50 (true catch-all)
-        - "survivors" removed from Epstein directive (false positive on unrelated articles)
-        - dance/ballet/choreograph keywords added to General News
-      - RSS rebranding: rss_feed.py — HapEnews/whirled-news all replaced with Arc Codex/arc-codex.com
-      - Substack: https://rossnesbitt.substack.com live — RSS imported, manual publish flow
-      - mailer.py: ALERT_COOLDOWN 3600→14400 (1h→4h)
-      - huntaegis-stack.service + neetwatch-stack.service disabled at boot (systemctl disable)
-      - Orphan process cleanup: kill stale mailer/bluesky_poster PIDs after restart
-      - IntelligenceCard.tsx: ResearchMenu component added:
-        - Magnifying glass button alongside permalink/copy/share
-        - Dropdown: Google, Claude, ChatGPT, Perplexity (title pre-filled in each)
-        - Gemini dropped — no native URL prefill support
-      - IntelligenceCard.tsx: ShareMenu cleaned up:
-        - X/LinkedIn removed
-        - All labels one word: Bluesky, Mastodon, Facebook, Substack, Email
-        - Bluesky/Mastodon now use URL share intent (reader's account, not ours)
-        - Mastodon: mastodon.social/share?text={payload}
+      - Image upload auto-resize, Mastodon poster v1.0, Ollama 3-tier fallback,
+        Sentinel JSON resilience, directives.json v2.0, RSS rebranding,
+        Substack live, mailer cooldown 4h, ResearchMenu + ShareMenu cleanup
     v7.18: |
       Mar 21, 2026:
-      - Full private article system: origin/visibility/owner Redis schema
-      - Caddy routing for private articles
-      - Next.js Auth.js session-injected proxies
-      - Flask get_feed filtering for private articles
-      - 🔒 lock icon in IntelligenceCard.tsx for private articles
-      - kasmir7.py [11] My Publications
-      - About/sales/contact page redesigns
-      - Huntaegis ports 5006/3002, Redis DB 1, own branding
-      - A11y pass complete: IntelligenceCard, CommentSection, TranslateButton,
-        FeedClient, UserPrefsContext, UserMenu, ClientLayout, layout.tsx,
-        not-found.tsx, textUtils.ts (XSS fix), usePublish.ts, publish/page.tsx
+      - Full private article system, Huntaegis ports 5006/3002, A11y pass complete
     v7.14: |
       Mar 9, 2026:
-      - translation.py: switched TRANSLATABLE_FIELDS from LOCAL to PRO
-        - Now translates all 5 fields: title, original_text, red/blue/purple team analysis
-        - Verified working: Telugu translation confirmed for all 5 prose fields
-      - prompts.yaml v6.2:
-        - Purple team now cites ARC codes explicitly: "Patterns detected: ARC-XXXX Name"
-      - Grafana corpus intelligence stack v1.0 live:
-        - corpus_exporter.py port 9101, hourly Redis scan
-        - https://grafana.arc-codex.com — corpus health dashboard
-    v7.9: |
-      Mar 8, 2026:
-      - Solr reindex complete: 4725 articles indexed
-      - directives.json v1.0: 24→19 directives, 8 clean topic groups
-      - Directive filter on feed live
-      - LinkedIn OAuth added as third sign-in provider
-    v7.4: |
-      Mar 7, 2026:
-      - LinkedIn auto-poster live (linkedin_poster.py v1.0)
-      - Arc Codex logo deployed
-    v7.0: |
-      Mar 1, 2026:
-      - mailer.py v1.0 ACTIVE
-      - ALL inference on M1
-      - Translation lock: Redis translation:active
+      - Translation all 5 fields, prompts.yaml v6.2, Grafana v1.0 live
+    v7.9: "Mar 8, 2026: Solr reindex, directives v1.0, directive filter, LinkedIn OAuth"
+    v7.4: "Mar 7, 2026: LinkedIn auto-poster, Arc Codex logo"
+    v7.0: "Mar 1, 2026: mailer v1.0, ALL inference on M1, translation lock"
     v5.2: "Feb 27, 2026: Google SSO, Auth.js v5, user_prefs blueprint"
     v4.0: "Feb 25, 2026: Arc Codex rebrand, ollama_utils extracted"
     v3.0: "Feb 12, 2026: Initial document"

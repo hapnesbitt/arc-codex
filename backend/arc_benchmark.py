@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-arc_benchmark.py - A.R.C. News Analysis Model Benchmark v2.1
+arc_benchmark.py - A.R.C. News Analysis Model Benchmark v3.0
 
 Tests Ollama models (local or cloud) for Arc Codex production readiness.
-Finds the best 3 analysts + 1 synthesizer from available models.
-Optionally benchmarks translation quality across target languages.
+v3.0 adds labeled runs + persistent comparison file for side-by-side model eval.
 
 Architecture mirrors The Construct:
   - 3 models do full independent A.R.C. analysis (Trinity / Architect / Oracle)
@@ -17,7 +16,16 @@ Tests:
   4. SYNTHESIS            - Combine 3 analyses into unified conclusion
   5. TRANSLATION          - Accuracy, completeness, register fidelity (optional)
 
-v2.1 changes:
+v3.0 changes:
+  - --label flag: tag each run by model name for comparison (e.g. "devstral-2", "qwen3.5")
+  - --cloud-model flag: override CLOUD_MODEL without editing the file
+  - Results APPEND to arc_benchmark_compare.json (not overwrite) — full history preserved
+  - --compare flag: print side-by-side table from existing compare file, exit
+  - --cloud runs skip ensemble selection (single model — no ensemble needed)
+  - Credit burn estimate printed for cloud runs (based on task count × avg time)
+  - Model under test shown in all output headers
+
+v2.1 changes (preserved):
   - Auto-detects competing Ollama inference, stops scribe, waits for idle
   - Restarts scribe on exit via finally (even on crash or Ctrl+C)
   - Translation-only models (TranslateGemma) auto-excluded from analysis
@@ -25,15 +33,23 @@ v2.1 changes:
   - --skip-models flag to exclude known single-purpose models
 
 Usage:
-    python3 arc_benchmark.py                          # local models, no translation
-    python3 arc_benchmark.py --cloud                  # devstral only
-    python3 arc_benchmark.py --local                  # all local models (default)
+    # Compare three cloud models — run each in sequence:
+    python3 arc_benchmark.py --cloud --cloud-model devstral-2:123b-cloud   --label devstral-2   --quick
+    python3 arc_benchmark.py --cloud --cloud-model qwen3.5:122b-cloud      --label qwen3.5-122b --quick
+    python3 arc_benchmark.py --cloud --cloud-model nemotron-3-super:120b-cloud --label nemotron-super --quick
+
+    # Print comparison table from all labeled runs:
+    python3 arc_benchmark.py --compare
+
+    # Full run (all 3 articles):
+    python3 arc_benchmark.py --cloud --cloud-model qwen3.5:122b-cloud --label qwen3.5-full
+
+    # Local models:
+    python3 arc_benchmark.py --local
     python3 arc_benchmark.py --models gemma3:4b llama3.2:latest
-    python3 arc_benchmark.py --translate              # add translation benchmark
-    python3 arc_benchmark.py --translate-langs Hindi French Telugu
-    python3 arc_benchmark.py --translate-only         # skip analysis, translation only
-    python3 arc_benchmark.py --quick                  # 1 article, fewer tests
-    python3 arc_benchmark.py --cloud --translate --quick
+
+    # Translation:
+    python3 arc_benchmark.py --translate --translate-langs Hindi French Telugu
 """
 
 import json
@@ -57,16 +73,18 @@ except ImportError:
 # =============================================================================
 
 M1_HOST      = "http://192.168.1.185:11434"
-CLOUD_MODEL  = "devstral-2:123b-cloud"
+CLOUD_MODEL  = "devstral-2:123b-cloud"   # default — override with --cloud-model
 ARC_SH       = "/home/www/arc_stack/arc.sh"
+
+COMPARE_FILE = "arc_benchmark_compare.json"   # persistent cross-run comparison store
 
 # Models known to be translation-only — excluded from analysis benchmark
 TRANSLATION_ONLY_MODELS = ["translategemma", "translate-gemma"]
 
-# Default translation languages — representative spread across your 68
+# Default translation languages
 DEFAULT_TRANSLATE_LANGS = ["Hindi", "French", "Telugu", "Arabic", "Japanese"]
 
-# CJK scripts — use character count for length ratio (more compact than English)
+# CJK scripts — use character count for length ratio
 CJK_LANGUAGES = {"Japanese", "Chinese", "Chinese (Simplified)", "Chinese (Traditional)",
                  "Korean", "Thai", "Burmese", "Khmer", "Lao"}
 
@@ -168,14 +186,13 @@ Brazil and Chile already have such labels in place.""",
     },
 ]
 
-# Short excerpt used for translation benchmarks (keeps costs low)
 TRANSLATION_SOURCE = """The European Union announced new sanctions targeting semiconductor exports.
 EU foreign policy chief Kaja Kallas stated the measures are designed to close loopholes.
 Industry groups warned the restrictions could affect legitimate trade worth €2.3 billion annually.
 Russia's Foreign Ministry called the sanctions an act of economic warfare."""
 
 # =============================================================================
-# PROMPTS
+# PROMPTS (unchanged from v2.1)
 # =============================================================================
 
 FACT_EXTRACTION_PROMPT = """You are a News Wire Editor. Extract and present ONLY verifiable core facts from this article.
@@ -246,7 +263,7 @@ ANALYST 3:
 Write a 200-300 word synthesis. Be authoritative but intellectually honest.
 No headings or labels. Just the synthesis."""
 
-TRANSLATION_PROMPT = """Translate the following news excerpt into {language}. 
+TRANSLATION_PROMPT = """Translate the following news excerpt into {language}.
 
 Requirements:
 - Accurate and complete translation
@@ -275,10 +292,10 @@ def call_ollama(model: str, prompt: str, host: str, timeout: int = 120) -> Tuple
     start = time.time()
     try:
         resp = requests.post(
-            f"{host}/api/generate",
+            f"{host}/api/chat",
             json={
                 "model": model,
-                "prompt": prompt,
+                "messages": [{"role": "user", "content": prompt}],
                 "stream": False,
                 "options": {"temperature": 0.3, "num_ctx": 4096}
             },
@@ -289,7 +306,7 @@ def call_ollama(model: str, prompt: str, host: str, timeout: int = 120) -> Tuple
         if resp.status_code != 200:
             return None, elapsed, f"http_{resp.status_code}"
 
-        text = resp.json().get('response', '').strip()
+        text = resp.json().get('message', {}).get('content', '').strip()
         return text, elapsed, "ok"
 
     except requests.exceptions.Timeout:
@@ -305,8 +322,8 @@ def discover_local_models(host: str) -> List[str]:
         if resp.status_code != 200:
             return []
         models = [m['name'] for m in resp.json().get('models', [])
-                  if m.get('size', 0) > 0                    # size=0 means cloud/remote
-                  and 'cloud' not in m['name'].lower()]       # filter cloud-tagged models
+                  if m.get('size', 0) > 0
+                  and 'cloud' not in m['name'].lower()]
         return sorted(set(models))
     except Exception as e:
         print(f"  ❌ Could not reach {host}: {e}")
@@ -314,40 +331,31 @@ def discover_local_models(host: str) -> List[str]:
 
 
 def is_translation_only(model_name: str) -> bool:
-    """Return True if this model is known to be translation-only."""
     lower = model_name.lower()
     return any(tag in lower for tag in TRANSLATION_ONLY_MODELS)
 
 
 def check_ollama_idle(host: str) -> bool:
-    """Return True if Ollama has no models currently loaded/running."""
     try:
         resp = requests.get(f"{host}/api/ps", timeout=5)
         return len(resp.json().get('models', [])) == 0
     except Exception:
-        return True  # assume idle if we can't reach ps
+        return True
 
 
 def pause_scribe(host: str) -> bool:
-    """
-    If Ollama is busy, stop scribe and wait for it to go idle.
-    Returns True if scribe was stopped (so we know to restart it).
-    """
     if check_ollama_idle(host):
         return False
-
     try:
         resp = requests.get(f"{host}/api/ps", timeout=5)
         running = [m['name'] for m in resp.json().get('models', [])]
         print(f"  ⚠️  Ollama busy: {running}")
     except Exception:
         pass
-
     print(f"  🛑 Stopping scribe to free inference capacity...")
     subprocess.run([ARC_SH, 'stop', 'scribe'], capture_output=True)
-
     print("  ⏳ Waiting for Ollama to go idle...", end=" ", flush=True)
-    for _ in range(30):  # 30 × 2s = 60s max
+    for _ in range(30):
         time.sleep(2)
         if check_ollama_idle(host):
             print("clear.")
@@ -357,44 +365,37 @@ def pause_scribe(host: str) -> bool:
 
 
 def resume_scribe():
-    """Restart scribe via arc.sh."""
     print("\n  🚀 Restarting scribe...")
     subprocess.run([ARC_SH, 'start', 'scribe'], capture_output=True)
     print("  ✅ scribe restarted")
 
 
 # =============================================================================
-# SCORING ENGINE
+# SCORING ENGINE (unchanged from v2.1)
 # =============================================================================
 
 def score_fact_extraction(response: str, article: Dict) -> Tuple[float, Dict]:
     if not response:
         return 0.0, {"reason": "no_response"}
-
     response_lower = response.lower()
     details = {}
-
     expected = article.get('expected_facts', [])
     found = sum(1 for fact in expected if fact.lower() in response_lower)
     coverage = found / max(len(expected), 1)
     details['fact_coverage'] = f"{found}/{len(expected)}"
-
     lines = [l.strip() for l in response.split('\n') if l.strip()]
     bullet_lines = sum(1 for l in lines if l.startswith(('-', '•', '*', '–')) or
                        (len(l) > 2 and l[0].isdigit() and l[1] in '.):'))
     structure_score = min(1.0, bullet_lines / 8)
     details['bullet_points'] = bullet_lines
-
     opinion_markers = ['suggests', 'implies', 'arguably', 'likely', 'appears to',
                        'in my view', 'it seems', 'probably', 'might indicate',
                        'this shows', 'clearly', 'obviously']
     opinion_count = sum(1 for m in opinion_markers if m in response_lower)
     neutrality = max(0.3, 1.0 - (opinion_count * 0.15))
     details['opinion_markers'] = opinion_count
-
     length_penalty = min(1.0, 1200 / max(len(response), 1)) if len(response) > 1200 else 1.0
     details['length'] = len(response)
-
     score = coverage * 0.45 + structure_score * 0.20 + neutrality * 0.20 + length_penalty * 0.15
     return round(score, 3), details
 
@@ -402,30 +403,24 @@ def score_fact_extraction(response: str, article: Dict) -> Tuple[float, Dict]:
 def score_narrative_synthesis(response: str, article: Dict) -> Tuple[float, Dict]:
     if not response:
         return 0.0, {"reason": "no_response"}
-
     response_lower = response.lower()
     details = {}
-
     expected = article.get('expected_facts', [])
     found = sum(1 for fact in expected if fact.lower() in response_lower)
     fact_score = min(1.0, found / max(len(expected) * 0.5, 1))
     details['key_facts'] = f"{found}/{len(expected)}"
-
     paragraphs = [p.strip() for p in response.split('\n\n') if p.strip() and len(p.strip()) > 50]
     structure_score = min(1.0, len(paragraphs) / 2)
     details['paragraphs'] = len(paragraphs)
-
     perspective_markers = ['however', 'meanwhile', 'in contrast', 'on the other hand',
                           'critics', 'opponents', 'supporters', 'while', 'although',
                           'some argue', 'others', 'alternatively', 'conversely']
     perspective_count = sum(1 for m in perspective_markers if m in response_lower)
     balance_score = min(1.0, perspective_count / 2)
     details['perspective_markers'] = perspective_count
-
     word_count = len(response.split())
     length_score = 1.0 if 130 <= word_count <= 250 else 0.7 if 100 <= word_count <= 350 else 0.4
     details['word_count'] = word_count
-
     score = fact_score * 0.30 + structure_score * 0.20 + balance_score * 0.25 + length_score * 0.25
     return round(score, 3), details
 
@@ -433,17 +428,14 @@ def score_narrative_synthesis(response: str, article: Dict) -> Tuple[float, Dict
 def score_critical_analysis(response: str, article: Dict) -> Tuple[float, Dict]:
     if not response:
         return 0.0, {"reason": "no_response"}
-
     response_lower = response.lower()
     details = {}
-
     steelman_markers = ['legitimate', 'valid', 'reasonable', 'understandable',
                        'credit', 'genuine concern', 'fair point', 'strongest',
                        'to be fair', 'rightly', 'important']
     steelman_count = sum(1 for m in steelman_markers if m in response_lower)
     steelman_score = min(1.0, steelman_count / 2)
     details['steelmanning'] = steelman_count
-
     pattern_markers = ['framing', 'narrative', 'pattern', 'assumption', 'omit',
                       'conspicuous', 'timing', 'whose interests', 'who benefits',
                       'unstated', 'presuppose', 'binary', 'false choice',
@@ -451,21 +443,17 @@ def score_critical_analysis(response: str, article: Dict) -> Tuple[float, Dict]:
     pattern_count = sum(1 for m in pattern_markers if m in response_lower)
     pattern_score = min(1.0, pattern_count / 3)
     details['pattern_recognition'] = pattern_count
-
     question_count = response.count('?')
     question_score = min(1.0, question_count / 2)
     details['questions_asked'] = question_count
-
     cynical_markers = ['obviously corrupt', 'all lies', 'never trust', 'wake up',
                       'sheeple', 'propaganda machine']
     cynical_count = sum(1 for m in cynical_markers if m in response_lower)
     tone_score = max(0.3, 1.0 - (cynical_count * 0.3))
     details['cynicism_flags'] = cynical_count
-
     word_count = len(response.split())
     length_score = 1.0 if 180 <= word_count <= 350 else 0.7 if 120 <= word_count <= 450 else 0.4
     details['word_count'] = word_count
-
     score = (steelman_score * 0.20 + pattern_score * 0.30 +
              question_score * 0.20 + tone_score * 0.15 + length_score * 0.15)
     return round(score, 3), details
@@ -474,34 +462,27 @@ def score_critical_analysis(response: str, article: Dict) -> Tuple[float, Dict]:
 def score_synthesis(response: str) -> Tuple[float, Dict]:
     if not response:
         return 0.0, {"reason": "no_response"}
-
     response_lower = response.lower()
     details = {}
-
     agree_markers = ['agree', 'consensus', 'shared', 'common ground', 'converge',
                     'all three', 'each analyst', 'collectively', 'unified']
     agree_count = sum(1 for m in agree_markers if m in response_lower)
     details['agreement'] = agree_count
-
     diverge_markers = ['however', 'differs', 'contrast', 'whereas', 'unique',
                       'one analyst', 'distinct', 'diverge', 'disagree', 'tension',
                       'misses', 'overlooks', 'adds']
     diverge_count = sum(1 for m in diverge_markers if m in response_lower)
     details['divergence'] = diverge_count
-
     synthesis_markers = ['together', 'combined', 'synthesis', 'emerges', 'broader',
                         'deeper', 'underlying', 'reveals', 'when we consider',
                         'taken together', 'the fuller picture', 'collectively']
     synthesis_count = sum(1 for m in synthesis_markers if m in response_lower)
     details['synthesis_depth'] = synthesis_count
-
     question_count = response.count('?')
     details['questions'] = question_count
-
     word_count = len(response.split())
     length_score = 1.0 if 180 <= word_count <= 350 else 0.7 if 120 <= word_count <= 450 else 0.4
     details['word_count'] = word_count
-
     score = (min(1.0, agree_count / 2) * 0.20 +
              min(1.0, diverge_count / 2) * 0.20 +
              min(1.0, synthesis_count / 2) * 0.25 +
@@ -511,29 +492,14 @@ def score_synthesis(response: str) -> Tuple[float, Dict]:
 
 
 def score_translation(forward: str, back: str, language: str) -> Tuple[float, Dict]:
-    """
-    Score translation quality using round-trip heuristics.
-    We can't verify the target language directly, so we:
-      1. Check forward output is non-empty and different from source
-      2. Back-translate and compare key entities/numbers to source
-      3. Check forward output length is plausible (0.5x-2x source)
-    """
     details = {}
-
     if not forward:
         return 0.0, {"reason": "no_forward_translation"}
-
-    # 1. Non-trivial output — not just echoing the source
     source_words = set(TRANSLATION_SOURCE.lower().split())
     forward_words = set(forward.lower().split())
     overlap = len(source_words & forward_words) / max(len(source_words), 1)
-    # High overlap in Latin-script languages is expected (proper nouns)
-    # but full overlap means it didn't translate
     different_enough = overlap < 0.7
     details['source_overlap'] = round(overlap, 2)
-
-    # 2. Length plausibility
-    # CJK languages are more compact — use character count, not word count
     if language in CJK_LANGUAGES:
         source_len = len(TRANSLATION_SOURCE.replace(' ', ''))
         forward_len = len(forward.replace(' ', ''))
@@ -547,8 +513,6 @@ def score_translation(forward: str, back: str, language: str) -> Tuple[float, Di
     length_ratio = forward_len / max(source_len, 1)
     details['length_ratio'] = round(length_ratio, 2)
     details['forward_words'] = forward_len
-
-    # 3. Round-trip entity preservation
     key_entities = ["EU", "Kallas", "Russia", "Kazakhstan", "2.3 billion",
                     "semiconductor", "Zakharova"]
     if not back:
@@ -559,15 +523,12 @@ def score_translation(forward: str, back: str, language: str) -> Tuple[float, Di
         found = sum(1 for e in key_entities if e.lower() in back_lower)
         rt_score = found / len(key_entities)
         details['round_trip'] = f"{found}/{len(key_entities)} entities"
-
-    # 4. No refusal markers
     refusal_markers = ["i cannot", "i'm unable", "i don't", "sorry", "i apologize",
                        "cannot translate", "unable to translate"]
     refused = any(m in forward.lower() for m in refusal_markers)
     if refused:
         details['refused'] = True
         return 0.0, details
-
     score = (
         (0.5 if different_enough else 0.1) * 0.25 +
         (1.0 if length_ok else 0.3) * 0.25 +
@@ -577,7 +538,7 @@ def score_translation(forward: str, back: str, language: str) -> Tuple[float, Di
 
 
 # =============================================================================
-# BENCHMARK RUNNERS
+# MOCK ANALYSES (for synthesis benchmark)
 # =============================================================================
 
 MOCK_ANALYSES = {
@@ -598,6 +559,10 @@ MOCK_ANALYSES = {
     ],
 }
 
+
+# =============================================================================
+# BENCHMARK RUNNERS
+# =============================================================================
 
 def benchmark_model(model: str, articles: List[Dict], host: str, quick: bool = False) -> Dict:
     """Run A.R.C. analysis benchmark on a single model"""
@@ -676,7 +641,6 @@ def benchmark_model(model: str, articles: List[Dict], host: str, quick: bool = F
             "response_preview": (response or "")[:200]
         })
 
-    # Dimension averages
     for dim in ['fact_extraction', 'narrative_synthesis', 'critical_analysis']:
         scores = [t['score'] for t in results['tests'][dim]]
         times  = [t['time']  for t in results['tests'][dim]]
@@ -715,7 +679,7 @@ def benchmark_model(model: str, articles: List[Dict], host: str, quick: bool = F
 
 
 def run_synthesis_benchmark(models: List[str], articles: List[Dict], host: str) -> Dict:
-    """Test each model's synthesis (Think Tank Director) capability"""
+    """Test each model's synthesis capability"""
     print(f"\n{'='*65}")
     print(f"  🧬 SYNTHESIS BENCHMARK")
     print(f"{'='*65}")
@@ -749,17 +713,10 @@ def run_synthesis_benchmark(models: List[str], articles: List[Dict], host: str) 
 
 
 def run_translation_benchmark(models: List[str], languages: List[str], host: str) -> Dict:
-    """
-    Test translation quality via forward + back-translation scoring.
-    Uses a short article excerpt to keep latency manageable.
-    """
     print(f"\n{'='*65}")
     print(f"  🌐 TRANSLATION BENCHMARK")
     print(f"  Languages: {', '.join(languages)}")
     print(f"{'='*65}")
-    print(f"\n  Source ({len(TRANSLATION_SOURCE.split())} words):")
-    for line in TRANSLATION_SOURCE.strip().split('\n'):
-        print(f"    {line.strip()}")
 
     translation_results = {}
 
@@ -769,8 +726,6 @@ def run_translation_benchmark(models: List[str], languages: List[str], host: str
 
         for lang in languages:
             print(f"    → {lang}...", end=" ", flush=True)
-
-            # Forward translation
             fwd_prompt = TRANSLATION_PROMPT.format(language=lang, text=TRANSLATION_SOURCE)
             forward, fwd_elapsed, fwd_status = call_ollama(model, fwd_prompt, host, timeout=120)
 
@@ -782,7 +737,6 @@ def run_translation_benchmark(models: List[str], languages: List[str], host: str
                 }
                 continue
 
-            # Back-translation (always in English)
             back_prompt = TRANSLATION_BACK_PROMPT.format(text=forward)
             back, back_elapsed, back_status = call_ollama(model, back_prompt, host, timeout=120)
 
@@ -803,72 +757,117 @@ def run_translation_benchmark(models: List[str], languages: List[str], host: str
                 "back_preview": (back or "")[:200],
             }
 
-        # Per-model translation summary
-        lang_scores = [v['score'] for v in translation_results[model].values()]
+        lang_scores = [v['score'] for v in translation_results[model].values()
+                       if isinstance(v, dict) and 'score' in v]
         avg = sum(lang_scores) / max(len(lang_scores), 1)
         print(f"\n    Translation avg: {avg:.2f} across {len(lang_scores)} languages")
         translation_results[model]['_avg'] = round(avg, 3)
 
-    # Summary table
-    print(f"\n  {'─'*65}")
-    print(f"  {'Model':<30}", end="")
-    for lang in languages:
-        print(f"  {lang[:6]:>6}", end="")
-    print(f"  {'Avg':>6}")
-    print(f"  {'─'*30}", end="")
-    for _ in languages:
-        print(f"  {'─'*6}", end="")
-    print(f"  {'─'*6}")
-
-    for model in models:
-        print(f"  {model:<30}", end="")
-        for lang in languages:
-            s = translation_results[model].get(lang, {}).get('score', 0.0)
-            print(f"  {s:>6.2f}", end="")
-        avg = translation_results[model].get('_avg', 0.0)
-        print(f"  {avg:>6.2f}")
-
     return translation_results
 
 
-def select_ensemble(all_results: List[Dict], synthesis_results: Dict) -> Dict:
-    """Select optimal 3 analysts + 1 synthesizer"""
-    ranked = sorted(all_results, key=lambda x: x['scores']['analysis_composite'], reverse=True)
-    top_analysts = ranked[:3]
+# =============================================================================
+# COMPARISON FILE — persistent cross-run storage
+# =============================================================================
 
-    best_synth, best_score = None, -1
-    for model, data in synthesis_results.items():
-        model_result = next((r for r in all_results if r['model'] == model), None)
-        analysis_score = model_result['scores']['analysis_composite'] if model_result else 0
-        combined = data.get('score', 0) * 0.6 + analysis_score * 0.4
-        if combined > best_score:
-            best_score, best_synth = combined, model
+def load_compare_file(path: str) -> Dict:
+    p = Path(path)
+    if p.exists():
+        try:
+            return json.loads(p.read_text())
+        except Exception:
+            pass
+    return {"runs": []}
 
-    return {
-        "analysts": [
-            {
-                "name": r['model'],
-                "composite": r['scores']['analysis_composite'],
-                "strengths": {
-                    "fact_extraction": r['scores']['fact_extraction']['avg_score'],
-                    "narrative": r['scores']['narrative_synthesis']['avg_score'],
-                    "critical": r['scores']['critical_analysis']['avg_score'],
-                },
-                "avg_time": r['scores']['avg_time_per_task'],
-            }
-            for r in top_analysts
-        ],
-        "synthesizer": {
-            "name": best_synth,
-            "synthesis_score": synthesis_results.get(best_synth, {}).get('score', 0),
-            "analysis_composite": next(
-                (r['scores']['analysis_composite'] for r in all_results if r['model'] == best_synth), 0),
-        },
-        "estimated_total_time": (
-            sum(r['scores']['avg_time_per_task'] * 3 for r in top_analysts) +
-            synthesis_results.get(best_synth, {}).get('time', 60)
-        ),
+
+def save_compare_file(data: Dict, path: str) -> None:
+    Path(path).write_text(json.dumps(data, indent=2, default=str))
+
+
+def append_run(label: str, model: str, result: Dict,
+               synthesis_score: float, articles_count: int,
+               quick: bool, compare_path: str) -> None:
+    """Append a labeled run summary to the comparison file."""
+    data = load_compare_file(compare_path)
+    scores = result.get('scores', {})
+    entry = {
+        "label":       label,
+        "model":       model,
+        "run_at":      datetime.now().isoformat(),
+        "quick_mode":  quick,
+        "articles":    articles_count,
+        "composite":   scores.get('analysis_composite', 0),
+        "fact":        scores.get('fact_extraction', {}).get('avg_score', 0),
+        "narrative":   scores.get('narrative_synthesis', {}).get('avg_score', 0),
+        "critical":    scores.get('critical_analysis', {}).get('avg_score', 0),
+        "synthesis":   synthesis_score,
+        "avg_time_s":  scores.get('avg_time_per_task', 0),
+        "efficiency":  scores.get('efficiency', 0),
+        "status":      result.get('status', ''),
     }
+    # Replace existing entry with same label, or append
+    runs = data.get('runs', [])
+    replaced = False
+    for i, r in enumerate(runs):
+        if r.get('label') == label:
+            runs[i] = entry
+            replaced = True
+            break
+    if not replaced:
+        runs.append(entry)
+    data['runs'] = runs
+    save_compare_file(data, compare_path)
+    action = "Updated" if replaced else "Appended"
+    print(f"\n  💾 {action} '{label}' in {compare_path}")
+
+
+def print_comparison_table(compare_path: str) -> None:
+    """Print side-by-side comparison of all labeled runs."""
+    data = load_compare_file(compare_path)
+    runs = data.get('runs', [])
+    if not runs:
+        print(f"  No runs found in {compare_path}")
+        return
+
+    print(f"\n{'='*80}")
+    print(f"  📊 A.R.C. CLOUD MODEL COMPARISON — {len(runs)} run(s)")
+    print(f"{'='*80}")
+
+    # Header
+    print(f"\n  {'Label':<22} {'Model':<28} {'Comp':>6} {'Fact':>6} {'Narr':>6} "
+          f"{'Crit':>6} {'Synth':>6} {'Time':>6} {'Eff':>7}  {'Q':<5} {'Art'}")
+    print(f"  {'─'*22} {'─'*28} {'─'*6} {'─'*6} {'─'*6} "
+          f"{'─'*6} {'─'*6} {'─'*6} {'─'*7}  {'─'*5} {'─'*3}")
+
+    # Sort by composite descending
+    for r in sorted(runs, key=lambda x: x.get('composite', 0), reverse=True):
+        label    = r.get('label', '')[:22]
+        model    = r.get('model', '')[:28]
+        comp     = r.get('composite', 0)
+        fact     = r.get('fact', 0)
+        narr     = r.get('narrative', 0)
+        crit     = r.get('critical', 0)
+        synth    = r.get('synthesis', 0)
+        avg_time = r.get('avg_time_s', 0)
+        eff      = r.get('efficiency', 0)
+        quick    = "⚡" if r.get('quick_mode') else "  "
+        arts     = r.get('articles', '?')
+        medal    = "🥇" if comp == max(x.get('composite',0) for x in runs) else "  "
+        print(f"  {medal}{label:<21} {model:<28} {comp:>6.3f} {fact:>6.2f} {narr:>6.2f} "
+              f"{crit:>6.2f} {synth:>6.2f} {avg_time:>5.1f}s {eff:>7.4f}  {quick}    {arts}")
+
+    print(f"\n  ⚡ = quick mode (1 article)  |  Efficiency = composite / avg_time")
+
+    # Winner call
+    best = max(runs, key=lambda x: x.get('composite', 0))
+    print(f"\n  🏆 Best composite: {best['label']} ({best['model']}) — {best['composite']:.3f}")
+
+    fastest = min(runs, key=lambda x: x.get('avg_time_s', 999))
+    print(f"  ⚡ Fastest:        {fastest['label']} ({fastest['model']}) — {fastest['avg_time_s']:.1f}s/task")
+
+    best_eff = max(runs, key=lambda x: x.get('efficiency', 0))
+    print(f"  💡 Best efficiency:{best_eff['label']} ({best_eff['model']}) — {best_eff['efficiency']:.4f}")
+    print()
 
 
 # =============================================================================
@@ -877,43 +876,76 @@ def select_ensemble(all_results: List[Dict], synthesis_results: Dict) -> Dict:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="A.R.C. News Analysis Model Benchmark v2.0",
+        description="A.R.C. News Analysis Model Benchmark v3.0",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
-  python3 arc_benchmark.py                            # all local models
-  python3 arc_benchmark.py --cloud                   # devstral only
-  python3 arc_benchmark.py --models gemma3:4b qwen2.5:7b
-  python3 arc_benchmark.py --translate               # add translation test
-  python3 arc_benchmark.py --translate-langs Hindi French Telugu
-  python3 arc_benchmark.py --cloud --translate --quick
+  # Compare cloud models (run each, then compare):
+  python3 arc_benchmark.py --cloud --cloud-model devstral-2:123b-cloud    --label devstral-2    --quick
+  python3 arc_benchmark.py --cloud --cloud-model qwen3.5:122b-cloud       --label qwen3.5-122b  --quick
+  python3 arc_benchmark.py --cloud --cloud-model nemotron-3-super:120b-cloud --label nemotron-super --quick
+  python3 arc_benchmark.py --compare
+
+  # Full run after picking a winner:
+  python3 arc_benchmark.py --cloud --cloud-model qwen3.5:122b-cloud --label qwen3.5-full
+
+  # Local models:
+  python3 arc_benchmark.py --local
+  python3 arc_benchmark.py --models gemma3:4b llama3.2:latest
+
+  # Translation:
+  python3 arc_benchmark.py --translate --translate-langs Hindi French Telugu
 """
     )
-    parser.add_argument('--local',  action='store_true', help='Test all local models (default)')
-    parser.add_argument('--cloud',  action='store_true', help=f'Test {CLOUD_MODEL} only')
-    parser.add_argument('--models', nargs='+',           help='Test specific model(s) by name')
-    parser.add_argument('--quick',  action='store_true', help='Quick mode (1 article only)')
-    parser.add_argument('--translate',       action='store_true',
-                        help='Run translation benchmark')
+    parser.add_argument('--local',        action='store_true', help='Test all local models (default)')
+    parser.add_argument('--cloud',        action='store_true', help='Test cloud model only')
+    parser.add_argument('--cloud-model',  default=None,
+                        help=f'Cloud model to test (default: {CLOUD_MODEL})')
+    parser.add_argument('--models',       nargs='+',           help='Test specific model(s) by name')
+    parser.add_argument('--label',        default=None,
+                        help='Label for this run in comparison file (e.g. "devstral-2", "qwen3.5")')
+    parser.add_argument('--quick',        action='store_true', help='Quick mode (1 article only)')
+    parser.add_argument('--compare',      action='store_true',
+                        help='Print comparison table from saved runs and exit')
+    parser.add_argument('--translate',       action='store_true', help='Run translation benchmark')
     parser.add_argument('--translate-langs', nargs='+',  metavar='LANG',
                         default=DEFAULT_TRANSLATE_LANGS,
                         help=f'Languages to test (default: {" ".join(DEFAULT_TRANSLATE_LANGS)})')
     parser.add_argument('--translate-only',  action='store_true',
                         help='Skip analysis benchmark, run translation only')
-    parser.add_argument('--host',   default=M1_HOST,
+    parser.add_argument('--host',         default=M1_HOST,
                         help=f'Ollama host (default: {M1_HOST})')
-    parser.add_argument('--skip-models', nargs='+', metavar='MODEL', default=[],
+    parser.add_argument('--skip-models',  nargs='+', metavar='MODEL', default=[],
                         help='Model name fragments to exclude (e.g. translategemma)')
     parser.add_argument('--no-scribe-mgmt', action='store_true',
                         help='Skip automatic scribe stop/start')
-    parser.add_argument('--output', default='arc_benchmark_results.json',
-                        help='Output file (default: arc_benchmark_results.json)')
+    parser.add_argument('--compare-file', default=COMPARE_FILE,
+                        help=f'Comparison file path (default: {COMPARE_FILE})')
+    parser.add_argument('--output',       default=None,
+                        help='Per-run output JSON (default: arc_benchmark_<label>.json or arc_benchmark_results.json)')
     args = parser.parse_args()
+
+    # --compare: just print table and exit
+    if args.compare:
+        print_comparison_table(args.compare_file)
+        return
+
+    # Resolve cloud model
+    cloud_model = args.cloud_model or CLOUD_MODEL
+
+    # Auto-label from cloud model name if not provided
+    label = args.label
+    if label is None and args.cloud:
+        label = cloud_model.replace(":123b-cloud", "").replace(":122b-cloud", "").replace("-cloud", "").replace(":", "-")
+    elif label is None:
+        label = None  # won't be saved to compare file unless labeled
 
     host = args.host
 
     print("=" * 65)
-    print("  🎯 A.R.C. News Analysis Model Benchmark v2.0")
+    print("  🎯 A.R.C. News Analysis Model Benchmark v3.0")
     print(f"  Host: {host}")
+    if label:
+        print(f"  Label: {label}")
     print("=" * 65)
     print()
 
@@ -922,8 +954,8 @@ def main():
         models = args.models
         print(f"  📋 Testing specified: {', '.join(models)}")
     elif args.cloud:
-        models = [CLOUD_MODEL]
-        print(f"  ☁️  Cloud mode: {CLOUD_MODEL}")
+        models = [cloud_model]
+        print(f"  ☁️  Cloud model: {cloud_model}")
     else:
         print(f"  📡 Discovering local models at {host}...")
         models = discover_local_models(host)
@@ -933,7 +965,7 @@ def main():
             sys.exit(1)
         print(f"  Found {len(models)}: {', '.join(models)}")
 
-    # Apply skip list — command line + known translation-only models
+    # Apply skip list
     skip_fragments = [s.lower() for s in args.skip_models] + TRANSLATION_ONLY_MODELS
     if skip_fragments and not args.translate_only:
         before = len(models)
@@ -941,7 +973,7 @@ def main():
                            if not any(f in m.lower() for f in skip_fragments)]
         skipped = [m for m in models if m not in analysis_models]
         if skipped:
-            print(f"  ⏭️  Skipping from analysis (translation-only): {', '.join(skipped)}")
+            print(f"  ⏭️  Skipping (translation-only): {', '.join(skipped)}")
         models = analysis_models
 
     if not models:
@@ -952,20 +984,22 @@ def main():
         print("  ⚡ QUICK MODE — 1 article per model")
     print()
 
-    # Scribe management — pause for benchmark, restart on exit
+    # Scribe management
     scribe_was_stopped = False
     if not args.no_scribe_mgmt and not args.cloud:
         scribe_was_stopped = pause_scribe(host)
 
+    output_file = args.output or (
+        f"arc_benchmark_{label}.json" if label else "arc_benchmark_results.json")
+
     output = {
         "generated_at": datetime.now().isoformat(),
-        "version": "2.1 - A.R.C. News Analysis Benchmark",
+        "version": "3.0 - A.R.C. News Analysis Benchmark",
+        "label": label,
         "host": host,
         "models_tested": len(models),
         "quick_mode": args.quick,
     }
-
-    translation_results = {}
 
     # Analysis benchmark
     if not args.translate_only:
@@ -989,75 +1023,98 @@ def main():
             print("  ❌ No successful analysis tests!")
             sys.exit(1)
 
-        synthesis_results = run_synthesis_benchmark(
-            [r['model'] for r in all_results], TEST_ARTICLES, host)
-        ensemble = select_ensemble(all_results, synthesis_results)
+        # Synthesis benchmark (skip for single cloud model runs to save credits)
+        synthesis_results = {}
+        if len(all_results) > 1 or not args.cloud:
+            synthesis_results = run_synthesis_benchmark(
+                [r['model'] for r in all_results], TEST_ARTICLES, host)
+        else:
+            # Single cloud model: run synthesis once
+            model = all_results[0]['model']
+            print(f"\n  🧬 Single-model synthesis test: {model}")
+            article = TEST_ARTICLES[0]
+            analyses = MOCK_ANALYSES[article['id']]
+            prompt = SYNTHESIS_PROMPT.format(
+                analysis_1=analyses[0], analysis_2=analyses[1], analysis_3=analyses[2])
+            response, elapsed, status = call_ollama(model, prompt, host, timeout=180)
+            if response:
+                score, details = score_synthesis(response)
+                print(f"     {'✅' if score > 0.6 else '⚠️'} Score: {score:.2f} ({elapsed:.1f}s)")
+                synthesis_results[model] = {"score": score, "time": round(elapsed, 2), "details": details}
+            else:
+                print(f"     ❌ FAILED ({status})")
+                synthesis_results[model] = {"score": 0.0, "time": 0}
+
+        # Print rankings
+        print(f"\n{'='*65}")
+        print(f"  ✅ ANALYSIS COMPLETE{' — ' + label if label else ''}")
+        print(f"{'='*65}")
+        print(f"\n  📊 Rankings:")
+        print(f"  {'Model':<30} {'Comp':>6} {'Facts':>6} {'Narr':>6} {'Crit':>6} {'Synth':>6} {'Time':>6} {'Eff':>8}")
+        print(f"  {'─'*30} {'─'*6} {'─'*6} {'─'*6} {'─'*6} {'─'*6} {'─'*6} {'─'*8}")
+
+        ranked = sorted(all_results, key=lambda x: x['scores']['analysis_composite'], reverse=True)
+        medals = ["🥇", "🥈", "🥉"]
+        full_rankings = []
+        for i, r in enumerate(ranked):
+            m = medals[i] if i < 3 else "  "
+            synth_score = synthesis_results.get(r['model'], {}).get('score', 0)
+            eff = r['scores']['efficiency']
+            print(f"  {m}{r['model']:<28} {r['scores']['analysis_composite']:>6.3f} "
+                  f"{r['scores']['fact_extraction']['avg_score']:>6.2f} "
+                  f"{r['scores']['narrative_synthesis']['avg_score']:>6.2f} "
+                  f"{r['scores']['critical_analysis']['avg_score']:>6.2f} "
+                  f"{synth_score:>6.2f} {r['scores']['avg_time_per_task']:>5.1f}s {eff:>8.4f}")
+            full_rankings.append({
+                "model":          r['model'],
+                "composite":      r['scores']['analysis_composite'],
+                "fact_extraction": r['scores']['fact_extraction']['avg_score'],
+                "narrative":      r['scores']['narrative_synthesis']['avg_score'],
+                "critical":       r['scores']['critical_analysis']['avg_score'],
+                "synthesis":      synth_score,
+                "avg_time":       r['scores']['avg_time_per_task'],
+                "efficiency":     eff,
+                "status":         r['status'],
+            })
+
+        # Credit burn estimate for cloud runs
+        if args.cloud:
+            total_tasks = len(TEST_ARTICLES if not args.quick else TEST_ARTICLES[:1]) * 3 + 1
+            total_time_s = sum(r['scores']['avg_time_per_task'] * (
+                len(TEST_ARTICLES) if not args.quick else 1) * 3
+                for r in all_results)
+            print(f"\n  ⏱️  Total inference time: {total_time_s:.0f}s "
+                  f"({total_tasks} tasks @ ~{total_time_s/max(total_tasks,1):.0f}s avg)")
+            print(f"  💡 Full run (3 articles) would take ~{total_time_s * (3 if args.quick else 1):.0f}s")
 
         output.update({
-            "articles_used": 1 if args.quick else len(TEST_ARTICLES),
-            "recommended_ensemble": ensemble,
-            "full_rankings": [
-                {
-                    "model": r['model'],
-                    "composite": r['scores']['analysis_composite'],
-                    "fact_extraction": r['scores']['fact_extraction']['avg_score'],
-                    "narrative": r['scores']['narrative_synthesis']['avg_score'],
-                    "critical": r['scores']['critical_analysis']['avg_score'],
-                    "synthesis": synthesis_results.get(r['model'], {}).get('score', 0),
-                    "avg_time": r['scores']['avg_time_per_task'],
-                    "efficiency": r['scores']['efficiency'],
-                    "status": r['status'],
-                }
-                for r in sorted(all_results,
-                                key=lambda x: x['scores']['analysis_composite'], reverse=True)
-            ],
+            "articles_used":   1 if args.quick else len(TEST_ARTICLES),
+            "full_rankings":   full_rankings,
             "detailed_results": all_results,
             "synthesis_results": {
                 m: {"score": d.get('score', 0), "time": d.get('time', 0)}
                 for m, d in synthesis_results.items()
             },
-            "env_config_template": {
-                "description": "Paste into .env to use the recommended ensemble",
-                "ARC_ANALYST_1":   ensemble['analysts'][0]['name'] if len(ensemble['analysts']) > 0 else "",
-                "ARC_ANALYST_2":   ensemble['analysts'][1]['name'] if len(ensemble['analysts']) > 1 else "",
-                "ARC_ANALYST_3":   ensemble['analysts'][2]['name'] if len(ensemble['analysts']) > 2 else "",
-                "ARC_SYNTHESIZER": ensemble['synthesizer']['name'],
-            },
         })
 
-        # Print analysis results
-        print(f"\n{'='*65}")
-        print(f"  ✅ ANALYSIS BENCHMARK COMPLETE")
-        print(f"{'='*65}")
-        print(f"\n  📊 Rankings:")
-        print(f"  {'Model':<30} {'Comp':>6} {'Facts':>6} {'Narr':>6} {'Crit':>6} {'Synth':>6} {'Time':>6}")
-        print(f"  {'─'*30} {'─'*6} {'─'*6} {'─'*6} {'─'*6} {'─'*6} {'─'*6}")
-        medals = ["🥇", "🥈", "🥉"]
-        for i, r in enumerate(output['full_rankings']):
-            m = medals[i] if i < 3 else "  "
-            print(f"  {m}{r['model']:<28} {r['composite']:>6.3f} {r['fact_extraction']:>6.2f} "
-                  f"{r['narrative']:>6.2f} {r['critical']:>6.2f} {r['synthesis']:>6.2f} {r['avg_time']:>5.1f}s")
+        # Save to compare file if labeled
+        if label and len(all_results) == 1:
+            synth_score = synthesis_results.get(all_results[0]['model'], {}).get('score', 0)
+            append_run(
+                label=label,
+                model=all_results[0]['model'],
+                result=all_results[0],
+                synthesis_score=synth_score,
+                articles_count=1 if args.quick else len(TEST_ARTICLES),
+                quick=args.quick,
+                compare_path=args.compare_file,
+            )
+            print_comparison_table(args.compare_file)
 
-        print(f"\n  🏆 RECOMMENDED ENSEMBLE:")
-        print(f"  ┌{'─'*54}┐")
-        for i, a in enumerate(ensemble['analysts'], 1):
-            print(f"  │  Analyst {i}: {a['name']:<30} score: {a['composite']:.2f}  │")
-        s = ensemble['synthesizer']
-        print(f"  │  Synth:    {s['name']:<30} score: {s['synthesis_score']:.2f}  │")
-        print(f"  └{'─'*54}┘")
-        print(f"  ⏱️  Estimated time/article: ~{ensemble['estimated_total_time']:.0f}s")
-
-        print(f"\n  📝 .env config:")
-        for key, val in output['env_config_template'].items():
-            if key != 'description':
-                print(f"     {key}={val}")
-
-    # Translation benchmark — use ALL discovered models (incl. TranslateGemma)
+    # Translation benchmark
     if args.translate or args.translate_only:
-        # For translation, restore full model list if we filtered for analysis
         trans_models = args.models if args.models else (
-            [CLOUD_MODEL] if args.cloud else discover_local_models(host))
-        # Apply only explicit --skip-models, not the translation-only auto-filter
+            [cloud_model] if args.cloud else discover_local_models(host))
         explicit_skip = [s.lower() for s in args.skip_models]
         if explicit_skip:
             trans_models = [m for m in trans_models
@@ -1066,25 +1123,23 @@ def main():
             trans_models, args.translate_langs, host)
         output['translation_results'] = translation_results
 
-    # Save
-    output_path = Path(args.output)
+    # Save per-run output
+    output_path = Path(output_file)
     with open(output_path, 'w') as f:
         json.dump(output, f, indent=2, default=str)
-    print(f"\n  💾 Results saved to: {output_path}")
+    print(f"\n  💾 Run results saved to: {output_path}")
 
 
 def _run():
     """Entry point with guaranteed scribe restart via finally."""
-    scribe_needs_restart = [False]  # mutable container for closure
+    scribe_needs_restart = [False]
 
-    # Monkey-patch pause_scribe to record if it stopped scribe
     original_pause = pause_scribe
     def tracked_pause(host):
         result = original_pause(host)
         scribe_needs_restart[0] = result
         return result
 
-    import builtins
     globals()['pause_scribe'] = tracked_pause
 
     try:

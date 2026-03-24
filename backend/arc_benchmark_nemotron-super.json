@@ -1,0 +1,98 @@
+{
+  "generated_at": "2026-03-23T06:51:22.934293",
+  "version": "3.0 - A.R.C. News Analysis Benchmark",
+  "label": "nemotron-super",
+  "host": "http://192.168.1.185:11434",
+  "models_tested": 1,
+  "quick_mode": true,
+  "articles_used": 1,
+  "full_rankings": [
+    {
+      "model": "nemotron-3-super:cloud",
+      "composite": 0.944,
+      "fact_extraction": 0.95,
+      "narrative": 0.875,
+      "critical": 1.0,
+      "synthesis": 0.75,
+      "avg_time": 36.11,
+      "efficiency": 0.0261,
+      "status": "excellent"
+    }
+  ],
+  "detailed_results": [
+    {
+      "model": "nemotron-3-super:cloud",
+      "timestamp": "2026-03-23T06:51:22.934357",
+      "tests": {
+        "fact_extraction": [
+          {
+            "article": "geopolitical_sanctions",
+            "score": 0.95,
+            "time": 22.41,
+            "details": {
+              "fact_coverage": "9/9",
+              "bullet_points": 11,
+              "opinion_markers": 1,
+              "length": 1386
+            },
+            "response_preview": "- The European Union announced its 15th sanctions package on Monday.  \n- The package targets semiconductor equipment exports to Russia.  \n- The package adds 47 entities to the EU\u2019s restricted list.  \n"
+          }
+        ],
+        "narrative_synthesis": [
+          {
+            "article": "geopolitical_sanctions",
+            "score": 0.875,
+            "time": 10.96,
+            "details": {
+              "key_facts": "8/9",
+              "paragraphs": 2,
+              "perspective_markers": 1,
+              "word_count": 210
+            },
+            "response_preview": "The European Union unveiled its 15th sanctions package on Monday, targeting semiconductor equipment exports to Russia and adding 47 entities to its restricted list. The measures, negotiated over three"
+          }
+        ],
+        "critical_analysis": [
+          {
+            "article": "geopolitical_sanctions",
+            "score": 1.0,
+            "time": 74.96,
+            "details": {
+              "steelmanning": 2,
+              "pattern_recognition": 4,
+              "questions_asked": 2,
+              "cynicism_flags": 0,
+              "word_count": 330
+            },
+            "response_preview": "The EU\u2019s 15th sanctions package reflects a sustained effort to constrain Russia\u2019s access to advanced technology amid ongoing conflict, framed as a necessary measure to close enforcement gaps exploited"
+          }
+        ]
+      },
+      "scores": {
+        "fact_extraction": {
+          "avg_score": 0.95,
+          "avg_time": 22.41
+        },
+        "narrative_synthesis": {
+          "avg_score": 0.875,
+          "avg_time": 10.96
+        },
+        "critical_analysis": {
+          "avg_score": 1.0,
+          "avg_time": 74.96
+        },
+        "analysis_composite": 0.944,
+        "avg_time_per_task": 36.11,
+        "efficiency": 0.0261
+      },
+      "total_time": 108.32047462463379,
+      "status": "excellent"
+    }
+  ],
+  "synthesis_results": {
+    "nemotron-3-super:cloud": {
+      "score": 0.75,
+      "time": 66.05
+    }
+  }
+}

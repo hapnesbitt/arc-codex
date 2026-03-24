@@ -52,6 +52,7 @@ SERVICES=(
     "frontend|$ITC_ROOT|docker|false|3000"   # docker sentinel — managed via docker compose
     "watchdog|$ITC_ROOT|./watchdog.sh|false|"
     "corpus_exporter|$BACKEND_DIR|python3 corpus_exporter.py|true|9101"
+    "caddy_exporter|$BACKEND_DIR|python3 caddy_exporter.py|true|9102"
 )
 
 export PATH="/home/ross/.nvm/versions/node/v22.16.0/bin:$PATH"
@@ -542,7 +543,7 @@ cmd_restore() {
 # ==============================================================================
 # COMMAND DISPATCH
 # ==============================================================================
-VALID_SERVICES="gunicorn|scribe|manual_publisher|stream_consumer|analyzer|mailer|bluesky_poster|mastodon_poster|character_builder|frontend|watchdog|corpus_exporter"
+VALID_SERVICES="gunicorn|scribe|manual_publisher|stream_consumer|analyzer|mailer|bluesky_poster|mastodon_poster|character_builder|frontend|watchdog|corpus_exporter|caddy_exporter"
 
 case "${1:-}" in
     start)        cmd_start "${2:-}" ;;

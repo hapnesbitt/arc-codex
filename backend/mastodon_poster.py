@@ -183,8 +183,8 @@ def get_counter_analyst_comment(article_id: str, wait: bool = True) -> str | Non
 def build_post_text(article: dict, comment: str | None) -> tuple[str, str]:
     """Returns (post_text, article_url)."""
     title = article.get("title", "").strip()
-    slug  = article.get("slug", article.get("id", ""))
-    url   = f"{ARTICLE_BASE_URL}/article/{slug}"
+    # Use stored url field directly — slug is not always populated in Redis
+    url   = article.get("url") or f"{ARTICLE_BASE_URL}/article/{article.get('id', '')}"
 
     if comment:
         body = comment
@@ -200,12 +200,11 @@ def build_post_text(article: dict, comment: str | None) -> tuple[str, str]:
 
 def seed_posted_set():
     try:
-        keys = r.keys("article:*")
+        keys = r.zrange('feed', 0, -1)
         if not keys:
             return
         pipe = r.pipeline()
-        for k in keys:
-            article_id = k.split(":", 1)[1]
+        for article_id in keys:
             pipe.sadd(POSTED_SET, article_id)
         pipe.execute()
         log.info("Seeded mastodon:posted with %d existing articles", len(keys))
@@ -214,8 +213,7 @@ def seed_posted_set():
 
 def all_article_ids() -> list[str]:
     try:
-        keys = r.keys("article:*")
-        return [k.split(":", 1)[1] for k in keys]
+        return r.zrange('feed', 0, -1)
     except Exception:
         return []
 

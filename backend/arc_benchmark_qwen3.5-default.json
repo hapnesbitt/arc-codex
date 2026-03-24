@@ -1,0 +1,88 @@
+{
+  "generated_at": "2026-03-23T06:47:34.598740",
+  "version": "3.0 - A.R.C. News Analysis Benchmark",
+  "label": "qwen3.5-default",
+  "host": "http://192.168.1.185:11434",
+  "models_tested": 1,
+  "quick_mode": true,
+  "articles_used": 1,
+  "full_rankings": [
+    {
+      "model": "qwen3.5:cloud",
+      "composite": 0.0,
+      "fact_extraction": 0.0,
+      "narrative": 0.0,
+      "critical": 0.0,
+      "synthesis": 0.0,
+      "avg_time": 0.02,
+      "efficiency": 0.0,
+      "status": "poor"
+    }
+  ],
+  "detailed_results": [
+    {
+      "model": "qwen3.5:cloud",
+      "timestamp": "2026-03-23T06:47:34.598805",
+      "tests": {
+        "fact_extraction": [
+          {
+            "article": "geopolitical_sanctions",
+            "score": 0.0,
+            "time": 0.02,
+            "details": {
+              "reason": "http_404"
+            },
+            "response_preview": ""
+          }
+        ],
+        "narrative_synthesis": [
+          {
+            "article": "geopolitical_sanctions",
+            "score": 0.0,
+            "time": 0.02,
+            "details": {
+              "reason": "http_404"
+            },
+            "response_preview": ""
+          }
+        ],
+        "critical_analysis": [
+          {
+            "article": "geopolitical_sanctions",
+            "score": 0.0,
+            "time": 0.02,
+            "details": {
+              "reason": "http_404"
+            },
+            "response_preview": ""
+          }
+        ]
+      },
+      "scores": {
+        "fact_extraction": {
+          "avg_score": 0.0,
+          "avg_time": 0.02
+        },
+        "narrative_synthesis": {
+          "avg_score": 0.0,
+          "avg_time": 0.02
+        },
+        "critical_analysis": {
+          "avg_score": 0.0,
+          "avg_time": 0.02
+        },
+        "analysis_composite": 0.0,
+        "avg_time_per_task": 0.02,
+        "efficiency": 0.0
+      },
+      "total_time": 0.054178476333618164,
+      "status": "poor"
+    }
+  ],
+  "synthesis_results": {
+    "qwen3.5:cloud": {
+      "score": 0.0,
+      "time": 0
+    }
+  }
+}

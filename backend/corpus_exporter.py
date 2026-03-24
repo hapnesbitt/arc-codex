@@ -1,33 +1,56 @@
 #!/usr/bin/env python3
 """
-corpus_exporter.py — Arc Codex Corpus Prometheus Exporter v1.0
+corpus_exporter.py — Arc Codex Corpus Prometheus Exporter v2.0
 Scrapes Redis for corpus health metrics and exposes them at :9101/metrics.
 Refreshes once per hour (configurable via EXPORTER_INTERVAL_SEC).
 
-Metrics exposed:
-  arc_corpus_total                    — total article count
-  arc_corpus_scored_total             — articles with chimera_score
-  arc_chimera_score_avg               — average chimera score
-  arc_chimera_score_low_total         — articles with score < 0.3 (divisive)
-  arc_chimera_score_high_total        — articles with score >= 0.7 (objective)
-  arc_chimera_bucket                  — score histogram (0.0-0.1 ... 0.9-1.0)
-  arc_sentinel_total{verdict}         — count by HUMAN/UNCERTAIN/SYNTHETIC/(NONE)
-  arc_directive_total{directive}      — article count per directive/category
-  arc_source_total{domain}            — article count per source domain (top 30)
-  arc_language_total{lang}            — article count per source_lang
-  arc_completeness{field}             — % of articles with field present (0-100)
-  arc_arc_pattern_total{code,name}    — ARC pattern detection count
-  arc_synthetic_pct                   — SYNTHETIC % of total (convenience gauge)
-  arc_exporter_last_scrape_timestamp  — unix timestamp of last successful scrape
-  arc_exporter_scrape_duration_sec    — how long the last scrape took
+v2.0 additions:
+  NLP metrics (from pre_analyze v3.0 nlp_* fields):
+    arc_nlp_sentiment_avg           — avg VADER compound across corpus
+    arc_nlp_vader_pos_avg           — avg VADER positive
+    arc_nlp_vader_neg_avg           — avg VADER negative
+    arc_nlp_vader_neu_avg           — avg VADER neutral
+    arc_nlp_subjectivity_avg        — avg TextBlob subjectivity
+    arc_nlp_word_count_avg          — avg word count per article
+    arc_nlp_sentence_count_avg      — avg sentence count
+    arc_nlp_avg_sentence_len_avg    — avg sentence length (words)
+    arc_nlp_fk_grade_avg            — avg Flesch-Kincaid grade
+    arc_nlp_coleman_liau_avg        — avg Coleman-Liau index
+    arc_nlp_smog_avg                — avg SMOG index
+    arc_nlp_dale_chall_avg          — avg Dale-Chall score
+    arc_nlp_reading_level_total     — article count by reading level
+    arc_nlp_entity_total            — entity count by type (PERSON/ORG/GPE/LOC/DATE/MONEY/EVENT)
+    arc_nlp_coverage_pct            — % of articles with nlp_ fields present
+
+  Pipeline health (from arc:stats:* Redis counters written by scribe):
+    arc_fetch_total{domain,tier}    — fetch outcomes by domain + tier
+    arc_fetch_latency_avg_ms{domain}— avg fetch latency per domain
+    arc_quality_reject_total{reason}— quality gate rejections by reason
+    arc_rss_total{outcome}          — RSS feed parse outcomes (ok/bozo/candidates)
+    arc_publish_total{outcome}      — publish outcomes (ok/failed/duplicate)
+    arc_priority_total{origin}      — priority queue items by origin
+
+  Existing metrics (unchanged from v1.0):
+    arc_corpus_total
+    arc_corpus_scored_total
+    arc_chimera_score_avg
+    arc_chimera_score_low_total
+    arc_chimera_score_high_total
+    arc_chimera_bucket
+    arc_sentinel_total{verdict}
+    arc_directive_total{directive}
+    arc_source_total{domain}
+    arc_language_total{lang}
+    arc_completeness{field}
+    arc_arc_pattern_total{code,name}
+    arc_synthetic_pct
+    arc_exporter_last_scrape_timestamp
+    arc_exporter_scrape_duration_sec
 
 Usage:
     cd /home/www/arc_stack/backend
     source venv/bin/activate
     python3 corpus_exporter.py
-
-    # Or via arc.sh:
-    arc start corpus_exporter
 """
 
 import os
@@ -42,11 +65,10 @@ import redis
 import urllib.parse
 from dotenv import load_dotenv
 from prometheus_client import (
-    start_http_server, Gauge, Counter as PCounter, Info,
+    start_http_server, Gauge,
     REGISTRY, PROCESS_COLLECTOR, PLATFORM_COLLECTOR
 )
 
-# Unregister default process/platform collectors — we only want corpus metrics
 try:
     REGISTRY.unregister(PROCESS_COLLECTOR)
     REGISTRY.unregister(PLATFORM_COLLECTOR)
@@ -56,15 +78,15 @@ except Exception:
 load_dotenv()
 
 # --- Config ---
-REDIS_HOST    = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT    = int(os.getenv("REDIS_PORT", 6379))
+REDIS_HOST     = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT     = int(os.getenv("REDIS_PORT", 6379))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
-REDIS_DB      = int(os.getenv("REDIS_DB", 0))
-EXPORTER_PORT = int(os.getenv("EXPORTER_PORT", 9101))
-INTERVAL_SEC  = int(os.getenv("EXPORTER_INTERVAL_SEC", 3600))  # 1 hour default
-TOP_SOURCES   = int(os.getenv("EXPORTER_TOP_SOURCES", 30))
+REDIS_DB       = int(os.getenv("REDIS_DB", 0))
+EXPORTER_PORT  = int(os.getenv("EXPORTER_PORT", 9101))
+INTERVAL_SEC   = int(os.getenv("EXPORTER_INTERVAL_SEC", 3600))
+TOP_SOURCES    = int(os.getenv("EXPORTER_TOP_SOURCES", 30))
 
-LOG_FORMAT = "%(asctime)s - [CORPUS_EXPORTER] - %(levelname)s - %(message)s"
+LOG_FORMAT = "%(asctime)s - [CORPUS_EXPORTER v2.0] - %(levelname)s - %(message)s"
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 log = logging.getLogger(__name__)
 
@@ -125,7 +147,30 @@ TRACKED_FIELDS = [
     'purple_team_analysis', 'sentinel_verdict', 'source_lang', 'chimera_score',
 ]
 
-# --- Prometheus metrics ---
+NLP_FIELDS = [
+    'nlp_chimera_score', 'nlp_sentiment', 'nlp_vader_pos', 'nlp_vader_neg',
+    'nlp_vader_neu', 'nlp_subjectivity', 'nlp_objectivity', 'nlp_word_count',
+    'nlp_sentence_count', 'nlp_avg_sentence_len', 'nlp_syllable_count',
+    'nlp_noun_chunk_count', 'nlp_fk_grade', 'nlp_coleman_liau', 'nlp_smog',
+    'nlp_dale_chall', 'nlp_entity_person', 'nlp_entity_org', 'nlp_entity_gpe',
+    'nlp_entity_loc', 'nlp_entity_date', 'nlp_entity_money', 'nlp_entity_event',
+    'nlp_reading_level', 'nlp_top_lemmas',
+]
+
+READING_LEVELS = ['elementary', 'middle_school', 'high_school', 'college', 'graduate', 'technical']
+NLP_ENTITY_TYPES = ['person', 'org', 'gpe', 'loc', 'date', 'money', 'event']
+
+# Stats keys written by scribe.py
+STATS_FETCH          = "arc:stats:fetch"
+STATS_QUALITY        = "arc:stats:quality"
+STATS_RSS            = "arc:stats:rss"
+STATS_PUBLISH        = "arc:stats:publish"
+STATS_PRIORITY       = "arc:stats:priority"
+STATS_SOURCE_LATENCY = "arc:stats:source_latency"
+
+# =============================================================================
+# Prometheus metrics — v1.0 (unchanged)
+# =============================================================================
 g_total           = Gauge('arc_corpus_total',            'Total articles in corpus')
 g_scored          = Gauge('arc_corpus_scored_total',     'Articles with chimera_score')
 g_chimera_avg     = Gauge('arc_chimera_score_avg',       'Average chimera score across corpus')
@@ -134,7 +179,6 @@ g_chimera_high    = Gauge('arc_chimera_score_high_total','Articles with chimera_
 g_synthetic_pct   = Gauge('arc_synthetic_pct',           'Percentage of articles flagged SYNTHETIC by Sentinel')
 g_last_scrape     = Gauge('arc_exporter_last_scrape_timestamp', 'Unix timestamp of last successful scrape')
 g_scrape_duration = Gauge('arc_exporter_scrape_duration_sec',   'Duration of last corpus scrape in seconds')
-
 g_chimera_bucket  = Gauge('arc_chimera_bucket',   'Chimera score histogram bucket count', ['bucket'])
 g_sentinel        = Gauge('arc_sentinel_total',   'Article count by Sentinel verdict',    ['verdict'])
 g_directive       = Gauge('arc_directive_total',  'Article count by directive/category',  ['directive'])
@@ -143,8 +187,40 @@ g_language        = Gauge('arc_language_total',   'Article count by source langu
 g_completeness    = Gauge('arc_completeness',     'Percentage of articles with field present (0-100)', ['field'])
 g_arc_pattern     = Gauge('arc_arc_pattern_total','ARC pattern detection count',          ['code', 'name'])
 
+# =============================================================================
+# Prometheus metrics — v2.0 NLP
+# =============================================================================
+g_nlp_sentiment_avg      = Gauge('arc_nlp_sentiment_avg',        'Avg VADER compound sentiment across corpus')
+g_nlp_vader_pos_avg      = Gauge('arc_nlp_vader_pos_avg',        'Avg VADER positive score')
+g_nlp_vader_neg_avg      = Gauge('arc_nlp_vader_neg_avg',        'Avg VADER negative score')
+g_nlp_vader_neu_avg      = Gauge('arc_nlp_vader_neu_avg',        'Avg VADER neutral score')
+g_nlp_subjectivity_avg   = Gauge('arc_nlp_subjectivity_avg',     'Avg TextBlob subjectivity (0=objective, 1=subjective)')
+g_nlp_word_count_avg     = Gauge('arc_nlp_word_count_avg',       'Avg word count per article')
+g_nlp_sentence_count_avg = Gauge('arc_nlp_sentence_count_avg',   'Avg sentence count per article')
+g_nlp_sentence_len_avg   = Gauge('arc_nlp_avg_sentence_len_avg', 'Avg sentence length in words')
+g_nlp_fk_grade_avg       = Gauge('arc_nlp_fk_grade_avg',         'Avg Flesch-Kincaid grade level')
+g_nlp_coleman_liau_avg   = Gauge('arc_nlp_coleman_liau_avg',     'Avg Coleman-Liau readability index')
+g_nlp_smog_avg           = Gauge('arc_nlp_smog_avg',             'Avg SMOG readability index')
+g_nlp_dale_chall_avg     = Gauge('arc_nlp_dale_chall_avg',       'Avg Dale-Chall readability score')
+g_nlp_coverage_pct       = Gauge('arc_nlp_coverage_pct',         '% of articles with NLP fields present')
+g_nlp_reading_level      = Gauge('arc_nlp_reading_level_total',  'Article count by reading level', ['level'])
+g_nlp_entity             = Gauge('arc_nlp_entity_total',         'Total entity count by NER type across corpus', ['entity_type'])
 
-# --- Helpers ---
+# =============================================================================
+# Prometheus metrics — v2.0 pipeline health
+# =============================================================================
+g_fetch          = Gauge('arc_fetch_total',           'Fetch outcome count by domain and tier', ['domain', 'tier'])
+g_fetch_latency  = Gauge('arc_fetch_latency_avg_ms',  'Avg fetch latency in ms by domain',      ['domain'])
+g_quality_reject = Gauge('arc_quality_reject_total',  'Quality gate rejection count by reason',  ['reason'])
+g_rss            = Gauge('arc_rss_total',             'RSS feed parse outcome count',            ['outcome'])
+g_publish        = Gauge('arc_publish_total',         'Publish pipeline outcome count',          ['outcome'])
+g_priority       = Gauge('arc_priority_total',        'Priority queue items processed by origin',['origin'])
+
+
+# =============================================================================
+# Helpers
+# =============================================================================
+
 def _extract_registered_domain(url):
     try:
         host = urllib.parse.urlparse(url).netloc.lower().split(':')[0]
@@ -202,28 +278,109 @@ def _field_present(data, field):
     val = data.get(field, '')
     return bool(val and val != '{}')
 
+def _safe_float(val, default=None):
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return default
 
-# --- Main scrape ---
+def _avg(values):
+    return round(sum(values) / len(values), 4) if values else 0.0
+
+
+# =============================================================================
+# Pipeline health scrape — reads arc:stats:* counters
+# =============================================================================
+
+def scrape_pipeline_health(r):
+    """Read scribe-written counters from Redis and publish to Prometheus."""
+
+    # --- Fetch outcomes ---
+    fetch_data = r.hgetall(STATS_FETCH) or {}
+    # Keys are like "reuters.com:tier1_ok", "reuters.com:calls"
+    FETCH_TIERS = ['tier1_ok', 'tier2_ok', 'youtube_ok', 'failed']
+    domain_calls = {}
+    for raw_key, val in fetch_data.items():
+        if ':' not in raw_key:
+            continue
+        # last segment is the tier or 'calls'
+        parts = raw_key.rsplit(':', 1)
+        domain, tier = parts[0], parts[1]
+        count = int(val or 0)
+        if tier in FETCH_TIERS:
+            g_fetch.labels(domain=domain, tier=tier).set(count)
+        elif tier == 'calls':
+            domain_calls[domain] = count
+
+    # --- Fetch latency avg ---
+    latency_data = r.hgetall(STATS_SOURCE_LATENCY) or {}
+    for domain, cumulative_ms in latency_data.items():
+        calls = domain_calls.get(domain, 1)
+        avg_ms = round(float(cumulative_ms or 0) / max(calls, 1), 1)
+        g_fetch_latency.labels(domain=domain).set(avg_ms)
+
+    # --- Quality gate rejections ---
+    quality_data = r.hgetall(STATS_QUALITY) or {}
+    for reason, count in quality_data.items():
+        g_quality_reject.labels(reason=reason).set(int(count or 0))
+
+    # --- RSS outcomes ---
+    rss_data = r.hgetall(STATS_RSS) or {}
+    for outcome in ['ok', 'bozo', 'candidates']:
+        g_rss.labels(outcome=outcome).set(int(rss_data.get(outcome, 0)))
+
+    # --- Publish outcomes ---
+    publish_data = r.hgetall(STATS_PUBLISH) or {}
+    for outcome in ['ok', 'failed', 'duplicate']:
+        g_publish.labels(outcome=outcome).set(int(publish_data.get(outcome, 0)))
+
+    # --- Priority queue origins ---
+    priority_data = r.hgetall(STATS_PRIORITY) or {}
+    for origin, count in priority_data.items():
+        g_priority.labels(origin=origin).set(int(count or 0))
+
+
+# =============================================================================
+# Main corpus scrape — reads article:* hashes
+# =============================================================================
+
 def scrape(r):
     """Full corpus scan. Called once per INTERVAL_SEC in background thread."""
-    log.info("Starting corpus scrape...")
+    log.info("Starting corpus scrape v2.0...")
     t0 = time.time()
 
-    total          = 0
-    scores         = []
-    score_buckets  = Counter()
+    total            = 0
+    scores           = []
+    score_buckets    = Counter()
     sentinel_counts  = Counter()
     directive_counts = Counter()
-    domain_counts  = Counter()
-    lang_counts    = Counter()
-    missing_fields = Counter()
-    pattern_counts = Counter()
+    domain_counts    = Counter()
+    lang_counts      = Counter()
+    missing_fields   = Counter()
+    pattern_counts   = Counter()
+
+    # NLP accumulators
+    nlp_count        = 0
+    nlp_sentiment    = []
+    nlp_vader_pos    = []
+    nlp_vader_neg    = []
+    nlp_vader_neu    = []
+    nlp_subjectivity = []
+    nlp_word_count   = []
+    nlp_sentence_count = []
+    nlp_sentence_len = []
+    nlp_fk_grade     = []
+    nlp_coleman      = []
+    nlp_smog         = []
+    nlp_dale_chall   = []
+    nlp_reading_levels = Counter()
+    nlp_entities     = {t: 0 for t in NLP_ENTITY_TYPES}
 
     for key in r.scan_iter("article:*", count=500):
         data = r.hgetall(key)
         total += 1
 
-        # Source domain (original story)
+        # Source domain
         source_url = data.get('sourceUrl') or data.get('url') or ''
         domain = _extract_registered_domain(source_url) or '(unknown)'
         domain_counts[domain] += 1
@@ -244,7 +401,7 @@ def scrape(r):
             scores.append(s)
             score_buckets[min(int(s * 10), 9)] += 1
 
-        # Completeness
+        # Field completeness
         for field in TRACKED_FIELDS:
             if not _field_present(data, field):
                 missing_fields[field] += 1
@@ -255,9 +412,39 @@ def scrape(r):
             for code in _scan_arc_patterns(purple):
                 pattern_counts[code] += 1
 
-    # --- Publish metrics ---
-    g_total.set(total)
+        # --- NLP fields (v2.0) ---
+        has_nlp = bool(data.get('nlp_chimera_score'))
+        if has_nlp:
+            nlp_count += 1
 
+            def _f(field):
+                return _safe_float(data.get(field))
+
+            v = _f('nlp_sentiment');        nlp_sentiment.append(v)    if v is not None else None
+            v = _f('nlp_vader_pos');        nlp_vader_pos.append(v)    if v is not None else None
+            v = _f('nlp_vader_neg');        nlp_vader_neg.append(v)    if v is not None else None
+            v = _f('nlp_vader_neu');        nlp_vader_neu.append(v)    if v is not None else None
+            v = _f('nlp_subjectivity');     nlp_subjectivity.append(v) if v is not None else None
+            v = _f('nlp_word_count');       nlp_word_count.append(v)   if v is not None else None
+            v = _f('nlp_sentence_count');   nlp_sentence_count.append(v) if v is not None else None
+            v = _f('nlp_avg_sentence_len'); nlp_sentence_len.append(v) if v is not None else None
+            v = _f('nlp_fk_grade');         nlp_fk_grade.append(v)     if v is not None else None
+            v = _f('nlp_coleman_liau');     nlp_coleman.append(v)      if v is not None else None
+            v = _f('nlp_smog');             nlp_smog.append(v)         if v is not None else None
+            v = _f('nlp_dale_chall');       nlp_dale_chall.append(v)   if v is not None else None
+
+            level = data.get('nlp_reading_level', '')
+            if level:
+                nlp_reading_levels[level] += 1
+
+            for entity_type in NLP_ENTITY_TYPES:
+                v = _safe_float(data.get(f'nlp_entity_{entity_type}'), 0)
+                nlp_entities[entity_type] += int(v)
+
+    # ==========================================================================
+    # Publish corpus metrics (v1.0 unchanged)
+    # ==========================================================================
+    g_total.set(total)
     scored = len(scores)
     g_scored.set(scored)
 
@@ -298,17 +485,56 @@ def scrape(r):
     for code, name in ARC_PATTERNS.items():
         g_arc_pattern.labels(code=code, name=name).set(pattern_counts.get(code, 0))
 
+    # ==========================================================================
+    # Publish NLP metrics (v2.0)
+    # ==========================================================================
+    g_nlp_coverage_pct.set(round(nlp_count / total * 100, 1) if total else 0)
+
+    g_nlp_sentiment_avg.set(_avg(nlp_sentiment))
+    g_nlp_vader_pos_avg.set(_avg(nlp_vader_pos))
+    g_nlp_vader_neg_avg.set(_avg(nlp_vader_neg))
+    g_nlp_vader_neu_avg.set(_avg(nlp_vader_neu))
+    g_nlp_subjectivity_avg.set(_avg(nlp_subjectivity))
+    g_nlp_word_count_avg.set(_avg(nlp_word_count))
+    g_nlp_sentence_count_avg.set(_avg(nlp_sentence_count))
+    g_nlp_sentence_len_avg.set(_avg(nlp_sentence_len))
+    g_nlp_fk_grade_avg.set(_avg(nlp_fk_grade))
+    g_nlp_coleman_liau_avg.set(_avg(nlp_coleman))
+    g_nlp_smog_avg.set(_avg(nlp_smog))
+    g_nlp_dale_chall_avg.set(_avg(nlp_dale_chall))
+
+    for level in READING_LEVELS:
+        g_nlp_reading_level.labels(level=level).set(nlp_reading_levels.get(level, 0))
+
+    for entity_type in NLP_ENTITY_TYPES:
+        g_nlp_entity.labels(entity_type=entity_type).set(nlp_entities[entity_type])
+
+    # ==========================================================================
+    # Pipeline health metrics (v2.0)
+    # ==========================================================================
+    try:
+        scrape_pipeline_health(r)
+    except Exception as e:
+        log.warning(f"Pipeline health scrape failed (non-fatal): {e}")
+
+    # ==========================================================================
+    # Timing
+    # ==========================================================================
     duration = time.time() - t0
     g_last_scrape.set(time.time())
     g_scrape_duration.set(round(duration, 2))
 
-    log.info(f"Scrape complete: {total} articles in {duration:.1f}s. "
-             f"Avg chimera={round(sum(scores)/len(scores), 3) if scores else 'N/A'}, "
-             f"SYNTHETIC={synthetic} ({synthetic/total*100:.1f}%)")
+    log.info(
+        f"Scrape complete: {total} articles ({nlp_count} with NLP) in {duration:.1f}s. "
+        f"Avg chimera={round(sum(scores)/len(scores), 3) if scores else 'N/A'}, "
+        f"SYNTHETIC={synthetic} ({synthetic/total*100:.1f}% of total), "
+        f"Avg sentiment={_avg(nlp_sentiment):.3f}, "
+        f"Avg subjectivity={_avg(nlp_subjectivity):.3f}, "
+        f"Avg FK grade={_avg(nlp_fk_grade):.1f}"
+    )
 
 
 def scrape_loop(r, interval):
-    """Background thread: scrape once immediately, then every interval seconds."""
     while True:
         try:
             scrape(r)
@@ -319,7 +545,7 @@ def scrape_loop(r, interval):
 
 
 def main():
-    log.info(f"Arc Codex Corpus Exporter v1.0 — port {EXPORTER_PORT}")
+    log.info(f"Arc Codex Corpus Exporter v2.0 — port {EXPORTER_PORT}")
     log.info(f"Scrape interval: {INTERVAL_SEC//60} minutes")
 
     r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD,
@@ -331,15 +557,12 @@ def main():
         log.error(f"❌ Redis connection failed: {e}")
         raise
 
-    # Start Prometheus HTTP server
     start_http_server(EXPORTER_PORT)
     log.info(f"✅ Metrics available at http://localhost:{EXPORTER_PORT}/metrics")
 
-    # Run scrape loop in background thread
     t = threading.Thread(target=scrape_loop, args=(r, INTERVAL_SEC), daemon=True)
     t.start()
 
-    # Keep main thread alive
     try:
         while True:
             time.sleep(60)

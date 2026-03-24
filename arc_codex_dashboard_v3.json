@@ -1,0 +1,733 @@
+{
+  "__inputs": [],
+  "__requires": [
+    {"type": "grafana", "id": "grafana", "name": "Grafana", "version": "9.0.0"},
+    {"type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0"}
+  ],
+  "annotations": {"list": []},
+  "description": "Arc Codex — Full Intelligence Dashboard v3",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "id": 100,
+      "title": "📡 Corpus Overview",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "blue", "value": null}
+          ]},
+          "unit": "short",
+          "mappings": []
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 1},
+      "id": 1,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "background"},
+      "title": "Total Articles",
+      "type": "stat",
+      "targets": [{"expr": "arc_corpus_total", "legendFormat": "Articles", "refId": "A"}]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "red", "value": null},
+            {"color": "yellow", "value": 0.4},
+            {"color": "green", "value": 0.6}
+          ]},
+          "unit": "percentunit",
+          "min": 0, "max": 1
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 1},
+      "id": 2,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "background"},
+      "title": "Avg Chimera Score",
+      "type": "stat",
+      "targets": [{"expr": "arc_chimera_score_avg", "legendFormat": "Score", "refId": "A"}]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 5},
+            {"color": "red", "value": 15}
+          ]},
+          "unit": "percent"
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 1},
+      "id": 3,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "background"},
+      "title": "Synthetic Content %",
+      "type": "stat",
+      "targets": [{"expr": "arc_synthetic_pct", "legendFormat": "Synthetic %", "refId": "A"}]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "red", "value": null},
+            {"color": "yellow", "value": -0.1},
+            {"color": "green", "value": 0.1}
+          ]},
+          "unit": "short",
+          "min": -1, "max": 1
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 1},
+      "id": 4,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "background"},
+      "title": "Avg Sentiment (VADER)",
+      "type": "stat",
+      "targets": [{"expr": "arc_nlp_sentiment_avg", "legendFormat": "Sentiment", "refId": "A"}]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 0.4},
+            {"color": "red", "value": 0.6}
+          ]},
+          "unit": "short",
+          "min": 0, "max": 1
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 1},
+      "id": 5,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "background"},
+      "title": "Avg Subjectivity",
+      "type": "stat",
+      "targets": [{"expr": "arc_nlp_subjectivity_avg", "legendFormat": "Subjectivity", "refId": "A"}]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "blue", "value": null}
+          ]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 1},
+      "id": 6,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "background"},
+      "title": "Avg FK Grade Level",
+      "type": "stat",
+      "targets": [{"expr": "arc_nlp_fk_grade_avg", "legendFormat": "Grade", "refId": "A"}]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5},
+      "id": 101,
+      "title": "📊 Corpus Quality Distribution",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 6},
+      "id": 10,
+      "options": {
+        "legend": {"displayMode": "table", "placement": "bottom", "values": ["value"]},
+        "pieType": "pie",
+        "tooltip": {"mode": "single"}
+      },
+      "title": "Chimera Score Distribution",
+      "type": "piechart",
+      "targets": [
+        {"expr": "arc_chimera_bucket{bucket=\"0.0-0.1\"}", "legendFormat": "0.0–0.1 (Very Divisive)", "refId": "A"},
+        {"expr": "arc_chimera_bucket{bucket=\"0.1-0.2\"}", "legendFormat": "0.1–0.2", "refId": "B"},
+        {"expr": "arc_chimera_bucket{bucket=\"0.2-0.3\"}", "legendFormat": "0.2–0.3", "refId": "C"},
+        {"expr": "arc_chimera_bucket{bucket=\"0.3-0.4\"}", "legendFormat": "0.3–0.4", "refId": "D"},
+        {"expr": "arc_chimera_bucket{bucket=\"0.4-0.5\"}", "legendFormat": "0.4–0.5", "refId": "E"},
+        {"expr": "arc_chimera_bucket{bucket=\"0.5-0.6\"}", "legendFormat": "0.5–0.6", "refId": "F"},
+        {"expr": "arc_chimera_bucket{bucket=\"0.6-0.7\"}", "legendFormat": "0.6–0.7", "refId": "G"},
+        {"expr": "arc_chimera_bucket{bucket=\"0.7-0.8\"}", "legendFormat": "0.7–0.8", "refId": "H"},
+        {"expr": "arc_chimera_bucket{bucket=\"0.8-0.9\"}", "legendFormat": "0.8–0.9", "refId": "I"},
+        {"expr": "arc_chimera_bucket{bucket=\"0.9-1.0\"}", "legendFormat": "0.9–1.0 (Most Objective)", "refId": "J"}
+      ]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 6},
+      "id": 11,
+      "options": {
+        "legend": {"displayMode": "table", "placement": "bottom", "values": ["value"]},
+        "pieType": "pie",
+        "tooltip": {"mode": "single"}
+      },
+      "title": "Sentinel Verdicts",
+      "type": "piechart",
+      "targets": [
+        {"expr": "arc_sentinel_total{verdict=\"HUMAN\"}", "legendFormat": "Human", "refId": "A"},
+        {"expr": "arc_sentinel_total{verdict=\"UNCERTAIN\"}", "legendFormat": "Uncertain", "refId": "B"},
+        {"expr": "arc_sentinel_total{verdict=\"SYNTHETIC\"}", "legendFormat": "Synthetic", "refId": "C"},
+        {"expr": "arc_sentinel_total{verdict=\"(NONE)\"}", "legendFormat": "Not Analyzed", "refId": "D"}
+      ]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 6},
+      "id": 12,
+      "options": {
+        "legend": {"displayMode": "table", "placement": "bottom", "values": ["value"]},
+        "pieType": "pie",
+        "tooltip": {"mode": "single"}
+      },
+      "title": "Reading Level Distribution",
+      "type": "piechart",
+      "targets": [
+        {"expr": "arc_nlp_reading_level_total{level=\"elementary\"}", "legendFormat": "Elementary", "refId": "A"},
+        {"expr": "arc_nlp_reading_level_total{level=\"middle_school\"}", "legendFormat": "Middle School", "refId": "B"},
+        {"expr": "arc_nlp_reading_level_total{level=\"high_school\"}", "legendFormat": "High School", "refId": "C"},
+        {"expr": "arc_nlp_reading_level_total{level=\"college\"}", "legendFormat": "College", "refId": "D"},
+        {"expr": "arc_nlp_reading_level_total{level=\"graduate\"}", "legendFormat": "Graduate", "refId": "E"},
+        {"expr": "arc_nlp_reading_level_total{level=\"technical\"}", "legendFormat": "Technical", "refId": "F"}
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 14},
+      "id": 102,
+      "title": "🧠 NLP Intelligence",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 15},
+      "id": 20,
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right", "values": ["value"]},
+        "pieType": "donut",
+        "tooltip": {"mode": "single"}
+      },
+      "title": "Named Entity Distribution",
+      "type": "piechart",
+      "targets": [
+        {"expr": "arc_nlp_entity_total{entity_type=\"person\"}", "legendFormat": "PERSON", "refId": "A"},
+        {"expr": "arc_nlp_entity_total{entity_type=\"org\"}", "legendFormat": "ORG", "refId": "B"},
+        {"expr": "arc_nlp_entity_total{entity_type=\"gpe\"}", "legendFormat": "GPE (Places)", "refId": "C"},
+        {"expr": "arc_nlp_entity_total{entity_type=\"loc\"}", "legendFormat": "LOC", "refId": "D"},
+        {"expr": "arc_nlp_entity_total{entity_type=\"date\"}", "legendFormat": "DATE", "refId": "E"},
+        {"expr": "arc_nlp_entity_total{entity_type=\"money\"}", "legendFormat": "MONEY", "refId": "F"},
+        {"expr": "arc_nlp_entity_total{entity_type=\"event\"}", "legendFormat": "EVENT", "refId": "G"}
+      ]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "color": {"mode": "palette-classic"},
+          "custom": {"fillOpacity": 10, "lineWidth": 2}
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 15},
+      "id": 21,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "title": "Readability Index Comparison",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "arc_nlp_fk_grade_avg", "legendFormat": "Flesch-Kincaid Grade", "refId": "A"},
+        {"expr": "arc_nlp_coleman_liau_avg", "legendFormat": "Coleman-Liau", "refId": "B"},
+        {"expr": "arc_nlp_smog_avg", "legendFormat": "SMOG", "refId": "C"},
+        {"expr": "arc_nlp_dale_chall_avg", "legendFormat": "Dale-Chall", "refId": "D"}
+      ]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "color": {"mode": "palette-classic"},
+          "custom": {"fillOpacity": 10, "lineWidth": 2}
+        }
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 23},
+      "id": 22,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "title": "Corpus Sentiment Over Time",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "arc_nlp_sentiment_avg", "legendFormat": "Compound Sentiment", "refId": "A"},
+        {"expr": "arc_nlp_vader_pos_avg", "legendFormat": "Positive", "refId": "B"},
+        {"expr": "arc_nlp_vader_neg_avg", "legendFormat": "Negative", "refId": "C"},
+        {"expr": "arc_nlp_vader_neu_avg", "legendFormat": "Neutral", "refId": "D"},
+        {"expr": "arc_nlp_subjectivity_avg", "legendFormat": "Subjectivity", "refId": "E"}
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 31},
+      "id": 103,
+      "title": "⚙️ Pipeline Health",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "blue", "value": null}
+          ]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 32},
+      "id": 30,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+      "title": "Articles Published",
+      "type": "stat",
+      "targets": [{"expr": "arc_publish_total{outcome=\"ok\"}", "legendFormat": "Published", "refId": "A"}]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 5},
+            {"color": "red", "value": 20}
+          ]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 32},
+      "id": 31,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+      "title": "Publish Failures",
+      "type": "stat",
+      "targets": [{"expr": "arc_publish_total{outcome=\"failed\"}", "legendFormat": "Failed", "refId": "A"}]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "blue", "value": null}
+          ]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 32},
+      "id": 32,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+      "title": "Duplicates Skipped",
+      "type": "stat",
+      "targets": [{"expr": "arc_publish_total{outcome=\"duplicate\"}", "legendFormat": "Duplicates", "refId": "A"}]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 50},
+            {"color": "red", "value": 200}
+          ]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 32},
+      "id": 33,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+      "title": "Bozo Feeds (Malformed RSS)",
+      "type": "stat",
+      "targets": [{"expr": "arc_rss_total{outcome=\"bozo\"}", "legendFormat": "Bozo", "refId": "A"}]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "blue", "value": null}
+          ]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 32},
+      "id": 34,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+      "title": "RSS Feeds OK",
+      "type": "stat",
+      "targets": [{"expr": "arc_rss_total{outcome=\"ok\"}", "legendFormat": "OK", "refId": "A"}]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "blue", "value": null}
+          ]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 32},
+      "id": 35,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+      "title": "Candidates Found",
+      "type": "stat",
+      "targets": [{"expr": "arc_rss_total{outcome=\"candidates\"}", "legendFormat": "Candidates", "refId": "A"}]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "color": {"mode": "palette-classic"},
+          "custom": {"fillOpacity": 10, "lineWidth": 2}
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36},
+      "id": 36,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "title": "Quality Gate Rejections by Reason",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "arc_quality_reject_total{reason=\"paywall_detected\"}", "legendFormat": "Paywall", "refId": "A"},
+        {"expr": "arc_quality_reject_total{reason=\"too_short\"}", "legendFormat": "Too Short", "refId": "B"},
+        {"expr": "arc_quality_reject_total{reason=\"low_quality_listicle\"}", "legendFormat": "Listicle", "refId": "C"},
+        {"expr": "arc_quality_reject_total{reason=\"auto_generated\"}", "legendFormat": "Auto-Generated", "refId": "D"}
+      ]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "color": {"mode": "palette-classic"},
+          "custom": {"fillOpacity": 10, "lineWidth": 2}
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 36},
+      "id": 37,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "title": "Priority Queue by Origin",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "arc_priority_total{origin=\"url\"}", "legendFormat": "URL Submissions", "refId": "A"},
+        {"expr": "arc_priority_total{origin=\"text\"}", "legendFormat": "Text Submissions", "refId": "B"},
+        {"expr": "arc_priority_total{origin=\"prompt\"}", "legendFormat": "Prompt Submissions", "refId": "C"}
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 44},
+      "id": 104,
+      "title": "🌐 Source Health",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "gridPos": {"h": 10, "w": 12, "x": 0, "y": 45},
+      "id": 40,
+      "options": {
+        "legend": {"displayMode": "table", "placement": "bottom", "values": ["value"]},
+        "pieType": "donut",
+        "tooltip": {"mode": "single"}
+      },
+      "title": "Fetch Tier Success Distribution",
+      "type": "piechart",
+      "targets": [
+        {"expr": "sum by (tier) (arc_fetch_total)", "legendFormat": "{{tier}}", "refId": "A"}
+      ]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "ms", "color": {"mode": "palette-classic"},
+          "custom": {"fillOpacity": 5, "lineWidth": 1}
+        }
+      },
+      "gridPos": {"h": 10, "w": 12, "x": 12, "y": 45},
+      "id": 41,
+      "options": {"legend": {"displayMode": "table", "placement": "right"}, "tooltip": {"mode": "multi"}},
+      "title": "Avg Fetch Latency by Domain (Top Sources)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "topk(10, arc_fetch_latency_avg_ms)", "legendFormat": "{{domain}}", "refId": "A"}
+      ]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 55},
+      "id": 42,
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right", "values": ["value"]},
+        "tooltip": {"mode": "single"},
+        "orientation": "horizontal"
+      },
+      "title": "Top 20 Sources by Article Count",
+      "type": "barchart",
+      "targets": [
+        {"expr": "topk(20, arc_source_total)", "legendFormat": "{{domain}}", "refId": "A"}
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 65},
+      "id": 105,
+      "title": "🛡️ A.R.C. Pattern Analysis",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "gridPos": {"h": 12, "w": 24, "x": 0, "y": 66},
+      "id": 50,
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right", "values": ["value"]},
+        "tooltip": {"mode": "single"},
+        "orientation": "horizontal",
+        "xTickLabelRotation": -45
+      },
+      "title": "ARC Pattern Frequency (Top 20)",
+      "type": "barchart",
+      "targets": [
+        {"expr": "topk(20, arc_arc_pattern_total > 0)", "legendFormat": "{{code}} {{name}}", "refId": "A"}
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 78},
+      "id": 106,
+      "title": "🌍 Language & Directive Coverage",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "gridPos": {"h": 10, "w": 12, "x": 0, "y": 79},
+      "id": 60,
+      "options": {
+        "legend": {"displayMode": "table", "placement": "bottom", "values": ["value"]},
+        "pieType": "pie",
+        "tooltip": {"mode": "single"}
+      },
+      "title": "Top 10 Languages",
+      "type": "piechart",
+      "targets": [
+        {"expr": "topk(10, arc_language_total)", "legendFormat": "{{lang}}", "refId": "A"}
+      ]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "gridPos": {"h": 10, "w": 12, "x": 12, "y": 79},
+      "id": 61,
+      "options": {
+        "legend": {"displayMode": "table", "placement": "bottom", "values": ["value"]},
+        "pieType": "pie",
+        "tooltip": {"mode": "single"}
+      },
+      "title": "Directive Distribution",
+      "type": "piechart",
+      "targets": [
+        {"expr": "arc_directive_total", "legendFormat": "{{directive}}", "refId": "A"}
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 89},
+      "id": 107,
+      "title": "✅ Field Completeness",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0, "max": 100,
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "red", "value": null},
+            {"color": "yellow", "value": 70},
+            {"color": "green", "value": 90}
+          ]},
+          "custom": {"displayMode": "lcd"}
+        }
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 90},
+      "id": 70,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "horizontal"},
+      "title": "Field Completeness %",
+      "type": "gauge",
+      "targets": [
+        {"expr": "arc_completeness{field=\"title\"}", "legendFormat": "Title", "refId": "A"},
+        {"expr": "arc_completeness{field=\"sourceUrl\"}", "legendFormat": "Source URL", "refId": "B"},
+        {"expr": "arc_completeness{field=\"red_team_analysis\"}", "legendFormat": "Red Team", "refId": "C"},
+        {"expr": "arc_completeness{field=\"blue_team_analysis\"}", "legendFormat": "Blue Team", "refId": "D"},
+        {"expr": "arc_completeness{field=\"purple_team_analysis\"}", "legendFormat": "Purple Team", "refId": "E"},
+        {"expr": "arc_completeness{field=\"sentinel_verdict\"}", "legendFormat": "Sentinel", "refId": "F"},
+        {"expr": "arc_completeness{field=\"source_lang\"}", "legendFormat": "Language", "refId": "G"},
+        {"expr": "arc_completeness{field=\"chimera_score\"}", "legendFormat": "Chimera Score", "refId": "H"},
+        {"expr": "arc_nlp_coverage_pct", "legendFormat": "NLP Fields (v3.0)", "refId": "I"}
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 98},
+      "id": 108,
+      "title": "⏱️ Exporter Health",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 5},
+            {"color": "red", "value": 30}
+          ]},
+          "unit": "s"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 99},
+      "id": 80,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+      "title": "Last Scrape Duration",
+      "type": "stat",
+      "targets": [{"expr": "arc_exporter_scrape_duration_sec", "legendFormat": "Duration", "refId": "A"}]
+    },
+
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null}
+          ]},
+          "unit": "dateTimeFromNow"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 99},
+      "id": 81,
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+      "title": "Last Scrape Time",
+      "type": "stat",
+      "targets": [{"expr": "arc_exporter_last_scrape_timestamp * 1000", "legendFormat": "Last Scrape", "refId": "A"}]
+    }
+
+  ],
+  "refresh": "5m",
+  "schemaVersion": 36,
+  "style": "dark",
+  "tags": ["arc-codex", "intelligence", "nlp"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "name": "DS_PROMETHEUS",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "type": "datasource",
+        "label": "Prometheus"
+      }
+    ]
+  },
+  "time": {"from": "now-24h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Arc Codex Intelligence v3",
+  "uid": "arc-codex-v3",
+  "version": 1
+}

@@ -1,0 +1,98 @@
+{
+  "generated_at": "2026-03-23T06:32:46.860556",
+  "version": "3.0 - A.R.C. News Analysis Benchmark",
+  "label": "devstral-2",
+  "host": "http://192.168.1.185:11434",
+  "models_tested": 1,
+  "quick_mode": true,
+  "articles_used": 1,
+  "full_rankings": [
+    {
+      "model": "devstral-2:123b-cloud",
+      "composite": 0.948,
+      "fact_extraction": 0.95,
+      "narrative": 1.0,
+      "critical": 0.9,
+      "synthesis": 0.815,
+      "avg_time": 4.33,
+      "efficiency": 0.2189,
+      "status": "excellent"
+    }
+  ],
+  "detailed_results": [
+    {
+      "model": "devstral-2:123b-cloud",
+      "timestamp": "2026-03-23T06:32:46.860609",
+      "tests": {
+        "fact_extraction": [
+          {
+            "article": "geopolitical_sanctions",
+            "score": 0.95,
+            "time": 3.06,
+            "details": {
+              "fact_coverage": "8/9",
+              "bullet_points": 12,
+              "opinion_markers": 0,
+              "length": 1130
+            },
+            "response_preview": "- The European Union announced its 15th sanctions package on Monday.\n- The sanctions target semiconductor equipment exports to Russia.\n- The package adds 47 entities to the EU's restricted list.\n- It "
+          }
+        ],
+        "narrative_synthesis": [
+          {
+            "article": "geopolitical_sanctions",
+            "score": 1.0,
+            "time": 3.89,
+            "details": {
+              "key_facts": "7/9",
+              "paragraphs": 2,
+              "perspective_markers": 2,
+              "word_count": 195
+            },
+            "response_preview": "The European Union's 15th sanctions package against Russia, unveiled Monday, tightens restrictions on semiconductor equipment exports and expands the list of restricted entities to 47, targeting dual-"
+          }
+        ],
+        "critical_analysis": [
+          {
+            "article": "geopolitical_sanctions",
+            "score": 0.9,
+            "time": 6.04,
+            "details": {
+              "steelmanning": 1,
+              "pattern_recognition": 3,
+              "questions_asked": 3,
+              "cynicism_flags": 0,
+              "word_count": 320
+            },
+            "response_preview": "The strongest version of this story frames the EU\u2019s sanctions as a necessary escalation to counter Russia\u2019s circumvention tactics, emphasizing multilateral coordination and the moral imperative of wea"
+          }
+        ]
+      },
+      "scores": {
+        "fact_extraction": {
+          "avg_score": 0.95,
+          "avg_time": 3.06
+        },
+        "narrative_synthesis": {
+          "avg_score": 1.0,
+          "avg_time": 3.89
+        },
+        "critical_analysis": {
+          "avg_score": 0.9,
+          "avg_time": 6.04
+        },
+        "analysis_composite": 0.948,
+        "avg_time_per_task": 4.33,
+        "efficiency": 0.2189
+      },
+      "total_time": 12.993442296981812,
+      "status": "excellent"
+    }
+  ],
+  "synthesis_results": {
+    "devstral-2:123b-cloud": {
+      "score": 0.815,
+      "time": 6.24
+    }
+  }
+}
