@@ -141,7 +141,11 @@ def bsky_post(text: str, og_image_url: str = "", article_url: str = "") -> bool:
             return False
 
     # Build embed card with thumb if available
+    DEFAULT_IMAGE = "https://arc-codex.com/uploads/arc-codex-default.jpg"
     thumb = bsky_upload_thumb(og_image_url)
+    if thumb is None and og_image_url != DEFAULT_IMAGE:
+        log.info("Thumb failed for external URL — retrying with default image")
+        thumb = bsky_upload_thumb(DEFAULT_IMAGE)
     article_uri = article_url
     if article_uri:
         external = {
