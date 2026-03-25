@@ -114,6 +114,10 @@ kill_orphans() {
         if [ "$pid" = "$registered_pid" ] || [ "$pid" = "$$" ]; then
             continue
         fi
+        # Only kill processes running from THIS stack's backend dir
+        local proc_cwd
+        proc_cwd=$(readlink /proc/$pid/cwd 2>/dev/null)
+        [ "$proc_cwd" != "$BACKEND_DIR" ] && continue
         log "🧹 Killing orphan $name process (pid $pid)"
         kill "$pid" 2>/dev/null
         sleep 1
