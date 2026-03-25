@@ -108,6 +108,12 @@ kill_orphans() {
         return
     fi
 
+    # Only kill extras if the registered process is alive.
+    # If registered is dead, let crash detection handle restart — don't touch anything.
+    if [ -z "$registered_pid" ] || ! kill -0 "$registered_pid" 2>/dev/null; then
+        return
+    fi
+
     local orphan_count=0
     while IFS= read -r pid; do
         # Skip the registered PID and the watchdog itself

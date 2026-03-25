@@ -259,7 +259,7 @@ def get_top_articles(r: redis.Redis, n: int = 10) -> list[dict]:
         articles = []
         for aid in article_ids:
             data = r.hgetall(f"article:{aid}")
-            if not data:
+            if not data or not data.get("title"):
                 continue
             ts_str = data.get("timestamp", "")
             if ts_str:
