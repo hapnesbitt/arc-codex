@@ -1263,7 +1263,7 @@ def submit_content():
 
 
 # --- PRIORITY QUEUE ENDPOINTS ---
-REDIS_PRIORITY_QUEUE_KEY = "scribe:priority_uploads"
+REDIS_PRIORITY_QUEUE_KEY = "arc:priority_uploads"
 
 
 @app.route('/api/submit', methods=['POST'])

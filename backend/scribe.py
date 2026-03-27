@@ -63,7 +63,7 @@ logger = logging.getLogger(__name__)
 
 # --- CONFIGURATION ---
 manual_upload_event = threading.Event()
-REDIS_PRIORITY_QUEUE_KEY = "scribe:priority_uploads"
+REDIS_PRIORITY_QUEUE_KEY = "arc:priority_uploads"
 
 # --- Instrumentation Redis keys ---
 STATS_FETCH          = "arc:stats:fetch"
