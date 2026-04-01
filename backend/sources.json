@@ -3333,11 +3333,6 @@
     "category": "Wine & Gastronomy"
   },
   {
-    "name": "RT\u00c9 News",
-    "url": "https://www.rte.ie/news/rss/news-headlines.xml",
-    "category": "The News Media"
-  },
-  {
     "name": "Rugby World News",
     "url": "https://www.rugbyworld.com/feed",
     "category": "Sports"
@@ -6521,11 +6516,6 @@
     "name": "KNR Nyheder",
     "url": "https://knr.gl/kl/rss/nyheder",
     "category": "General News (Greenlandic)"
-  },
-  {
-    "name": "RT\u00c9 Nuacht",
-    "url": "https://www.rte.ie/feeds/rss/?index=/news",
-    "category": "General News (Irish)"
   },
   {
     "name": "Prajavani",
@@ -10436,5 +10426,20 @@
     "name": "Kroll Cyber",
     "url": "https://www.kroll.com/en/insights/cyber-risk/feed",
     "category": "Threat Intelligence"
+  },
+  {
+    "name": "Deadline Hollywood",
+    "url": "https://deadline.com/feed/",
+    "category": "Entertainment Industry"
+  },
+  {
+    "name": "TheWrap",
+    "url": "https://www.thewrap.com/feed/",
+    "category": "Entertainment Industry"
+  },
+  {
+    "name": "Collider",
+    "url": "https://collider.com/feed/",
+    "category": "Entertainment Industry"
   }
 ]

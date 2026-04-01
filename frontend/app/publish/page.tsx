@@ -15,6 +15,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -217,6 +218,8 @@ const RadioGroup: React.FC<{
 // --- MAIN COMPONENT ---
 export default function PublishPage() {
   const router = useRouter();
+  const { data: session } = useSession();
+  const isAuthed = !!session?.user;
   const [title, setTitle]               = useState('');
   const [content, setContent]           = useState('');
   const [contentType, setContentType]   = useState<ContentType>('text');
@@ -303,7 +306,7 @@ export default function PublishPage() {
     if (e?.preventDefault) e.preventDefault();
 
     // Validation — title optional for prompt mode (scribe derives it)
-    if (contentType !== 'prompt' && !title.trim()) {
+    if (contentType !== 'prompt' && !title.trim() && !imageFile && !uploadedImageUrl) {
       setStatus('error');
       setMessage('A title is required.');
       return;
@@ -784,7 +787,7 @@ export default function PublishPage() {
               <input
                 ref={imageInputRef}
                 type="file"
-                accept="image/*"
+		accept="image/*,image/heic,image/heif"
                 className="hidden"
                 aria-label="Select cover image"
                 onChange={handleImageChange}
@@ -990,15 +993,25 @@ export default function PublishPage() {
                 <div className="text-sm opacity-75 mt-0.5">Published to the Arc Codex feed with full A.R.C. analysis</div>
               </button>
 
-              {/* Keep Private */}
+              {/* Keep Private — disabled when not signed in */}
               <button
                 type="button"
-                onClick={() => handleConfirmedPublish('private')}
-                className="w-full p-4 rounded-xl border-2 border-slate-500/60 bg-slate-800/30 text-slate-300 font-serif text-left transition-colors hover:border-slate-400/60 hover:bg-slate-800/50 focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:outline-none"
+                onClick={() => isAuthed && handleConfirmedPublish('private')}
+                disabled={!isAuthed}
+                aria-disabled={!isAuthed}
+                title={!isAuthed ? 'Sign in to publish privately' : undefined}
+                className={`w-full p-4 rounded-xl border-2 font-serif text-left transition-colors focus-visible:ring-2 focus-visible:outline-none
+                  ${isAuthed
+                    ? 'border-slate-500/60 bg-slate-800/30 text-slate-300 hover:border-slate-400/60 hover:bg-slate-800/50 focus-visible:ring-slate-400'
+                    : 'border-slate-700/30 bg-slate-800/10 text-slate-600 cursor-not-allowed'
+                  }`}
               >
                 <div className="font-bold text-base flex items-center gap-2">
                   Keep Private
                   <span className="text-xs">🔒</span>
+                  {!isAuthed && (
+                    <span className="text-xs font-normal text-slate-500 ml-1">— sign in required</span>
+                  )}
                 </div>
                 <div className="text-sm opacity-75 mt-0.5">Saved privately — visible only to you when logged in</div>
               </button>

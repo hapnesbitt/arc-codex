@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """
 bluesky_poster.py — Arc Codex auto-poster for Bluesky
-v1.2 — URL removed from post text (embed card handles it)
+v1.5 — Redis session persistence; uses refreshSession instead of createSession
+        on restart/proactive refresh — prevents burning the createSession rate
+        limit (shared per home IP) which was locking out mobile logins.
 
 On/off:  redis-cli set bluesky:autopost 1|0
 Posted set: bluesky:posted (SET of article IDs, prevents duplicates)
+Session key: BLUESKY_SESSION_KEY (default: arc:bluesky_session)
+             Set to huntaegis:bluesky_session in Huntaegis .env
+
 Post format:
   {title}
 
@@ -35,9 +40,13 @@ REDIS_URL            = os.getenv("REDIS_URL", "redis://:simplenes@localhost:6379
 BACKEND_URL          = os.getenv("BACKEND_INTERNAL_URL", "http://localhost:5005")
 ARTICLE_BASE_URL     = os.getenv("NEXT_PUBLIC_BACKEND_URL", "https://arc-codex.com")
 
+# Namespaced per-stack so Arc and Huntaegis don't share a session key.
+# Set BLUESKY_SESSION_KEY=huntaegis:bluesky_session in Huntaegis .env
+SESSION_KEY    = os.getenv("BLUESKY_SESSION_KEY", "arc:bluesky_session")
+
 POLL_INTERVAL  = 15          # seconds between Redis scans
 JITTER_MIN     = 0
-JITTER_MAX     = 0 
+JITTER_MAX     = 0
 CA_WAIT        = 60          # seconds to wait for counter-analyst comment
 POLL_KEY       = "bluesky:autopost"
 POSTED_SET     = "bluesky:posted"
@@ -67,7 +76,70 @@ r = make_redis()
 # ── Bluesky AT Protocol auth ───────────────────────────────────────────────────
 _session: dict = {}
 
+def _save_session() -> None:
+    """Persist accessJwt + refreshJwt to Redis so restarts skip createSession."""
+    try:
+        payload = json.dumps({
+            "did":        _session.get("did"),
+            "accessJwt":  _session.get("accessJwt"),
+            "refreshJwt": _session.get("refreshJwt"),
+        })
+        r.set(SESSION_KEY, payload, ex=7 * 24 * 3600)  # 7-day TTL
+        log.debug("Session saved to Redis key: %s", SESSION_KEY)
+    except Exception as exc:
+        log.warning("Failed to save session to Redis: %s", exc)
+
+def _load_session() -> bool:
+    """Load persisted session from Redis into _session. Returns True if found."""
+    global _session
+    try:
+        raw = r.get(SESSION_KEY)
+        if not raw:
+            return False
+        data = json.loads(raw)
+        if data.get("accessJwt") and data.get("refreshJwt"):
+            _session = data
+            log.info("Loaded persisted Bluesky session (DID: %s)", _session.get("did"))
+            return True
+    except Exception as exc:
+        log.warning("Failed to load session from Redis: %s", exc)
+    return False
+
+def bsky_refresh() -> bool:
+    """
+    Call refreshSession with the stored refreshJwt to get a new accessJwt.
+    This does NOT count against the createSession rate limit.
+    Returns True on success.
+    """
+    global _session
+    refresh_token = _session.get("refreshJwt")
+    if not refresh_token:
+        log.debug("bsky_refresh: no refreshJwt available")
+        return False
+    try:
+        resp = requests.post(
+            f"{BSKY_API}/com.atproto.server.refreshSession",
+            headers={
+                "Authorization": f"Bearer {refresh_token}",
+                "Content-Type": "application/json",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        _session.update(resp.json())
+        _save_session()
+        log.info("Bluesky session refreshed via refreshSession (DID: %s)", _session.get("did"))
+        return True
+    except Exception as exc:
+        log.warning("refreshSession failed: %s", exc)
+        return False
+
 def bsky_login() -> bool:
+    """
+    Full createSession with handle + app password.
+    Rate-limited to ~30/5min per IP — only call this when refresh fails
+    or no persisted session exists.
+    """
     global _session
     try:
         resp = requests.post(
@@ -77,15 +149,34 @@ def bsky_login() -> bool:
         )
         resp.raise_for_status()
         _session = resp.json()
-        log.info("Bluesky login OK — DID: %s", _session.get("did"))
+        _save_session()
+        log.info("Bluesky createSession OK (DID: %s)", _session.get("did"))
         return True
     except Exception as exc:
-        log.error("Bluesky login failed: %s", exc)
+        log.error("Bluesky createSession failed: %s", exc)
         return False
 
+def bsky_ensure_session() -> bool:
+    """
+    Preferred startup/refresh entry point. Resolution order:
+      1. Load persisted session from Redis, then refresh it  → no createSession call
+      2. If no persisted session, call createSession          → counts against limit
+    """
+    if not _session:
+        _load_session()
+
+    if _session.get("refreshJwt"):
+        if bsky_refresh():
+            return True
+        log.warning("refreshSession failed — falling back to createSession")
+
+    return bsky_login()
+
 def bsky_headers() -> dict:
-    return {"Authorization": f"Bearer {_session.get('accessJwt', '')}",
-            "Content-Type": "application/json"}
+    return {
+        "Authorization": f"Bearer {_session.get('accessJwt', '')}",
+        "Content-Type": "application/json",
+    }
 
 # ── Image upload ───────────────────────────────────────────────────────────────
 def bsky_upload_thumb(og_image_url: str) -> dict | None:
@@ -134,30 +225,30 @@ def bsky_post(text: str, og_image_url: str = "", article_url: str = "") -> bool:
         og_image_url = "https://arc-codex.com/uploads/arc-codex-default.jpg"
     """
     Create a Bluesky post with optional image thumbnail in the link card.
-    Re-authenticates once on 401 before giving up.
+    On 401/ExpiredToken: tries refreshSession first, falls back to createSession.
     """
     if not _session:
-        if not bsky_login():
+        if not bsky_ensure_session():
             return False
 
-    # Build embed card with thumb if available
     DEFAULT_IMAGE = "https://arc-codex.com/uploads/arc-codex-default.jpg"
     thumb = bsky_upload_thumb(og_image_url)
     if thumb is None and og_image_url != DEFAULT_IMAGE:
         log.info("Thumb failed for external URL — retrying with default image")
         thumb = bsky_upload_thumb(DEFAULT_IMAGE)
+
     article_uri = article_url
     if article_uri:
         external = {
-            "$type": "app.bsky.embed.external#external",
-            "uri": article_uri,
-            "title": "",
+            "$type":       "app.bsky.embed.external#external",
+            "uri":         article_uri,
+            "title":       "",
             "description": "",
         }
         if thumb:
             external["thumb"] = thumb
         embed = {
-            "$type": "app.bsky.embed.external",
+            "$type":    "app.bsky.embed.external",
             "external": external,
         }
     else:
@@ -184,18 +275,25 @@ def bsky_post(text: str, og_image_url: str = "", article_url: str = "") -> bool:
                 json=payload,
                 timeout=15,
             )
+            if resp.status_code in (400, 401) and attempt == 0:
+                body_text = resp.text[:300]
+                log.error("Bluesky %d response: %s", resp.status_code, body_text)
+                if resp.status_code == 401 or "ExpiredToken" in body_text or "Token" in body_text:
+                    log.warning("Bluesky token expired — attempting refreshSession first")
+                    # Prefer refresh over full re-login to protect the createSession quota
+                    if not bsky_refresh():
+                        log.warning("refreshSession failed on 401 — falling back to createSession")
+                        bsky_login()
+                    payload["repo"] = _session.get("did")
+                    # re-upload thumb with fresh token
+                    if thumb:
+                        new_thumb = bsky_upload_thumb(og_image_url)
+                        if new_thumb and embed:
+                            payload["record"]["embed"]["external"]["thumb"] = new_thumb
+                    continue
+                resp.raise_for_status()
             if resp.status_code == 400:
                 log.error("Bluesky 400 response: %s", resp.text[:300])
-            if resp.status_code == 401 and attempt == 0:
-                log.warning("Bluesky 401 — re-authenticating")
-                bsky_login()
-                payload["repo"] = _session.get("did")
-                # refresh thumb upload token too
-                if thumb:
-                    new_thumb = bsky_upload_thumb(og_image_url)
-                    if new_thumb:
-                        payload["record"]["embed"]["external"]["thumb"] = new_thumb
-                continue
             resp.raise_for_status()
             log.info("Posted to Bluesky: %s", resp.json().get("uri"))
             return True
@@ -251,7 +349,6 @@ def get_counter_analyst_comment(article_id: str, wait: bool = True) -> str | Non
 def build_post_text(article: dict, comment: str | None) -> tuple[str, str]:
     """Returns (post_text, article_url). URL is NOT in post_text — embed card handles it."""
     title = article.get("title", "").strip()
-    # Use stored url field directly — slug is not always populated in Redis
     url   = article.get("url") or f"{ARTICLE_BASE_URL}/article/{article.get('id', '')}"
 
     if comment:
@@ -268,7 +365,7 @@ def build_post_text(article: dict, comment: str | None) -> tuple[str, str]:
 
 def seed_posted_set():
     try:
-        keys = r.zrange('feed', 0, -1)
+        keys = r.zrange("feed", 0, -1)
         if not keys:
             return
         pipe = r.pipeline()
@@ -281,7 +378,7 @@ def seed_posted_set():
 
 def all_article_ids() -> list[str]:
     try:
-        return r.zrange('feed', 0, -1)
+        return r.zrange("feed", 0, -1)
     except Exception:
         return []
 
@@ -293,12 +390,39 @@ def autopost_enabled() -> bool:
 
 # ── main loop ──────────────────────────────────────────────────────────────────
 def main():
-    log.info("bluesky_poster v1.1 starting — handle: %s", BLUESKY_HANDLE)
+    log.info("bluesky_poster v1.5 starting — handle: %s  session_key: %s",
+             BLUESKY_HANDLE, SESSION_KEY)
     seed_posted_set()
-    bsky_login()
+
+    # Startup auth: load persisted session + refresh (avoids createSession on restart)
+    if bsky_ensure_session():
+        last_login = time.time()
+        log.info("Initial session ready")
+    else:
+        last_login = time.time() - (80 * 60)
+        log.warning("Initial session failed — will retry in ~10 minutes")
+
+    LOGIN_INTERVAL = 90 * 60  # proactive refresh every 90 minutes
+    login_backoff  = 0
 
     while True:
         try:
+            # Proactive token refresh — prefer refreshSession, fall back to createSession
+            if time.time() - last_login > LOGIN_INTERVAL:
+                if login_backoff > 0:
+                    log.info("Login backoff active — waiting %ds before retry", login_backoff)
+                    time.sleep(min(login_backoff, POLL_INTERVAL))
+                    login_backoff = max(0, login_backoff - POLL_INTERVAL)
+                else:
+                    log.info("Proactive token refresh")
+                    if bsky_refresh() or bsky_login():
+                        last_login = time.time()
+                        login_backoff = 0
+                    else:
+                        login_backoff = min(login_backoff * 2 + 60, 1800)
+                        log.warning("Refresh/login failed — backing off %ds", login_backoff)
+                        last_login = time.time() - (LOGIN_INTERVAL - login_backoff)
+
             if not autopost_enabled():
                 time.sleep(POLL_INTERVAL)
                 continue

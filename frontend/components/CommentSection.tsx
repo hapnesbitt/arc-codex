@@ -1,5 +1,5 @@
 // frontend/components/CommentSection.tsx
-// Version 10.0 - Layout fixes + accessibility pass
+// Version 11.0 - Remove framer-motion, swap sad/angry → care, mobile tightening
 //
 // Layout changes from v9.0:
 // - Indent reduced: ml-8 → ml-4 sm:ml-6 (mobile gets 16px, desktop 24px)
@@ -28,7 +28,6 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { MessageSquare, Send, AlertCircle, Reply, ChevronDown, ChevronRight } from 'lucide-react';
@@ -65,8 +64,7 @@ const REACTION_TYPES = [
   { key: 'dislike', emoji: '👎', label: 'Dislike' },
   { key: 'heart',   emoji: '❤️', label: 'Love' },
   { key: 'happy',   emoji: '😊', label: 'Happy' },
-  { key: 'sad',     emoji: '😢', label: 'Sad' },
-  { key: 'angry',   emoji: '😡', label: 'Angry' },
+  { key: 'care',    emoji: '🤗', label: 'Care' },
 ] as const;
 
 // --- HELPER: Author styling ---
@@ -278,21 +276,11 @@ function CommentSection({ comments = [], articleId }: CommentSectionProps): Reac
     const repliesId = `replies-${comment.id}`;
     const ts = formatTimestamp(comment.timestamp);
 
-    // On mobile, hide the avatar icon at depth >= 2 to recover horizontal space.
-    // At those depths the indent + card padding already eats most of the viewport.
     const showIcon = depth < 2;
 
     return (
-      // <li> is correct inside the parent <ol>
       <li key={comment.id} className="relative list-none">
-        <motion.div
-          initial={{ opacity: 0, x: shouldIndent ? 10 : 0 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
-          // Mobile: 16px indent. sm+: 24px indent. Keeps content readable on small screens.
-          className={shouldIndent ? 'ml-4 sm:ml-6' : ''}
-        >
-          {/* Thread connection line — decorative */}
+        <div className={shouldIndent ? 'ml-4 sm:ml-6' : ''}>
           {shouldIndent && (
             <div
               className="absolute left-0 top-0 bottom-0 w-0.5 bg-slate-700/30"
@@ -304,7 +292,6 @@ function CommentSection({ comments = [], articleId }: CommentSectionProps): Reac
           <Card className={style.cardClass}>
             <CardContent className="p-3 sm:p-4">
               <div className="flex items-start gap-2 sm:gap-3">
-                {/* Avatar icon — hidden at deep nesting on mobile to save space */}
                 {showIcon && (
                   <div
                     className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full border flex items-center justify-center flex-shrink-0 ${style.iconBgClass}`}
@@ -380,7 +367,7 @@ function CommentSection({ comments = [], articleId }: CommentSectionProps): Reac
                           aria-pressed={isActive}
                           aria-label={count > 0 ? `${label}: ${count}` : label}
                           className={`
-                            flex items-center gap-1 px-2 py-0.5 rounded-full text-xs transition-all duration-200
+                            flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs transition-all duration-200
                             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50
                             ${isActive
                               ? 'bg-amber-500/20 border border-amber-400/40 scale-105'
@@ -404,113 +391,89 @@ function CommentSection({ comments = [], articleId }: CommentSectionProps): Reac
               </div>
 
               {/* Inline Reply Form */}
-              <AnimatePresence>
-                {isReplyFormOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.2 }}
-                    // No left indent on mobile — card width is already constrained.
-                    // sm+ gets the indent to visually align under the comment text.
-                    className="mt-3 sm:ml-9"
-                  >
-                    <form onSubmit={(e) => handleSubmitComment(e, comment.id)} className="space-y-3">
-                      <div>
-                        <label htmlFor={`reply-${comment.id}`} className="sr-only">
-                          Reply to {style.authorName}
-                        </label>
-                        <textarea
-                          id={`reply-${comment.id}`}
-                          value={replyText}
-                          onChange={(e) => setReplyText(e.target.value)}
-                          placeholder={`Reply to ${style.authorName}...`}
-                          className="w-full p-3 bg-slate-900/60 border border-slate-600/40 rounded-lg text-slate-200 placeholder-slate-400 resize-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all text-sm"
-                          rows={2}
-                          maxLength={9000}
-                          disabled={isSubmitting}
-                          autoFocus
-                        />
-                        <div className="flex justify-between items-center mt-1">
-                          <span className="text-xs text-slate-500">{replyText.length}/9000</span>
-                        </div>
-                      </div>
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => { setReplyingTo(null); setReplyText(''); }}
-                          className="text-slate-400 hover:text-white h-8"
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          type="submit"
-                          variant="default"
-                          size="sm"
-                          disabled={isSubmitting || !replyText.trim()}
-                          aria-label={isSubmitting ? 'Posting reply' : 'Post reply'}
-                          className="bg-amber-600/80 hover:bg-amber-500/80 text-white border-0 h-8"
-                        >
-                          {isSubmitting ? (
-                            <div className="flex items-center gap-2">
-                              <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" aria-hidden="true" />
-                              <span>Posting...</span>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1.5">
-                              <Send className="h-3 w-3" aria-hidden="true" />
-                              <span>Reply</span>
-                            </div>
-                          )}
-                        </Button>
-                      </div>
-                    </form>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              {isReplyFormOpen && (
+                <div className="mt-3 sm:ml-9 transition-all">
+                  <form onSubmit={(e) => handleSubmitComment(e, comment.id)} className="space-y-2">
+                    <div>
+                      <label htmlFor={`reply-${comment.id}`} className="sr-only">
+                        Reply to {style.authorName}
+                      </label>
+                      <textarea
+                        id={`reply-${comment.id}`}
+                        value={replyText}
+                        onChange={(e) => setReplyText(e.target.value)}
+                        placeholder={`Reply to ${style.authorName}...`}
+                        className="w-full p-3 bg-slate-900/60 border border-slate-600/40 rounded-lg text-slate-200 placeholder-slate-400 resize-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all text-sm"
+                        rows={2}
+                        maxLength={9000}
+                        disabled={isSubmitting}
+                        autoFocus
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => { setReplyingTo(null); setReplyText(''); }}
+                        className="text-slate-400 hover:text-white h-8"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        variant="default"
+                        size="sm"
+                        disabled={isSubmitting || !replyText.trim()}
+                        aria-label={isSubmitting ? 'Posting reply' : 'Post reply'}
+                        className="bg-amber-600/80 hover:bg-amber-500/80 text-white border-0 h-8"
+                      >
+                        {isSubmitting ? (
+                          <div className="flex items-center gap-2">
+                            <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" aria-hidden="true" />
+                            <span>Posting...</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <Send className="h-3 w-3" aria-hidden="true" />
+                            <span>Reply</span>
+                          </div>
+                        )}
+                      </Button>
+                    </div>
+                  </form>
+                </div>
+              )}
             </CardContent>
           </Card>
-        </motion.div>
+        </div>
 
         {/* Replies */}
-        <AnimatePresence>
-          {hasReplies && !isCollapsed && (
-            <motion.ol
-              id={repliesId}
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.3 }}
-              className="space-y-3 mt-3"
-              aria-label={`Replies to ${style.authorName}`}
-            >
-              {visibleReplies.map(reply => renderComment(reply, depth + 1))}
+        {hasReplies && !isCollapsed && (
+          <ol
+            id={repliesId}
+            className="space-y-3 mt-3"
+            aria-label={`Replies to ${style.authorName}`}
+          >
+            {visibleReplies.map(reply => renderComment(reply, depth + 1))}
 
-              {hasHiddenReplies && (
-                <motion.li
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="list-none"
+            {hasHiddenReplies && (
+              <li className="list-none">
+                <button
+                  onClick={() => toggleShowAllReplies(comment.id)}
+                  aria-label={`View ${hiddenCount} more ${hiddenCount === 1 ? 'reply' : 'replies'}`}
+                  className="flex items-center gap-2 text-amber-400 hover:text-amber-300 transition-colors text-sm font-semibold ml-4 sm:ml-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50 rounded"
                 >
-                  <button
-                    onClick={() => toggleShowAllReplies(comment.id)}
-                    aria-label={`View ${hiddenCount} more ${hiddenCount === 1 ? 'reply' : 'replies'}`}
-                    className="flex items-center gap-2 text-amber-400 hover:text-amber-300 transition-colors text-sm font-semibold ml-4 sm:ml-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50 rounded"
-                  >
-                    <ChevronDown className="h-4 w-4" aria-hidden="true" />
-                    <span>View {hiddenCount} more {hiddenCount === 1 ? 'reply' : 'replies'}</span>
-                  </button>
-                </motion.li>
-              )}
-            </motion.ol>
-          )}
-        </AnimatePresence>
+                  <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                  <span>View {hiddenCount} more {hiddenCount === 1 ? 'reply' : 'replies'}</span>
+                </button>
+              </li>
+            )}
+          </ol>
+        )}
       </li>
     );
   };
-
   const totalComments = localComments.length;
 
   return (
@@ -527,107 +490,87 @@ function CommentSection({ comments = [], articleId }: CommentSectionProps): Reac
           <span className="font-medium">
             {totalComments} {totalComments === 1 ? 'Comment' : 'Comments'}
           </span>
-          <motion.div
-            animate={{ rotate: isExpanded ? 180 : 0 }}
-            transition={{ duration: 0.2 }}
-            className="ml-1"
+          <ChevronDown
+            className={`h-4 w-4 ml-1 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
             aria-hidden="true"
-          >
-            <ChevronDown className="h-4 w-4" />
-          </motion.div>
+          />
         </button>
       </div>
 
-      <AnimatePresence>
-        {isExpanded && (
-          <motion.div
-            id="comment-thread"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.3, ease: 'easeInOut' }}
-            className="space-y-4"
-          >
-            {/* Comment submission form */}
-            <Card className="bg-slate-800/40 border-slate-700/40">
-              <CardContent className="p-4">
-                <form onSubmit={(e) => handleSubmitComment(e)} className="space-y-4" noValidate>
-                  <div>
-                    <label htmlFor="new-comment" className="sr-only">Write a comment</label>
-                    <textarea
-                      id="new-comment"
-                      value={commentText}
-                      onChange={(e) => setCommentText(e.target.value)}
-                      placeholder="Share your thoughts on this article..."
-                      className="w-full p-3 bg-slate-900/60 border border-slate-600/40 rounded-lg text-slate-200 placeholder-slate-400 resize-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all"
-                      rows={3}
-                      maxLength={9000}
-                      disabled={isSubmitting}
-                    />
-                    <div className="flex justify-between items-center mt-2">
-                      <span className="text-xs text-slate-400" aria-live="polite" aria-atomic="true">
-                        {commentText.length}/9000 characters
-                      </span>
-                    </div>
+      {isExpanded && (
+        <div id="comment-thread" className="space-y-4">
+          {/* Comment submission form */}
+          <Card className="bg-slate-800/40 border-slate-700/40">
+            <CardContent className="p-4">
+              <form onSubmit={(e) => handleSubmitComment(e)} className="space-y-3" noValidate>
+                <div>
+                  <label htmlFor="new-comment" className="sr-only">Write a comment</label>
+                  <textarea
+                    id="new-comment"
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    placeholder="Share your thoughts on this article..."
+                    className="w-full p-3 bg-slate-900/60 border border-slate-600/40 rounded-lg text-slate-200 placeholder-slate-400 resize-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all"
+                    rows={3}
+                    maxLength={9000}
+                    disabled={isSubmitting}
+                  />
+                  <div className="flex justify-between items-center mt-1">
+                    <span className="text-xs text-slate-400" aria-live="polite" aria-atomic="true">
+                      {commentText.length}/9000
+                    </span>
                   </div>
+                </div>
 
-                  {error && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg p-3"
-                      role="alert"
-                    >
-                      <AlertCircle className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
-                      <span>{error}</span>
-                    </motion.div>
-                  )}
-
-                  <div className="flex justify-end">
-                    <Button
-                      type="submit"
-                      variant="default"
-                      size="default"
-                      disabled={isSubmitting || !commentText.trim()}
-                      aria-label={isSubmitting ? 'Posting comment' : 'Post comment'}
-                      className="bg-amber-600/80 hover:bg-amber-500/80 text-white border-0 px-6"
-                    >
-                      {isSubmitting ? (
-                        <div className="flex items-center gap-2">
-                          <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" aria-hidden="true" />
-                          <span>Posting...</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <Send className="h-4 w-4" aria-hidden="true" />
-                          <span>Post Comment</span>
-                        </div>
-                      )}
-                    </Button>
+                {error && (
+                  <div
+                    className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg p-3"
+                    role="alert"
+                  >
+                    <AlertCircle className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                    <span>{error}</span>
                   </div>
-                </form>
-              </CardContent>
-            </Card>
+                )}
 
-            {/* Comment tree */}
-            {commentTree.length === 0 ? (
-              <div
-                role="status"
-                className="text-center py-8 text-slate-400"
-              >
-                <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-50" aria-hidden="true" />
-                <p>No comments yet. Be the first to share your thoughts!</p>
-              </div>
-            ) : (
-              <ol className="space-y-4" aria-label="Comments">
-                <AnimatePresence mode="popLayout">
-                  {commentTree.map((comment) => renderComment(comment))}
-                </AnimatePresence>
-              </ol>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+                <div className="flex justify-end">
+                  <Button
+                    type="submit"
+                    variant="default"
+                    size="default"
+                    disabled={isSubmitting || !commentText.trim()}
+                    aria-label={isSubmitting ? 'Posting comment' : 'Post comment'}
+                    className="bg-amber-600/80 hover:bg-amber-500/80 text-white border-0 px-6"
+                  >
+                    {isSubmitting ? (
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" aria-hidden="true" />
+                        <span>Posting...</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <Send className="h-4 w-4" aria-hidden="true" />
+                        <span>Post Comment</span>
+                      </div>
+                    )}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+
+          {/* Comment tree */}
+          {commentTree.length === 0 ? (
+            <div role="status" className="text-center py-8 text-slate-400">
+              <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-50" aria-hidden="true" />
+              <p>No comments yet. Be the first to share your thoughts!</p>
+            </div>
+          ) : (
+            <ol className="space-y-4" aria-label="Comments">
+              {commentTree.map((comment) => renderComment(comment))}
+            </ol>
+          )}
+        </div>
+      )}
     </section>
   );
 }

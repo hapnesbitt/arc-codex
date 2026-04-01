@@ -409,10 +409,16 @@ const AnalysisSection: React.FC<AnalysisSectionProps> = ({
 };
 
 // --- Research Menu ---
-const ResearchMenu: React.FC<{ title: string }> = ({ title }) => {
+const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: string; sourceUrl?: string }> = ({ title, articleId, snippet, sourceUrl }) => {
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
+    const articleUrl = `${backendUrl}/article/${articleId}`;
+
+    const context = snippet
+        ? `Article: "${title}"\n\nSource: ${sourceUrl || articleUrl}\n\nContext: ${snippet.slice(0, 500)}`
+        : `Article: "${title}"\n\nSource: ${articleUrl}`;
 
     const close = () => {
         setIsOpen(false);
@@ -439,19 +445,19 @@ const ResearchMenu: React.FC<{ title: string }> = ({ title }) => {
 
     const handleClaude = (e: React.MouseEvent) => {
         e.stopPropagation();
-        window.open(`https://claude.ai/new?q=${encodeURIComponent(title)}`, "_blank");
+        window.open(`https://claude.ai/new?q=${encodeURIComponent(context)}`, "_blank");
         close();
     };
 
     const handleChatGPT = (e: React.MouseEvent) => {
         e.stopPropagation();
-        window.open(`https://chatgpt.com/?q=${encodeURIComponent(title)}`, "_blank");
+        window.open(`https://chatgpt.com/?q=${encodeURIComponent(context)}`, "_blank");
         close();
     };
 
     const handlePerplexity = (e: React.MouseEvent) => {
         e.stopPropagation();
-        window.open(`https://www.perplexity.ai/?q=${encodeURIComponent(title)}`, "_blank");
+        window.open(`https://www.perplexity.ai/search?q=${encodeURIComponent(context)}`, "_blank");
         close();
     };
 
@@ -531,7 +537,8 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
     const [bskyPosted, setBskyPosted] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
-    const baseUrl = `https://arc-codex.com/article/${articleId}`;
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://arc-codex.com';
+    const baseUrl = `${backendUrl}/article/${articleId}`;
     const fullUrl = lang ? `${baseUrl}?lang=${encodeURIComponent(lang)}` : baseUrl;
     // Share payload: title + counter-analyst comment (if available) + URL
     const sharePayload = counterComment
@@ -806,7 +813,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
 
     const handleCopy = (e: React.MouseEvent) => {
         e.stopPropagation();
-        const base = `https://arc-codex.com/article/${card.id}`;
+        const base = `${backendUrl}/article/${card.id}`;
         const fullArticleUrl = currentLang ? `${base}?lang=${encodeURIComponent(currentLang)}` : base;
         const title = translatedFields?.title ?? card.title;
         const copyText = counterComment
@@ -865,6 +872,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
 
     // Unique prefix for aria-controls wiring on this card instance
     const uid = card.id;
+    const researchSnippet = card.blue_team_analysis || card.purple_team_analysis || card.original_text;
 
     return (
         // <article> is the correct semantic element for a self-contained piece of content.
@@ -930,6 +938,22 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             </div>
                         </div>
 
+                        {/* Right column: Chimera gauge + action buttons */}
+                        <div className="flex flex-col items-end gap-2">
+
+                        {/* Chimera Score Gauge */}
+                        {score > 0 && (
+                            <a
+                                href="https://grafana.arc-codex.com/d/arc-intelligence-v2"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={`Chimera score: ${Math.round(score * 100)} — view in Grafana`}
+                                className="block"
+                            >
+                                <ChimeraScoreGauge score={score} />
+                            </a>
+                        )}
+
                         {/* Action Buttons */}
                         <div className="flex items-center gap-2">
                             {isPrivate && isOwner && (
@@ -961,7 +985,12 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                     : <Copy aria-hidden="true" />
                                 }
                             </Button>
-                            <ResearchMenu title={translatedFields?.title ?? card.title} />
+                            <ResearchMenu
+                                title={translatedFields?.title ?? card.title}
+                                articleId={card.id}
+                                snippet={researchSnippet}
+                                sourceUrl={card.sourceUrl}
+                            />
                             <ShareMenu
                                 title={translatedFields?.title ?? card.title}
                                 articleId={card.id}
@@ -969,6 +998,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 lang={currentLang}
                                 counterComment={counterComment ?? undefined}
                             />
+                        </div>
                         </div>
                     </header>
 
@@ -978,7 +1008,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                         dir={isRTL ? 'rtl' : 'ltr'}
                         style={isRTL ? { textAlign: 'right' } : undefined}
                     >
-                        {(card.original_text.includes('Video:') || card.original_text.includes('<video')) ? (
+                        {((card.original_text ?? '').includes('Video:') || (card.original_text ?? '').includes('<video')) ? (
                             <VideoList text={t('original_text', card.original_text)} />
                         ) : (
                             <AccordionText

@@ -1,14 +1,13 @@
-# Filename: /home/www/itc_stack/backend/app.py
-# Arc Codex API Engine v49 - /api/upload_image for user cover images
-# NOW INCLUDES: Anti-bot URL fetching with shared fetch_utils
-# Ollama backend for /api/stm with detailed timing and diagnostics
-# FIX: Removed unfair readability penalty that punished technical writing
+# Filename: /home/www/arc_stack/backend/main.py
+# Arc Codex API Engine v50
+# Refactored: removed /api/stm, call_ollama(), /api/me (pre-Auth.js remnants),
+#             duplicate Bluesky constants, fixed get_stats() ghost-hash bug,
+#             fixed upload_image() EXIF orientation (iPhone portrait rotation)
 
 import io
 import pypdf
 import docx
 from rss_feed import rss_blueprint, init_rss
-import orjson
 from odf.opendocument import load as odf_load
 from odf import text as odf_text
 from pypdf import PdfReader
@@ -28,6 +27,7 @@ import nltk
 import textstat
 from textblob import TextBlob
 import uuid
+import threading
 import requests
 import html2text
 import trafilatura
@@ -53,8 +53,6 @@ app.logger.setLevel(logging.INFO)
 # --- CONFIGURATION & INITIALIZATION ---
 SCRIBE_SECRET_KEY = os.getenv("SCRIBE_SECRET_KEY")
 REDIS_URL = os.getenv("REDIS_URL")
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
 MAX_CONTENT_CHARS = 29999  # Unified truncation limit
 DEFAULT_IMAGE_URL = "https://arc-codex.com/information-warfare.jpg"
 PROMPTS = {}
@@ -76,6 +74,8 @@ if REDIS_URL:
         init_rss(r)
         from translation import translation_bp
         app.register_blueprint(translation_bp)
+        from grade import grade_bp
+        app.register_blueprint(grade_bp)
         from user_prefs import user_prefs_bp
         app.register_blueprint(user_prefs_bp)
         from auth import auth_bp, init_auth
@@ -100,7 +100,7 @@ try:
         nltk.download('vader_lexicon', quiet=True)
     SENTIMENT_ANALYZER = SentimentIntensityAnalyzer()
     AI_BACKEND = "ollama"
-    app.logger.info(f"✅ Arc Codex API Engine: NLP initialized. AI Backend: {AI_BACKEND}, Model: {OLLAMA_MODEL}")
+    app.logger.info(f"✅ Arc Codex API Engine: NLP initialized. AI Backend: {AI_BACKEND}")
 except Exception as e:
     app.logger.error(f"🔥 Model Initialization FAILED: {e}")
 
@@ -257,83 +257,7 @@ def fetch_and_process_url(url):
         return (False, "Could not connect to the website. It might be offline or blocking our connection.")
 
 
-# --- HELPER: call Ollama local API with detailed logging ---
-def call_ollama(prompt_text: str, model: str = None, timeout: int = 3600):
-    """
-    Send a prompt to the local Ollama HTTP API and return the response text.
-    """
-    if model is None:
-        model = OLLAMA_MODEL
-
-    # Truncate prompts before sending to prevent OOM
-    if len(prompt_text) > MAX_CONTENT_CHARS:
-        app.logger.warning(f"⚠️  PROMPT TRUNCATED from {len(prompt_text)} to {MAX_CONTENT_CHARS} chars to prevent OOM error.")
-        prompt_text = prompt_text[:MAX_CONTENT_CHARS]
-    
-    url = f"{OLLAMA_URL}/api/generate"
-    payload = {
-        "model": model,
-        "prompt": prompt_text,
-        "stream": False
-    }
-    
-    call_start = time.perf_counter()
-    try:
-        app.logger.info(f"🤖 Calling Ollama API (model: {model}, prompt: {len(prompt_text)} chars)...")
-        resp = requests.post(url, json=payload, timeout=timeout)
-    except requests.exceptions.RequestException as e:
-        duration_ms = (time.perf_counter() - call_start) * 1000
-        app.logger.error(f"🔥 Ollama connection failed after {duration_ms:.0f}ms: {e}")
-        raise Exception(f"Ollama connection failed: {e}")
-
-    duration_ms = (time.perf_counter() - call_start) * 1000
-
-    if resp.status_code != 200:
-        app.logger.error(f"🔥 Ollama API error {resp.status_code} after {duration_ms:.0f}ms: {resp.text[:200]}")
-        raise Exception(f"Ollama API error {resp.status_code}: {resp.text}")
-
-    try:
-        j = resp.json()
-        response_text = None
-        
-        # Ollama usually returns top-level 'response' with the generated text
-        if isinstance(j, dict) and "response" in j:
-            response_text = j["response"].strip()
-        # Some Ollama versions embed differently; be defensive
-        elif isinstance(j, dict) and "outputs" in j and isinstance(j["outputs"], list) and len(j["outputs"]) > 0:
-            out = j["outputs"][0]
-            if isinstance(out, dict) and "content" in out:
-                if isinstance(out["content"], list) and len(out["content"]) > 0:
-                    response_text = "".join([c.get("text", "") for c in out["content"]]).strip()
-                elif isinstance(out["content"], str):
-                    response_text = out["content"].strip()
-        # Fallback to raw text if present
-        elif isinstance(j, dict) and "text" in j:
-            response_text = j["text"].strip()
-
-        # Strip <think>...</think> reasoning blocks from thinking models (e.g. nemotron)
-        if response_text:
-            response_text = re.sub(r'^.*?</think>\s*', '', response_text, flags=re.DOTALL).strip()
-        
-        if response_text is None:
-            raise Exception("Ollama response malformed or unexpected structure.")
-        
-        app.logger.info(f"✅ Ollama response received in {duration_ms:.0f}ms ({len(response_text)} chars)")
-        return (response_text, duration_ms)
-        
-    except ValueError:
-        app.logger.error(f"🔥 Ollama returned non-JSON response after {duration_ms:.0f}ms")
-        raise Exception("Ollama returned non-JSON response.")
-
-
 # --- API ENDPOINTS ---
-@app.route('/api/me', methods=['GET'])
-def api_me():
-    """Returns current local auth session state for frontend."""
-    if session.get('username'):
-        return jsonify({'logged_in': True, 'username': session.get('username'), 'is_admin': bool(session.get('is_admin'))})
-    return jsonify({'logged_in': False, 'username': None, 'is_admin': False})
-
 @app.route('/api/publish_article', methods=['POST'])
 def publish_article():
     if not r: 
@@ -653,19 +577,16 @@ def search_articles():
 def get_stats():
     """Live archive stats — article count, oldest, newest."""
     try:
-        keys = r.keys('article:*')
-        count = len(keys)
+        count = r.zcard('feed')
         oldest = None
         newest = None
         if count > 0:
-            pipe = r.pipeline()
-            for key in keys:
-                pipe.hget(key, 'timestamp')
-            timestamps = [t for t in pipe.execute() if t]
-            if timestamps:
-                timestamps.sort()
-                oldest = timestamps[0]
-                newest = timestamps[-1]
+            oldest_ids = r.zrange('feed', 0, 0)
+            newest_ids = r.zrange('feed', -1, -1)
+            if oldest_ids:
+                oldest = r.hget(f"article:{oldest_ids[0]}", 'timestamp')
+            if newest_ids:
+                newest = r.hget(f"article:{newest_ids[0]}", 'timestamp')
         return jsonify({'article_count': count, 'oldest': oldest, 'newest': newest})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -744,38 +665,6 @@ def get_article_comments(article_id):
         app.logger.error(f"🔥 Error fetching comments for article {article_id}: {e}", exc_info=True)
         return jsonify({'error': 'Internal server error'}), 500
 
-@app.route('/api/get_comments', methods=['GET'])
-def get_comments():
-    if not r: 
-        app.logger.error("🔥 Redis unavailable for get_comments")
-        return jsonify({"error": "Database connection is offline."}), 503
-    try:
-        redis_start = time.perf_counter()
-        # Using SCAN instead of KEYS for better performance
-        comment_keys = []
-        cursor = 0
-        while True:
-            cursor, keys = r.scan(cursor, match='comment:*', count=100)
-            comment_keys.extend(keys)
-            if cursor == 0:
-                break
-        
-        if not comment_keys: 
-            app.logger.info("📭 No comments in database")
-            return jsonify([])
-        
-        pipe = r.pipeline()
-        for key in comment_keys: 
-            pipe.hgetall(key)
-        comments_data = [comment for comment in pipe.execute() if comment]
-        redis_duration = (time.perf_counter() - redis_start) * 1000
-        
-        app.logger.info(f"✅ Retrieved {len(comments_data)} total comments in {redis_duration:.2f}ms")
-        return Response(orjson.dumps(comments_data), mimetype='application/json')
-    except Exception as e:
-        app.logger.error(f"🔥 Error retrieving comments: {e}", exc_info=True)
-        return jsonify({"error": f"Could not retrieve comments: {e}"}), 500
-
 @app.route('/api/submit_comment', methods=['POST'])
 def submit_comment():
     if not r or not SENTIMENT_ANALYZER: 
@@ -850,7 +739,7 @@ def submit_comment():
         return jsonify({"error": f"Server error saving comment: {e}"}), 500
 
 
-VALID_REACTIONS = {'like', 'dislike', 'heart', 'happy', 'sad', 'angry'}
+VALID_REACTIONS = {'like', 'dislike', 'heart', 'happy', 'care'}
 
 @app.route('/api/comment/<comment_id>/react', methods=['POST'])
 def react_to_comment(comment_id):
@@ -892,6 +781,8 @@ def react_to_comment(comment_id):
         app.logger.error(f"🔥 Error processing reaction: {e}", exc_info=True)
         return jsonify({'error': 'Internal server error'}), 500
 
+_pre_analyze_sem = threading.Semaphore(2)
+
 @app.route('/api/pre_analyze', methods=['POST'])
 def pre_analyze():
     """
@@ -917,16 +808,20 @@ def pre_analyze():
         app.logger.error("🔥 NLP Engine unavailable for pre_analyze")
         return jsonify({"error": "NLP Engine is offline."}), 503
 
-    data = request.get_json()
-    input_text  = data.get('inputText', '')
-    article_id  = data.get('article_id', '')   # optional — scribe passes this
-
-    if not input_text:
-        return jsonify({"chimera_score": 0.0, "sentiment": 0.0, "entities_found": []})
-
-    input_text_snippet = input_text[:MAX_CONTENT_CHARS]
+    if not _pre_analyze_sem.acquire(timeout=1):
+        app.logger.warning("⚠️  pre_analyze: concurrency limit reached, returning 429")
+        return jsonify({"error": "Server busy, please retry shortly."}), 429
 
     try:
+        data = request.get_json()
+        input_text  = data.get('inputText', '')
+        article_id  = data.get('article_id', '')   # optional — scribe passes this
+
+        if not input_text:
+            return jsonify({"chimera_score": 0.0, "sentiment": 0.0, "entities_found": []})
+
+        input_text_snippet = input_text[:MAX_CONTENT_CHARS]
+
         analyze_start = time.perf_counter()
 
         # --- VADER sentiment (full breakdown) ---
@@ -965,18 +860,6 @@ def pre_analyze():
                 entity_counts[ent.label_] += 1
                 entities_found.append(ent.label_)
 
-        # Lemmas — top 50 content words, stopwords and punct excluded
-        STOP_LABELS = {"SPACE", "PUNCT", "SYM", "NUM", "X"}
-        lemma_freq = {}
-        for token in doc:
-            if (not token.is_stop and not token.is_punct and not token.is_space
-                    and token.pos_ not in STOP_LABELS and len(token.lemma_) > 2):
-                lemma = token.lemma_.lower()
-                lemma_freq[lemma] = lemma_freq.get(lemma, 0) + 1
-        top_lemmas = sorted(lemma_freq, key=lemma_freq.get, reverse=True)[:50]
-
-        # Noun chunks
-        noun_chunk_count = len(list(doc.noun_chunks))
 
         analyze_duration = (time.perf_counter() - analyze_start) * 1000
 
@@ -1016,15 +899,11 @@ def pre_analyze():
             "sentence_count":       sentence_count,
             "avg_sentence_len":     avg_sentence_len,
             "syllable_count":       syllable_count,
-            "noun_chunk_count":     noun_chunk_count,
 
             # --- New: readability suite ---
             "coleman_liau":         coleman_liau,
             "smog_index":           smog_index,
             "dale_chall":           dale_chall,
-
-            # --- New: lemmas (stored as space-separated string for Redis) ---
-            "top_lemmas":           " ".join(top_lemmas),
         }
 
         # --- Write extended fields to Redis article hash if article_id provided ---
@@ -1044,7 +923,6 @@ def pre_analyze():
                     "nlp_sentence_count":    str(sentence_count),
                     "nlp_avg_sentence_len":  str(avg_sentence_len),
                     "nlp_syllable_count":    str(syllable_count),
-                    "nlp_noun_chunk_count":  str(noun_chunk_count),
                     "nlp_fk_grade":          str(round(readability_grade, 1)),
                     "nlp_reading_level":     reading_level,
                     "nlp_coleman_liau":      str(coleman_liau),
@@ -1057,7 +935,6 @@ def pre_analyze():
                     "nlp_entity_date":       str(entity_counts["DATE"]),
                     "nlp_entity_money":      str(entity_counts["MONEY"]),
                     "nlp_entity_event":      str(entity_counts["EVENT"]),
-                    "nlp_top_lemmas":        " ".join(top_lemmas),
                 }
                 r.hset(f"article:{article_id}", mapping=redis_fields)
                 app.logger.debug(f"📊 NLP fields written to article:{article_id}")
@@ -1069,83 +946,10 @@ def pre_analyze():
     except Exception as e:
         app.logger.error(f"🔥 Pre-analysis failed: {e}", exc_info=True)
         return jsonify({"chimera_score": 0.0, "sentiment": 0.0, "entities_found": []})
+    finally:
+        _pre_analyze_sem.release()
+
 # --- STM ENDPOINT with enhanced logging ---
-@app.route('/api/stm', methods=['POST'])
-def analyze():
-    """
-    Strategic Text Mission (STM) endpoint - AI analysis via Ollama
-    Enhanced with detailed performance logging and timing
-    """
-    endpoint_start = time.perf_counter()
-    
-    if AI_BACKEND != "ollama":
-        app.logger.warning("⚠️  AI_BACKEND is not set to 'ollama'. STM will attempt to use Ollama by default.")
-
-    data = request.get_json(force=True, silent=True)
-    if not data:
-        app.logger.error("🔥 STM: No JSON payload provided")
-        return jsonify({"error": "Invalid request: JSON payload required."}), 400
-
-    mission = data.get('mission')
-    instruction = data.get('instruction')
-    input_text = data.get('inputText', '')
-
-    if not mission:
-        app.logger.error("🔥 STM: 'mission' field missing from request")
-        return jsonify({"error": "Invalid request: mission is required."}), 400
-
-    # Log mission start with truncated input
-    app.logger.info(f"🎯 STM START: mission='{mission}' | input_length={len(input_text)} chars")
-    app.logger.info(f"   Input preview: {safe_truncate(input_text, 200)}")
-
-    # Build instruction if not provided
-    if not instruction:
-        try:
-            mission_text = PROMPTS.get("mission", "")
-            red_text = PROMPTS.get("teams", {}).get("red", {}).get("instruction", "")
-            blue_text = PROMPTS.get("teams", {}).get("blue", {}).get("instruction", "")
-            purple_text = PROMPTS.get("teams", {}).get("purple", {}).get("instruction", "")
-            constraints = PROMPTS.get("constraints", "")
-            instruction = f"{mission_text}\n\nRed Team Instruction:\n{red_text}\n\nBlue Team Instruction:\n{blue_text}\n\nPurple Team Instruction:\n{purple_text}\n\nConstraints:\n{constraints}"
-            app.logger.info(f"   Built instruction from prompts.yaml (fallback)")
-        except Exception as e:
-            app.logger.error(f"🔥 STM: Failed building instruction from prompts.yaml: {e}")
-            return jsonify({"error": "Invalid request: instruction missing and prompts.yaml unavailable."}), 400
-
-    try:
-        # Combine instruction + article into final prompt
-        # Put instruction AFTER article so it doesn't get truncated if article is too long
-        final_prompt = f"--- ARTICLE TEXT ---\n{input_text}\n\n--- ANALYSIS INSTRUCTIONS ---\n{instruction}"
-        
-        # Call Ollama with timing
-        app.logger.info(f"🤖 STM: Executing mission '{mission}' via Ollama (model: {OLLAMA_MODEL})")
-        generated, ollama_duration = call_ollama(
-            final_prompt, 
-            model=OLLAMA_MODEL, 
-            timeout=900
-        )
-        
-        clean_text = generated.strip()
-        endpoint_duration = (time.perf_counter() - endpoint_start) * 1000
-        
-        # Log completion with truncated output
-        app.logger.info(f"✅ STM COMPLETE: mission='{mission}' | ollama_time={ollama_duration:.0f}ms | total_time={endpoint_duration:.0f}ms | output_length={len(clean_text)} chars")
-        app.logger.info(f"   Output preview: {safe_truncate(clean_text, 300)}")
-        
-        return jsonify({
-            "analysis": clean_text,
-            "duration_ms": round(endpoint_duration, 2)
-        })
-        
-    except Exception as e:
-        endpoint_duration = (time.perf_counter() - endpoint_start) * 1000
-        app.logger.error(f"🔥 STM FAILED: mission='{mission}' after {endpoint_duration:.0f}ms | error: {e}", exc_info=True)
-        hint = "Ensure Ollama is installed, the chosen model is pulled, and the Ollama service is listening on the configured URL."
-        return jsonify({
-            "error": f"AI model failed: {e}", 
-            "hint": hint
-        }), 500
-
 def extract_file_text(file_storage):
     """Extract text from uploaded files: txt, md, pdf, docx, odt"""
     filename = file_storage.filename.lower()
@@ -1395,7 +1199,7 @@ def upload_image():
         return jsonify({'error': 'No image provided'}), 400
 
     # Validate content type
-    allowed_types = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
+    allowed_types = {'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'}
     if file.mimetype not in allowed_types:
         return jsonify({'error': 'Unsupported image type. Use JPG, PNG, WebP, or GIF.'}), 400
 
@@ -1403,10 +1207,16 @@ def upload_image():
     if len(raw) > 10 * 1024 * 1024:
         return jsonify({'error': 'Image must be under 10MB'}), 400
     # Resize to social-card safe dimensions (max 1200x630, keeps aspect ratio)
-    from PIL import Image
+    try:
+        from pillow_heif import register_heif_opener
+        register_heif_opener()
+    except ImportError:
+        pass
+    from PIL import Image, ImageOps
     import io
     try:
         img = Image.open(io.BytesIO(raw))
+        img = ImageOps.exif_transpose(img)  # honour iPhone/Android EXIF orientation before anything else
         img = img.convert('RGB')
         img.thumbnail((1200, 630), Image.LANCZOS)
         out = io.BytesIO()
@@ -1437,13 +1247,6 @@ def upload_image():
 
 
 # --- BLUESKY POST ENDPOINT ---
-# Add to main.py after the LinkedIn endpoints
-
-import requests as requests
-
-BLUESKY_HANDLE     = os.getenv("BLUESKY_HANDLE", "hapenez.bsky.social")
-BLUESKY_APP_PASSWORD = os.getenv("BLUESKY_APP_PASSWORD", "")
-BLUESKY_API_BASE   = "https://bsky.social/xrpc"
 
 def bluesky_get_token():
     """Authenticate and return (did, accessJwt) or raise."""

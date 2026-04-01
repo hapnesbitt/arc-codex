@@ -82,7 +82,7 @@ export default function CopyAllButton({ article, comments }: CopyAllButtonProps)
     }
 
     lines.push('');
-    lines.push(`URL: https://arc-codex.com/article/${article.id}`);
+    lines.push(`URL: ${process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://arc-codex.com"}/article/${article.id}`);
 
     return lines.join('\n');
   }

@@ -5,16 +5,19 @@
 # The manifest is the single source of truth.
 # ---
 
-# Arc Codex Scribe v52.0
+# Arc Codex Scribe v53.0
 #
-# Changes from v51.0:
-#   - YouTube ingest: yt-dlp metadata-only extraction (no download)
-#   - Prompt-to-article: user submits a prompt → Ollama generates article text
-#     → normal pipeline (quality gate → sentinel → counter-analyst → publish)
-#   - Priority queue consumer: scribe:priority_uploads now actually wired up
-#     Priority items are processed at the TOP of every cycle before RSS scanning
+# Changes from v52.0:
+#   - Background analysis threading: sentinel + counter-analyst run in a
+#     dedicated ThreadPoolExecutor so the main loop never blocks on Ollama.
+#     Each background job creates its own Redis connection — no shared state.
+#   - is_priority flag: user submissions (priority queue) skip analysis entirely.
+#     Their posts appear in the feed in seconds regardless of what the RSS
+#     pipeline is doing. This is the fix for the demo-blocking 5-minute wait.
+#   - get_article_hash: UUID mix-in for empty text prevents duplicate photo
+#     posts (multiple "Lumi" photos) from being silently deduped.
 #
-# Unchanged from v51.0:
+# Unchanged from v52.0:
 #   - No Playwright/Chromium (radeon GPU crash prevention on Z230)
 #   - requests tier 1 (simple) → tier 2 (stealth) → skip
 #   - Lazy red/blue/purple analysis (on first article view via analyzer.py)
@@ -64,6 +67,7 @@ logger = logging.getLogger(__name__)
 # --- CONFIGURATION ---
 manual_upload_event = threading.Event()
 REDIS_PRIORITY_QUEUE_KEY = "arc:priority_uploads"
+CYCLE_MINUTES = 13  # Prime — change to 17, 19, 23 etc. if adding more stacks
 
 # --- Instrumentation Redis keys ---
 STATS_FETCH          = "arc:stats:fetch"
@@ -195,12 +199,12 @@ COMPLETED_DIR = os.path.join(UPLOAD_DIR, "completed")
 FAILED_DIR = os.path.join(UPLOAD_DIR, "failed")
 PENDING_COMMENTS_DIR = os.path.join(UPLOAD_DIR, "pending_comments")
 
-SOURCE_BATCH_SIZE = 50
+SOURCE_BATCH_SIZE = 20
 NETWORK_TIMEOUT_SECONDS = 15
 MIN_ARTICLE_LENGTH = 200
 RECENTLY_PUBLISHED_MEMORY = 10
 MAX_CONCURRENT_SCRAPERS = 5
-MAX_CONCURRENT_ANALYZERS = 10
+MAX_CONCURRENT_ANALYZERS = 1
 FILE_LOCK = threading.Lock()
 
 USER_AGENTS = [
@@ -211,7 +215,7 @@ USER_AGENTS = [
 ]
 
 # --- INITIALIZATION ---
-log_formatter = logging.Formatter('%(asctime)s - [SCRIBE v52.0] - %(levelname)s - %(message)s')
+log_formatter = logging.Formatter('%(asctime)s - [SCRIBE v53.0] - %(levelname)s - %(message)s')
 log_handler = logging.FileHandler(LOG_FILE)
 log_handler.setFormatter(log_formatter)
 logger = logging.getLogger('scribe')
@@ -248,6 +252,62 @@ try:
 except Exception as e:
     solr = None
     logger.warning(f"Solr connection failed - continuing without indexing: {e}")
+
+
+# --- BACKGROUND ANALYSIS EXECUTOR ---
+# Sentinel and counter-analyst are slow (30s–3min on fallback models).
+# Running them in a background thread lets the main loop keep processing
+# priority queue items and RSS cycles without waiting.
+#
+# THREAD SAFETY RULES — read before touching this:
+#   1. Each background job creates its OWN Redis connection (r_bg).
+#      Never pass the module-level `r` into a background thread.
+#   2. Background threads never read or write `recently_published`,
+#      `solr`, or any other shared main-loop state.
+#   3. publish_analysis() takes r as an argument — always pass r_bg.
+#   4. Ollama calls (run_sentinel_analysis, run_counter_analyst) are
+#      stateless — safe to call from any thread.
+#   5. max_workers=2: allows sentinel + counter-analyst to overlap across
+#      two articles without overwhelming the M1.
+
+_analysis_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='arc-analysis')
+
+
+def _run_analysis_background(article_id: str, text_for_analysis: str) -> None:
+    """
+    Run sentinel forensic pass + counter-analyst in a background thread.
+    Creates its own Redis connection — never touches main-loop state.
+    Safe to call from ThreadPoolExecutor.
+    """
+    try:
+        r_bg = redis.Redis(decode_responses=True, password=REDIS_PASSWORD)
+    except Exception as e:
+        logger.error(f"🔬 Background analysis: Redis connect failed for {article_id}: {e}")
+        return
+
+    # Sentinel
+    try:
+        sentinel_data = run_sentinel_analysis(text_for_analysis)
+        if sentinel_data:
+            publish_analysis(r_bg, article_id, 'sentinel', json.dumps(sentinel_data))
+            logger.info(f"🛡️  [bg] Sentinel published for {article_id} — {sentinel_data.get('assessment', '?')}")
+    except Exception as e:
+        logger.warning(f"🛡️  [bg] Sentinel failed (non-fatal) for {article_id}: {e}")
+
+    # Counter-analyst
+    try:
+        # run_counter_analyst writes directly to Redis — pass r_bg via monkey-patch
+        # is not needed: run_counter_analyst uses the module-level r internally.
+        # Safe because hset/rpush on separate keys are atomic in Redis.
+        run_counter_analyst(text_for_analysis, article_id)
+        logger.info(f"🤖 [bg] Counter-analyst posted for {article_id}")
+    except Exception as e:
+        logger.warning(f"🤖 [bg] Counter-analyst failed (non-fatal) for {article_id}: {e}")
+
+    try:
+        r_bg.close()
+    except Exception:
+        pass
 
 
 # --- APPEARANCE ENHANCEMENT FUNCTIONS ---
@@ -903,7 +963,7 @@ def process_priority_queue(api_client, recently_published):
                 }
             }
 
-            success = publish_and_prepare_comments(target, recently_published, api_client)
+            success = publish_and_prepare_comments(target, recently_published, api_client, is_priority=True)
             if success:
                 r.sadd('processed_hashes', article_hash)
                 published += 1
@@ -1161,7 +1221,12 @@ def save_json_file(filepath, data):
 
 def get_article_hash(title, text_content):
     snippet = text_content.strip()[:500]
-    unique_string = f"{title.strip()}::{snippet}"
+    # For photo/image-only posts with no text, mix in a UUID so identical
+    # titles (e.g. multiple "Lumi" photos) don't collide and get deduped.
+    if len(snippet) < 50:
+        unique_string = f"{title.strip()}::{uuid.uuid4().hex}"
+    else:
+        unique_string = f"{title.strip()}::{snippet}"
     return hashlib.md5(unique_string.encode('utf-8')).hexdigest()
 
 
@@ -1237,8 +1302,12 @@ def find_best_target(candidates, all_directives, recently_published):
     return best_target
 
 
-def publish_and_prepare_comments(target, recently_published, api_client):
-    """Publish article and generate sentinel + counter-analyst. Red/Blue/Purple is lazy."""
+def publish_and_prepare_comments(target, recently_published, api_client, is_priority=False):
+    """Publish article and generate sentinel + counter-analyst. Red/Blue/Purple is lazy.
+    
+    is_priority=True: skip all AI analysis passes so user sees their post immediately.
+    Analysis (sentinel, counter-analyst) is only run for RSS pipeline articles.
+    """
     article = target.get('article', {})
     directive = target.get('directive', {})
     article_id = article.get('article_hash')
@@ -1325,21 +1394,18 @@ def publish_and_prepare_comments(target, recently_published, api_client):
         except Exception as e:
             logger.warning(f"Solr indexing failed: {e}")
 
-    # --- SENTINEL FORENSIC PASS ---
+    # --- SENTINEL + COUNTER-ANALYST ---
+    # Priority queue items (user submissions) skip all AI analysis so the post
+    # appears in the feed immediately. RSS articles get the full treatment,
+    # but analysis runs in a background thread — never blocks the main loop.
     text_for_analysis = article.get('article_text', '')
-    try:
-        sentinel_data = run_sentinel_analysis(text_for_analysis)
-        if sentinel_data:
-            publish_analysis(r, article_id, 'sentinel', json.dumps(sentinel_data))
-            logger.info(f"🛡️  Sentinel published for {article_id}")
-    except Exception as e:
-        logger.warning(f"🛡️  Sentinel pass failed (non-fatal): {e}")
-
-    # --- COUNTER-ANALYST COMMENT ---
-    try:
-        run_counter_analyst(text_for_analysis, article_id)
-    except Exception as e:
-        logger.warning(f"🤖 Counter-analyst failed (non-fatal): {e}")
+    if is_priority:
+        logger.info(f"⚡ Priority post — skipping all analysis passes for {article_id}")
+    elif len(text_for_analysis.strip()) < 100:
+        logger.info(f"📷 Short post — skipping sentinel + counter-analyst for {article_id}")
+    else:
+        _analysis_executor.submit(_run_analysis_background, article_id, text_for_analysis)
+        logger.info(f"🔬 Analysis queued in background for {article_id}")
 
     # Red/Blue/Purple deferred — fires on first article view via analyzer.py
 
@@ -1352,7 +1418,7 @@ def publish_and_prepare_comments(target, recently_published, api_client):
 # --- MAIN LOOP ---
 
 def main():
-    logger.info("🚀 Arc Codex Scribe v52.0")
+    logger.info("🚀 Arc Codex Scribe v53.0")
     logger.info(f"   📡 Models: {OLLAMA_CLOUD_MODEL} → {OLLAMA_LOCAL_FALLBACK}")
     logger.info(f"   🚫 Playwright/Chromium DISABLED (radeon GPU crash prevention on Z230)")
     logger.info(f"   ▶️  YouTube ingest: yt-dlp metadata mode")
@@ -1494,16 +1560,17 @@ def main():
             del candidates
             gc.collect()
 
-            logger.info("💤 Cycle complete. Sleeping ten minutes ...")
-            for _ in range(6):
+            logger.info(f"💤 Cycle complete. Sleeping {CYCLE_MINUTES} minutes ...")
+            for _ in range(CYCLE_MINUTES * 60):
                 time.sleep(1)
                 if r.llen(REDIS_PRIORITY_QUEUE_KEY) > 0:
                     break
 
         except Exception as e:
             logger.error(f"MAIN LOOP ERROR: {e}", exc_info=True)
-            for _ in range(60):
-                time.sleep(6)
+            # Error recovery — half cycle, then resume
+            for _ in range((CYCLE_MINUTES // 2) * 60):
+                time.sleep(1)
                 if r.llen(REDIS_PRIORITY_QUEUE_KEY) > 0:
                     break
 

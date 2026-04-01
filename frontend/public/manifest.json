@@ -1,0 +1,21 @@
+{
+  "name": "Arc Codex Intelligence",
+  "short_name": "Arc Codex",
+  "description": "AI-powered news intelligence with A.R.C. analysis.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#040404",
+  "theme_color": "#f59e0b",
+  "icons": [
+    {
+      "src": "/arc-codex-logo.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "/arc-codex-logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}

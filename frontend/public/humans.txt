@@ -1,0 +1,11 @@
+/* TEAM */
+Founder: Ross
+Role: System Administrator & DevOps Engineer
+Mission: Transforming raw information into structured intelligence.
+
+/* SITE */
+Last Updated: 2026-03-26
+Standards: A.R.C. (Argumentative Resilience Codex)
+Components: Python, Flask, Next.js, Redis, Solr
+Software: Ollama on M1 (Inference)
+Hardware: HP Z230 SFF Workstation

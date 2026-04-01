@@ -1,10 +1,5 @@
 // File: /frontend/app/ClientLayout.tsx
-// VERSION: v3 — Local auth integration
-//
-// Changes from v2:
-//   - MobileAuthButton: Google signIn replaced with Login/Register links + GitHub only
-//   - Fetches /api/me for local auth state on mobile (same as UserMenu)
-//   - Admin panel link shown in mobile sheet when is_admin
+// VERSION: v4 — Removed local auth (/api/me), login uses signIn() provider picker
 
 'use client';
 
@@ -15,7 +10,7 @@ import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BookOpen, Send, Search, Activity, Home, LogIn,
-  X, Globe, Check, AlertCircle, Trash2, Shield, UserCircle,
+  X, Globe, Check, AlertCircle, Trash2, Shield,
 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import styles from './LayoutTheme.module.css';
@@ -25,35 +20,11 @@ import UserMenu from '@/components/UserMenu';
 import LANGUAGES from '@/lib/languages.json';
 
 // ---------------------------------------------------------------------------
-// useLocalAuth — shared hook for Flask session state
-// ---------------------------------------------------------------------------
-
-interface LocalAuth {
-  logged_in: boolean;
-  username: string | null;
-  is_admin: boolean;
-}
-
-function useLocalAuth(): LocalAuth {
-  const [localAuth, setLocalAuth] = useState<LocalAuth>({ logged_in: false, username: null, is_admin: false });
-
-  useEffect(() => {
-    fetch("/api/me", { credentials: "include" })
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => { if (data?.logged_in) setLocalAuth(data); })
-      .catch(() => {});
-  }, []);
-
-  return localAuth;
-}
-
-// ---------------------------------------------------------------------------
 // MobileAuthButton
 // ---------------------------------------------------------------------------
 
 const MobileAuthButton = () => {
   const { data: session, status } = useSession();
-  const localAuth = useLocalAuth();
   const { prefs, savePreferredLang, clearPreferredLang, deleteAccount } = useUserPrefs();
   const [isOpen, setIsOpen]               = useState(false);
   const [tempLang, setTempLang]           = useState("");
@@ -295,47 +266,24 @@ const MobileAuthButton = () => {
     );
   }
 
-  // ── Local auth authenticated — minimal mobile indicator ───────────────────
-  if (localAuth.logged_in) {
-    return (
-      <div className="group relative flex flex-col items-center flex-1">
-        <div className="relative rounded-xl p-1.5 bg-black/40 border border-green-400/20">
-          <UserCircle size={24} className="text-green-400" aria-hidden="true" />
-        </div>
-        <span className="mt-2 text-[8px] uppercase font-bold tracking-widest text-green-400" aria-hidden="true">
-          {localAuth.username}
-        </span>
-        {localAuth.is_admin && (
-          <a
-            href="/auth/admin/users"
-            className="mt-1 text-[7px] uppercase font-black tracking-widest text-green-500 hover:text-green-300 transition-colors"
-            aria-label="Admin panel"
-          >
-            admin
-          </a>
-        )}
-      </div>
-    );
-  }
-
-  // ── Not authenticated — Login / Register / GitHub ─────────────────────────
+  // ── Not authenticated — single Sign In button ─────────────────────────────
   return (
     <div className="group relative flex flex-col items-center flex-1">
-      <a
-        href="/auth/login"
+      <button
+        onClick={() => signIn()}
         className="group relative flex flex-col items-center outline-none"
-        aria-label="Log in"
+        aria-label="Sign in"
       >
         <motion.div
           whileHover={{ y: -5 }}
-          className="relative rounded-xl p-3 transition-all bg-black/40 border border-white/5 hover:bg-white/5 group-focus-visible:ring-2 group-focus-visible:ring-white"
+          className="relative rounded-xl p-3 transition-all bg-black/40 border border-white/5 hover:bg-white/5 group-focus-visible:ring-2 group-focus-visible:ring-amber-400"
         >
-          <LogIn size={20} className="text-slate-500 group-hover:text-white" aria-hidden="true" />
+          <LogIn size={20} className="text-slate-500 group-hover:text-amber-400" aria-hidden="true" />
         </motion.div>
-        <span className="mt-2 text-[8px] uppercase font-bold tracking-widest text-slate-500 group-hover:text-white" aria-hidden="true">
-          Log In
+        <span className="mt-2 text-[8px] uppercase font-bold tracking-widest text-slate-500 group-hover:text-amber-400" aria-hidden="true">
+          Sign In
         </span>
-      </a>
+      </button>
     </div>
   );
 };
@@ -357,7 +305,11 @@ const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => {
     <div className={cn("flex h-full w-full relative items-center", isMobile ? "flex-row justify-around px-2" : "flex-col py-8")}>
       {!isMobile && (
         <div className="mb-12">
-          <Link href="/" aria-label="Arc Codex Home">
+          <Link
+            href="/"
+            aria-label="Arc Codex Home"
+            onClick={() => document.getElementById('main-content')?.scrollTo({ top: 0, behavior: 'smooth' })}
+          >
             <img
               src="/arc-codex-logo.jpg"
               alt="Arc Codex"
@@ -379,6 +331,10 @@ const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => {
               href={link.href}
               className="group relative flex flex-col items-center flex-1 outline-none"
               aria-current={isActive ? "page" : undefined}
+              onClick={isActive ? (e: React.MouseEvent) => {
+                e.preventDefault();
+                document.getElementById('main-content')?.scrollTo({ top: 0, behavior: 'smooth' });
+              } : undefined}
             >
               <motion.div
                 whileHover={{ y: isMobile ? -5 : -2 }}

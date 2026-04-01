@@ -1472,48 +1472,226 @@ def my_publications(r, solr):
     except (ValueError, IndexError):
         print(colored("Invalid selection.", "red"))
 
-# ==============================================================================
-# Main
-# ==============================================================================
+def generate_sitemap(r):
+        """Generates sitemap.xml by pulling slugs or hex IDs directly from Redis."""
+        import xml.etree.ElementTree as ET
+        import requests
+        print(colored("\n[!] Scanning Redis for published intelligence...", "yellow"))
+
+        output_path = "/home/www/arc_stack/frontend/public/sitemap.xml"
+
+        try:
+            keys = r.keys("article:*")
+            root = ET.Element("urlset", xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
+
+            # Static Homepage
+            url_node = ET.SubElement(root, "url")
+            ET.SubElement(url_node, "loc").text = "https://arc-codex.com/"
+            ET.SubElement(url_node, "priority").text = "1.0"
+
+            count = 0
+            for key in keys:
+                article = r.hgetall(key)
+                slug_raw = article.get(b'slug') or article.get('slug')
+                ts_raw = article.get(b'timestamp') or article.get('timestamp')
+
+                if slug_raw:
+                    slug = slug_raw.decode('utf-8') if isinstance(slug_raw, bytes) else slug_raw
+                else:
+                    key_str = key.decode('utf-8') if isinstance(key, bytes) else key
+                    slug = key_str.split(':')[-1]
+
+                url_node = ET.SubElement(root, "url")
+                ET.SubElement(url_node, "loc").text = f"https://arc-codex.com/article/{slug}"
+
+                if ts_raw:
+                    ts = ts_raw.decode('utf-8') if isinstance(ts_raw, bytes) else ts_raw
+                    ET.SubElement(url_node, "lastmod").text = ts[:10]
+
+                ET.SubElement(url_node, "priority").text = "0.8"
+                count += 1
+
+            tree = ET.ElementTree(root)
+            with open(output_path, "wb") as f:
+                f.write(b'<?xml version="1.0" encoding="UTF-8"?>\n')
+                tree.write(f, encoding='utf-8', xml_declaration=False)
+
+            print(colored(f"[✓] Success: {count} articles synced to {output_path}", "green"))
+
+            # Search Engine Pings
+            print(colored("[!] Notifying search engines of sitemap update...", "cyan"))
+            for engine in ["google", "bing"]:
+                try:
+                    requests.get(f"https://www.{engine}.com/ping?sitemap=https://arc-codex.com/sitemap.xml", timeout=5)
+                except:
+                    continue
+        except Exception as e:
+            print(colored(f"[!] Sitemap generation failed: {e}", "red"))
+
+def generate_rss(r):
+        """Enriched RSS Generator for Arc Codex Elite."""
+        import xml.etree.ElementTree as ET
+        import requests
+        from datetime import datetime
+        print(colored("\n[!] Broadcasting Elite RSS feed...", "magenta"))
+
+        output_path = "/home/www/arc_stack/frontend/public/rss.xml"
+
+        try:
+            rss = ET.Element("rss", version="2.0")
+            channel = ET.SubElement(rss, "channel")
+            ET.SubElement(channel, "title").text = "Arc Codex | Intelligence Discovery"
+            ET.SubElement(channel, "link").text = "https://arc-codex.com"
+            ET.SubElement(channel, "description").text = "AI for the Independent Mind"
+            ET.SubElement(channel, "lastBuildDate").text = datetime.now().strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+            keys = r.keys("article:*")
+            articles = []
+            for key in keys:
+                data = r.hgetall(key)
+                ts_raw = data.get(b'timestamp') or data.get('timestamp', '')
+                ts = ts_raw.decode('utf-8') if isinstance(ts_raw, bytes) else ts_raw
+                articles.append((ts, key, data))
+
+            articles.sort(key=lambda x: x[0], reverse=True)
+
+            for ts, key, data in articles[:100]:
+                item = ET.SubElement(channel, "item")
+                title_raw = data.get(b'title') or data.get('title', 'Untitled Intel')
+                title = title_raw.decode('utf-8') if isinstance(title_raw, bytes) else title_raw
+                slug_raw = data.get(b'slug') or data.get('slug', (key.decode('utf-8') if isinstance(key, bytes) else key).split(':')[-1])
+                slug = slug_raw.decode('utf-8') if isinstance(slug_raw, bytes) else slug_raw
+
+                ET.SubElement(item, "title").text = title
+                ET.SubElement(item, "link").text = f"https://arc-codex.com/article/{slug}"
+                ET.SubElement(item, "pubDate").text = ts
+
+            tree = ET.ElementTree(rss)
+            with open(output_path, "wb") as f:
+                f.write(b'<?xml version="1.0" encoding="UTF-8"?>\n')
+                tree.write(f, encoding='utf-8', xml_declaration=False)
+
+            print(colored(f"[✓] Elite Feed live: {output_path}", "green"))
+            try:
+                requests.get("https://www.bing.com/ping?sitemap=https://arc-codex.com/rss.xml", timeout=5)
+                print(colored("[!] RSS update broadcasted to Bing.", "cyan"))
+            except:
+                pass
+        except Exception as e:
+            print(colored(f"[!] Elite RSS failed: {e}", "red"))
+
+def generate_news_sitemap(r):
+        """Generates a high-velocity Google News sitemap for the last 48 hours."""
+        import xml.etree.ElementTree as ET
+        import requests
+        from datetime import datetime, timedelta
+        print(colored("\n[!] Filtering for fresh intelligence (Last 48h)...", "yellow"))
+
+        output_path = "/home/www/arc_stack/frontend/public/news-sitemap.xml"
+        cutoff = datetime.now() - timedelta(hours=48)
+
+        try:
+            keys = r.keys("article:*")
+            root = ET.Element("urlset", xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
+            root.set("xmlns:news", "http://www.google.com/schemas/sitemap-news/0.9")
+
+            count = 0
+            for key in keys:
+                article = r.hgetall(key)
+                ts_raw = article.get(b'timestamp') or article.get('timestamp')
+
+                if ts_raw:
+                    ts_str = ts_raw.decode('utf-8') if isinstance(ts_raw, bytes) else ts_raw
+                    try:
+                        # Parse with timezone awareness
+                        article_date = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+                        if article_date.replace(tzinfo=None) < cutoff:
+                            continue
+                    except:
+                        continue
+
+                    slug_raw = article.get(b'slug') or article.get('slug')
+                    title_raw = article.get(b'title') or article.get('title', 'Untitled Intel')
+
+                    slug = slug_raw.decode('utf-8') if isinstance(slug_raw, bytes) else slug_raw
+                    title = title_raw.decode('utf-8') if isinstance(title_raw, bytes) else title_raw
+
+                    url_node = ET.SubElement(root, "url")
+                    ET.SubElement(url_node, "loc").text = f"https://arc-codex.com/article/{slug}"
+
+                    news_node = ET.SubElement(url_node, "news:news")
+                    pub_node = ET.SubElement(news_node, "news:publication")
+                    ET.SubElement(pub_node, "news:name").text = "Arc Codex"
+                    ET.SubElement(pub_node, "news:language").text = "en"
+
+                    ET.SubElement(news_node, "news:publication_date").text = ts_str
+                    ET.SubElement(news_node, "news:title").text = title
+                    count += 1
+
+            tree = ET.ElementTree(root)
+            with open(output_path, "wb") as f:
+                f.write(b'<?xml version="1.0" encoding="UTF-8"?>\n')
+                tree.write(f, encoding='utf-8', xml_declaration=False)
+
+            print(colored(f"[✓] News Wire live: {count} recent stories at {output_path}", "green"))
+
+            try:
+                requests.get(f"https://www.google.com/ping?sitemap=https://arc-codex.com/news-sitemap.xml", timeout=5)
+                print(colored("[!] Google News pinged successfully.", "cyan"))
+            except:
+                pass
+        except Exception as e:
+            print(colored(f"[!] News Sitemap failed: {e}", "red"))
+
+    # ==============================================================================
+    # Main
+    # ==============================================================================
 
 def main():
-    print(colored(BANNER, "cyan"))
-    r    = connect_redis()
-    solr = connect_solr()
+        print(colored(BANNER, "cyan"))
+        r    = connect_redis()
+        solr = connect_solr()
 
-    while True:
-        get_db_status(r, solr)
-        print("\n  [1]  Research / Search")
-        print("  [2]  Emergency Removal")
-        print("  [3]  Trim Database")
-        print("  [4]  Inspect Article")
-        print("  [5]  Re-index Solr")
-        print("  [6]  Solr Diagnostics")
-        print("  [7]  Purge Solr Orphans")
-        print("  [8]  Purge Redis Orphans")
-        print("  [9]  Intelligence Dashboard")
-        print("  [10] A.R.C. Pattern Scanner")
-        print("  [11] My Publications")
-        print("  [q]  Quit\n")
+        while True:
+            get_db_status(r, solr)
+            print("\n  [1]  Research / Search")
+            print("  [2]  Emergency Removal")
+            print("  [3]  Trim Database")
+            print("  [4]  Inspect Article")
+            print("  [5]  Re-index Solr")
+            print("  [6]  Solr Diagnostics")
+            print("  [7]  Purge Solr Orphans")
+            print("  [8]  Purge Redis Orphans")
+            print("  [9]  Intelligence Dashboard")
+            print("  [10] A.R.C. Pattern Scanner")
+            print("  [11] My Publications")
+            print("  [12] Generate Sitemap")
+            print("  [13] Generate RSS Feed")
+            print("  [14] Generate News Sitemap")
+            print("  [q]  Quit\n")
 
-        choice = input("Select: ").strip().lower()
+            choice = input("Select: ").strip().lower()
 
-        if   choice == '1':  research_articles(r, solr)
-        elif choice == '2':  emergency_removal_menu(r, solr)
-        elif choice == '3':  trim_database(r, solr)
-        elif choice == '4':  inspect_article(r, solr)
-        elif choice == '5':  reindex_solr(r, solr)
-        elif choice == '6':  solr_diagnostics(solr)
-        elif choice == '7':  purge_solr_orphans(r, solr)
-        elif choice == '8':  purge_redis_orphans(r, solr)
-        elif choice == '9':  intelligence_dashboard(r, solr)
-        elif choice == '10': arc_pattern_scanner(r, solr)
-        elif choice == '11': my_publications(r, solr)
-        elif choice in ('', 'q', 'quit', 'exit'):
-            print("Goodbye.")
-            break
-        else:
-            print(colored("Invalid selection.", "red"))
+            if   choice == '1':  research_articles(r, solr)
+            elif choice == '2':  emergency_removal_menu(r, solr)
+            elif choice == '3':  trim_database(r, solr)
+            elif choice == '4':  inspect_article(r, solr)
+            elif choice == '5':  reindex_solr(r, solr)
+            elif choice == '6':  solr_diagnostics(solr)
+            elif choice == '7':  purge_solr_orphans(r, solr)
+            elif choice == '8':  purge_redis_orphans(r, solr)
+            elif choice == '9':  intelligence_dashboard(r, solr)
+            elif choice == '10': arc_pattern_scanner(r, solr)
+            elif choice == '11': my_publications(r, solr)
+            elif choice == '12': generate_sitemap(r)
+            elif choice == '13': generate_rss(r)
+            elif choice == '14': generate_news_sitemap(r)
+            elif choice in ('', 'q', 'quit', 'exit'):
+                print("Goodbye.")
+                break
+            else:
+                print(colored("Invalid selection.", "red"))
 
 if __name__ == "__main__":
-    main()
+        main()
+

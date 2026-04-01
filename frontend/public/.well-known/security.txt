@@ -1,0 +1,5 @@
+Contact: mailto:rossnesbitt@gmail.com
+Expires: 2027-01-01T00:00:00.000Z
+Mission: Systematic combat of disinformation using Python and the A.R.C. framework.
+Architecture: AI inference hosted on M1 hardware; backend on Ubuntu 24.04 LTS.
+Policy: https://arc-codex.com/about/privacy

@@ -17,8 +17,8 @@ interface PageProps {
 async function getArticleData(articleId: string): Promise<Article | null> {
   try {
     const res = await fetch(
-      `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/article/${articleId}`,
-      { next: { revalidate: 300 } } // 5 min cache
+      `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/article/${articleId}`, 
+      { next: { revalidate: 300 } } // 5 min cache 
     );
     
     if (res.ok) {
@@ -42,7 +42,7 @@ async function getArticleComments(articleId: string): Promise<Comment[]> {
   try {
     const res = await fetch(
       `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/article/${articleId}/comments`,
-      { next: { revalidate: 60 } } // 1 min cache
+      { next: { revalidate: 60 } } // 1 min cache 
     );
     
     if (res.ok) {

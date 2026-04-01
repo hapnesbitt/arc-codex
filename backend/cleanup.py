@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+"""
+Arc Codex Cleanup Script
+backend/cleanup.py
+
+Non-interactive maintenance script — safe to schedule via cron.
+Runs orphan purges on Redis and Solr, logs results.
+
+Cron (Sunday 1am, before cold backup):
+  0 1 * * 0 /home/www/arc_stack/venv/bin/python3 /home/www/arc_stack/backend/cleanup.py >> /home/www/arc_stack/logs/cleanup.log 2>&1
+
+Also safe to run manually at any time — read-only scan first, then purge.
+"""
+
+import os
+import sys
+import logging
+from datetime import datetime, timezone
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# --- LOGGING ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - [CLEANUP] - %(levelname)s - %(message)s',
+    stream=sys.stdout,
+)
+logger = logging.getLogger('cleanup')
+
+# --- CONFIG ---
+REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', 'simplenes')
+SOLR_URL       = os.environ.get('SCRIBE_SOLR_URL', 'http://localhost:8983/solr/feeds/')
+
+
+def get_redis():
+    import redis
+    r = redis.Redis(decode_responses=True, password=REDIS_PASSWORD)
+    r.ping()
+    return r
+
+
+def get_solr():
+    import pysolr
+    solr = pysolr.Solr(SOLR_URL)
+    solr.ping()
+    return solr
+
+
+def purge_redis_orphans(r) -> int:
+    """
+    Remove article:{id} hashes that have no entry in the feed sorted set.
+    These accumulate from failed publishes, deduped submissions, etc.
+    Returns count of purged hashes.
+    """
+    feed_ids = set(r.zrange('feed', 0, -1))
+    logger.info(f"Feed articles : {len(feed_ids)}")
+
+    cursor = 0
+    orphans = []
+    scanned = 0
+
+    while True:
+        cursor, keys = r.scan(cursor, match='article:*', count=500)
+        for key in keys:
+            article_id = key.split(':', 1)[1]
+            if article_id not in feed_ids:
+                orphans.append(key)
+        scanned += len(keys)
+        if cursor == 0:
+            break
+
+    logger.info(f"article:* keys: {scanned}")
+    logger.info(f"Redis orphans : {len(orphans)}")
+
+    if not orphans:
+        logger.info("✅ Redis clean — no orphans found")
+        return 0
+
+    # Delete in batches
+    pipe = r.pipeline()
+    for key in orphans:
+        pipe.delete(key)
+    pipe.execute()
+
+    logger.info(f"✅ Purged {len(orphans)} orphaned Redis hash(es)")
+    return len(orphans)
+
+
+def purge_solr_orphans(r, solr) -> int:
+    """
+    Remove Solr documents with no matching Redis article hash.
+    Returns count of purged documents.
+    """
+    feed_ids = set(r.zrange('feed', 0, -1))
+
+    rows     = 1000
+    start    = 0
+    orphans  = []
+    scanned  = 0
+
+    while True:
+        results = solr.search('*:*', fl='id', rows=rows, start=start)
+        if not results.docs:
+            break
+        for doc in results.docs:
+            doc_id = doc.get('id', '')
+            if doc_id not in feed_ids:
+                orphans.append(doc_id)
+        scanned += len(results.docs)
+        if scanned >= results.hits:
+            break
+        start += rows
+
+    logger.info(f"Solr documents: {scanned}")
+    logger.info(f"Solr orphans  : {len(orphans)}")
+
+    if not orphans:
+        logger.info("✅ Solr clean — no orphans found")
+        return 0
+
+    # Delete orphans from Solr
+    for doc_id in orphans:
+        solr.delete(id=doc_id)
+    solr.commit()
+
+    logger.info(f"✅ Purged {len(orphans)} orphaned Solr document(s)")
+    return len(orphans)
+
+
+def purge_processed_hashes(r) -> int:
+    """
+    Remove entries from processed_hashes that are no longer in the feed.
+    Keeps the dedup set lean — it grows unbounded otherwise.
+    """
+    feed_ids    = set(r.zrange('feed', 0, -1))
+    all_hashes  = r.smembers('processed_hashes')
+    stale       = [h for h in all_hashes if h not in feed_ids]
+
+    logger.info(f"processed_hashes total : {len(all_hashes)}")
+    logger.info(f"Stale processed hashes : {len(stale)}")
+
+    if not stale:
+        logger.info("✅ processed_hashes clean")
+        return 0
+
+    pipe = r.pipeline()
+    for h in stale:
+        pipe.srem('processed_hashes', h)
+    pipe.execute()
+
+    logger.info(f"✅ Removed {len(stale)} stale processed_hashes entries")
+    return len(stale)
+
+
+def main():
+    start = datetime.now(timezone.utc)
+    logger.info("=" * 60)
+    logger.info(f"Arc Codex Cleanup — {start.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    logger.info("=" * 60)
+
+    try:
+        r = get_redis()
+        logger.info("✅ Redis connected")
+    except Exception as e:
+        logger.critical(f"🔥 Redis connection failed: {e}")
+        sys.exit(1)
+
+    try:
+        solr = get_solr()
+        logger.info("✅ Solr connected")
+    except Exception as e:
+        logger.warning(f"⚠️  Solr connection failed — Solr purge will be skipped: {e}")
+        solr = None
+
+    feed_size = r.zcard('feed')
+    logger.info(f"Feed size: {feed_size} articles")
+
+    # --- Run purges ---
+    redis_purged  = purge_redis_orphans(r)
+    solr_purged   = purge_solr_orphans(r, solr) if solr else 0
+    hashes_purged = purge_processed_hashes(r)
+
+    # --- Summary ---
+    elapsed = (datetime.now(timezone.utc) - start).total_seconds()
+    logger.info("-" * 60)
+    logger.info(f"Redis orphans purged  : {redis_purged}")
+    logger.info(f"Solr orphans purged   : {solr_purged}")
+    logger.info(f"Stale hashes removed  : {hashes_purged}")
+    logger.info(f"Completed in {elapsed:.1f}s")
+    logger.info("=" * 60)
+
+
+if __name__ == '__main__':
+    main()

@@ -8,7 +8,7 @@ source /home/www/arc_stack/backend/venv/bin/activate
 
 exec gunicorn \
     --bind 127.0.0.1:5005 \
-    --workers 1 \
+    --workers 14 \
     --threads 8 \
     --worker-class gthread \
     --timeout 600 \

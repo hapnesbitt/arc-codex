@@ -1,6 +1,7 @@
 // File: /frontend/components/FeedClient.tsx
 // VERSION: Tribonacci Lazy Loading + Staggered Waterfall Animation
-// v2 — Accessibility pass:
+// v3 — Auto-translate: reads preferred_lang from UserPrefsContext, passes as
+//       initialLang to each IntelligenceCard so cards auto-translate on mount
 //   - role="feed" moved from <main> to <ol> (preserves main landmark)
 //   - aria-posinset + aria-setsize on each feed item (required by feed pattern)
 //   - Decorative spinner divs get aria-hidden
@@ -13,6 +14,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import IntelligenceCard from '@/components/IntelligenceCard';
+import { useUserPrefs } from '@/components/UserPrefsContext';
 import type { Article, Comment } from '@/lib/types';
 
 // --- TYPE DEFINITIONS ---
@@ -63,6 +65,9 @@ function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JS
   const [loading, setLoading] = useState<boolean>(false);
   const [hasMore, setHasMore] = useState<boolean>((initialFeed || []).length > 0);
   const [error, setError]     = useState<string | null>(null);
+
+  const { prefs } = useUserPrefs();
+  const preferredLang = prefs?.preferred_lang ?? null;
 
   const searchParams   = useSearchParams();
   const router         = useRouter();
@@ -199,7 +204,7 @@ function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JS
                 }}
                 className="space-y-4 outline-none"
               >
-                <IntelligenceCard card={card} comments={cardComments} isCompact={true} />
+                <IntelligenceCard card={card} comments={cardComments} isCompact={true} initialLang={preferredLang} />
               </motion.li>
             );
           })}
