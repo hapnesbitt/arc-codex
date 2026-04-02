@@ -36,7 +36,7 @@ import random
 import gc
 import numbers
 from stream_utils import publish_analysis, ensure_stream_group
-from ollama_utils import call_ollama_with_fallback, OLLAMA_CLOUD_MODEL, OLLAMA_LOCAL_FALLBACK
+from ollama_utils import call_ollama_local_only, OLLAMA_LOCAL_FALLBACK, OLLAMA_LOCAL_FALLBACK2
 from datetime import datetime, timezone
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
@@ -808,7 +808,7 @@ def generate_article_from_prompt(prompt_text):
 
     try:
         logger.info(f"✍️  Generating article from prompt: '{prompt_text[:80]}...'")
-        article_text, duration, model_used = call_ollama_with_fallback(full_prompt, timeout=900)
+        article_text, duration, model_used = call_ollama_local_only(full_prompt, timeout=900)
         logger.info(f"✍️  Article generated via {model_used} in {duration:.0f}ms ({len(article_text)} chars)")
         return article_text.strip()
     except Exception as e:
@@ -1097,7 +1097,7 @@ CONSTRAINTS:
 
     try:
         logger.info("🛡️  Running Sentinel forensic analysis...")
-        raw_response, duration, model_used = call_ollama_with_fallback(sentinel_prompt, timeout=timeout)
+        raw_response, duration, model_used = call_ollama_local_only(sentinel_prompt, timeout=timeout)
         logger.info(f"🛡️  Sentinel complete via {model_used} in {duration:.0f}ms")
 
         sentinel_data = _repair_sentinel_json(raw_response)
@@ -1156,7 +1156,7 @@ def run_counter_analyst(article_text: str, article_id: str, timeout: int = 900) 
 
     try:
         logger.info("🤖 Running Counter-Analyst...")
-        raw_response, duration, model_used = call_ollama_with_fallback(ca_prompt, timeout=timeout)
+        raw_response, duration, model_used = call_ollama_local_only(ca_prompt, timeout=timeout)
         logger.info(f"🤖 Counter-Analyst complete via {model_used} in {duration:.0f}ms")
 
         comment_text = raw_response.strip()
@@ -1419,12 +1419,16 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
 
 def main():
     logger.info("🚀 Arc Codex Scribe v53.0")
-    logger.info(f"   📡 Models: {OLLAMA_CLOUD_MODEL} → {OLLAMA_LOCAL_FALLBACK}")
+    logger.info(f"   📡 Models: {OLLAMA_LOCAL_FALLBACK} → {OLLAMA_LOCAL_FALLBACK2} (local only, no cloud)")
     logger.info(f"   🚫 Playwright/Chromium DISABLED (radeon GPU crash prevention on Z230)")
     logger.info(f"   ▶️  YouTube ingest: yt-dlp metadata mode")
     logger.info(f"   ✍️  Prompt-to-article: enabled")
     logger.info(f"   ⚡ Priority queue: scribe:priority_uploads (processed each cycle)")
     logger.info(f"   📋 Red/Blue/Purple: deferred to analyzer.py (on-demand)")
+
+    startup_delay = random.randint(60, 180)
+    logger.info(f"   ⏱️  Startup delay: {startup_delay}s (staggered to avoid Ollama contention with Huntaegis)")
+    time.sleep(startup_delay)
 
     api_client = APIClient(API_BASE_URL, SCRIBE_SECRET_KEY)
     initialize_directories()

@@ -93,3 +93,41 @@ def call_ollama_with_fallback(prompt_text: str, timeout: int = 900):
             logger.warning(f"{label.capitalize()} model error: {e}, trying next")
 
     raise Exception(f"All Ollama models failed (tried {OLLAMA_CLOUD_MODEL}, {OLLAMA_LOCAL_FALLBACK}, {OLLAMA_LOCAL_FALLBACK2})")
+
+
+def call_ollama_local_only(prompt_text: str, timeout: int = 900):
+    """
+    Call Ollama using local models only — never the cloud model.
+    Tries OLLAMA_LOCAL_FALLBACK (mistral:7b) first, then OLLAMA_LOCAL_FALLBACK2 (llama3.2:latest).
+    Used by scribe.py to avoid cloud API costs during background ingestion.
+
+    Returns:
+        tuple: (response_text, duration_ms, model_used)
+
+    Raises:
+        Exception: if both local models fail.
+    """
+    _wait_for_translation()
+
+    for model, label in [(OLLAMA_LOCAL_FALLBACK, "local"), (OLLAMA_LOCAL_FALLBACK2, "local2")]:
+        try:
+            logger.info(f"🖥️  Trying {label} model: {model}")
+            payload = {"model": model, "prompt": prompt_text, "stream": False}
+
+            call_start = time.perf_counter()
+            resp = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=timeout)
+            duration_ms = (time.perf_counter() - call_start) * 1000
+
+            if resp.status_code == 200:
+                response_text = resp.json().get("response", "").strip()
+                response_text = re.sub(r'^.*?</think>\s*', '', response_text, flags=re.DOTALL).strip()
+                if response_text:
+                    logger.info(f"✅ {label.capitalize()} model response in {duration_ms:.0f}ms ({len(response_text)} chars)")
+                    return (response_text, duration_ms, model)
+
+            logger.warning(f"{label.capitalize()} model failed (status {resp.status_code}), trying next")
+
+        except Exception as e:
+            logger.warning(f"{label.capitalize()} model error: {e}, trying next")
+
+    raise Exception(f"All local Ollama models failed (tried {OLLAMA_LOCAL_FALLBACK}, {OLLAMA_LOCAL_FALLBACK2})")
