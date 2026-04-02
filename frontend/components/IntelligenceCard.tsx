@@ -413,7 +413,7 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://arc-codex.com';
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
     const articleUrl = `${backendUrl}/article/${articleId}`;
 
     const context = snippet
@@ -736,7 +736,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
     const [translatedFields, setTranslatedFields] = useState<TranslatedFields | null>(null);
     const [isRTL, setIsRTL] = useState(false);
     const [currentLang, setCurrentLang] = useState<string | null>(null);
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://arc-codex.com';
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
     const { prefs } = useUserPrefs();
     const isOwner   = !!prefs?.sub && prefs.sub === (card as any).owner;
     const isPrivate = (card as any).visibility === 'private';

@@ -14,12 +14,10 @@ interface PageProps {
 }
 
 // --- DATA FETCHING ---
-const serverBackendUrl = process.env.BACKEND_INTERNAL_URL ?? process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
-
 async function getArticleData(articleId: string): Promise<Article | null> {
   try {
     const res = await fetch(
-      `${serverBackendUrl}/api/article/${articleId}`,
+      `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/article/${articleId}`,
       { next: { revalidate: 300 } } // 5 min cache
     );
     
@@ -43,7 +41,7 @@ async function getArticleData(articleId: string): Promise<Article | null> {
 async function getArticleComments(articleId: string): Promise<Comment[]> {
   try {
     const res = await fetch(
-      `${serverBackendUrl}/api/article/${articleId}/comments`,
+      `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/article/${articleId}/comments`,
       { next: { revalidate: 60 } } // 1 min cache
     );
     
