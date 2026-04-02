@@ -42,3 +42,5 @@ files.zip
 frontend/files.zip
 **/*.mp3
 secret/
+foo
+*.swp
