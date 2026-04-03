@@ -11,7 +11,6 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import GitHub from "next-auth/providers/github";
-import LinkedIn from "next-auth/providers/linkedin";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
     trustHost: true,
@@ -29,10 +28,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         GitHub({
             clientId: process.env.GITHUB_CLIENT_ID!,
             clientSecret: process.env.GITHUB_CLIENT_SECRET!,
-        }),
-        LinkedIn({
-            clientId: process.env.LINKEDIN_CLIENT_ID!,
-            clientSecret: process.env.LINKEDIN_CLIENT_SECRET!,
         }),
     ],
 
