@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 facebook_poster.py — Arc Codex auto-poster for Facebook Pages
-v1.0
+v1.1 — automatic token refresh on OAuthException 190/463
 
 On/off:  redis-cli set facebook:autopost 1|0
 Posted set: facebook:posted (SET of article IDs, prevents duplicates)
@@ -18,10 +18,15 @@ Image: downloaded from article imageUrl, uploaded to the Page via Graph API
 Jitter: 30–180s after article detection to avoid burst-posting on restart.
 Seeds all existing articles on startup to prevent spam.
 
+Token refresh: on OAuthException code 190 or 463, exchanges the current token
+  for a long-lived token via oauth/access_token (grant_type=fb_exchange_token),
+  persists the new token to .env and retries the failed request once.
+
 Requires in .env:
+  FACEBOOK_APP_ID         — Meta app ID
+  FACEBOOK_APP_SECRET     — Meta app secret
   FACEBOOK_PAGE_ID        — numeric Page ID
-  FACEBOOK_ACCESS_TOKEN   — never-expiring Page access token (generated in
-                            Meta Business Suite → Settings → Page Access Tokens)
+  FACEBOOK_ACCESS_TOKEN   — Page access token (refreshed automatically)
 """
 
 import io
@@ -35,8 +40,11 @@ import requests
 from dotenv import load_dotenv
 
 # ── env ────────────────────────────────────────────────────────────────────────
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+_ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
+load_dotenv(_ENV_PATH)
 
+APP_ID           = os.getenv("FACEBOOK_APP_ID", "")
+APP_SECRET       = os.getenv("FACEBOOK_APP_SECRET", "")
 PAGE_ID          = os.getenv("FACEBOOK_PAGE_ID", "")
 ACCESS_TOKEN     = os.getenv("FACEBOOK_ACCESS_TOKEN", "")
 REDIS_URL        = os.getenv("REDIS_URL", "redis://:simplenes@localhost:6379/0")
@@ -77,6 +85,67 @@ def _graph_url(path: str) -> str:
     return f"{GRAPH_API}/{path}"
 
 
+def _is_oauth_error(resp: requests.Response) -> bool:
+    """Return True if the response is a Facebook OAuthException 190 or 463."""
+    try:
+        err = resp.json().get("error", {})
+        return err.get("type") == "OAuthException" and err.get("code") in (190, 463)
+    except Exception:
+        return False
+
+
+def _persist_token(new_token: str) -> None:
+    """Write the refreshed token back to .env so it survives restarts."""
+    try:
+        with open(_ENV_PATH, "r") as fh:
+            lines = fh.readlines()
+        with open(_ENV_PATH, "w") as fh:
+            for line in lines:
+                if line.startswith("FACEBOOK_ACCESS_TOKEN="):
+                    fh.write(f"FACEBOOK_ACCESS_TOKEN={new_token}\n")
+                else:
+                    fh.write(line)
+        log.info("Persisted refreshed Facebook token to .env")
+    except Exception as exc:
+        log.warning("Could not persist token to .env: %s", exc)
+
+
+def refresh_access_token() -> bool:
+    """
+    Exchange the current ACCESS_TOKEN for a long-lived token via
+    oauth/access_token (grant_type=fb_exchange_token).
+    Updates the global ACCESS_TOKEN and persists to .env.
+    Returns True on success.
+    """
+    global ACCESS_TOKEN
+    if not APP_ID or not APP_SECRET:
+        log.error("FACEBOOK_APP_ID / FACEBOOK_APP_SECRET not set — cannot refresh token")
+        return False
+    try:
+        resp = requests.get(
+            f"{GRAPH_API}/oauth/access_token",
+            params={
+                "grant_type":        "fb_exchange_token",
+                "client_id":         APP_ID,
+                "client_secret":     APP_SECRET,
+                "fb_exchange_token": ACCESS_TOKEN,
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        new_token = resp.json().get("access_token")
+        if not new_token:
+            log.error("Token refresh response missing access_token: %s", resp.text[:200])
+            return False
+        ACCESS_TOKEN = new_token
+        _persist_token(new_token)
+        log.info("Facebook access token refreshed successfully")
+        return True
+    except Exception as exc:
+        log.error("Token refresh failed: %s", exc)
+        return False
+
+
 def upload_photo_unpublished(image_url: str) -> str | None:
     """
     Download image_url and stage it as an unpublished Page photo.
@@ -101,17 +170,25 @@ def upload_photo_unpublished(image_url: str) -> str | None:
             img_bytes = buf.getvalue()
             content_type = "image/jpeg"
 
-        resp = requests.post(
-            _graph_url(f"{PAGE_ID}/photos"),
-            params={"access_token": ACCESS_TOKEN, "published": "false"},
-            files={"source": ("photo.jpg", img_bytes, content_type)},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        photo_id = resp.json().get("id")
-        if photo_id:
-            log.info("Uploaded unpublished photo: %s", photo_id)
-        return photo_id
+        for attempt in range(2):
+            resp = requests.post(
+                _graph_url(f"{PAGE_ID}/photos"),
+                params={"access_token": ACCESS_TOKEN, "published": "false"},
+                files={"source": ("photo.jpg", img_bytes, content_type)},
+                timeout=30,
+            )
+            if resp.status_code in (400, 401) and attempt == 0 and _is_oauth_error(resp):
+                log.warning("OAuth error on photo upload (code %s) — refreshing token",
+                            resp.json().get("error", {}).get("code"))
+                if not refresh_access_token():
+                    return None
+                continue
+            resp.raise_for_status()
+            photo_id = resp.json().get("id")
+            if photo_id:
+                log.info("Uploaded unpublished photo: %s", photo_id)
+            return photo_id
+        return None
     except Exception as exc:
         log.warning("Photo upload failed (%s): %s", image_url, exc)
         return None
@@ -142,24 +219,33 @@ def post_to_page(message: str, article_url: str, image_url: str) -> bool:
     if photo_id:
         payload["attached_media"] = json.dumps([{"media_fbid": photo_id}])
 
-    try:
-        resp = requests.post(
-            _graph_url(f"{PAGE_ID}/feed"),
-            params=params,
-            data=payload,
-            timeout=20,
-        )
-        resp.raise_for_status()
-        post_id = resp.json().get("id", "unknown")
-        log.info("Posted to Facebook Page: %s", post_id)
-        return True
-    except requests.HTTPError as exc:
-        body = exc.response.text[:400] if exc.response is not None else str(exc)
-        log.error("Facebook API error: %s — %s", exc, body)
-        return False
-    except Exception as exc:
-        log.error("Facebook post error: %s", exc)
-        return False
+    for attempt in range(2):
+        try:
+            params["access_token"] = ACCESS_TOKEN  # use current token on each attempt
+            resp = requests.post(
+                _graph_url(f"{PAGE_ID}/feed"),
+                params=params,
+                data=payload,
+                timeout=20,
+            )
+            if resp.status_code in (400, 401) and attempt == 0 and _is_oauth_error(resp):
+                log.warning("OAuth error on feed post (code %s) — refreshing token",
+                            resp.json().get("error", {}).get("code"))
+                if not refresh_access_token():
+                    return False
+                continue
+            resp.raise_for_status()
+            post_id = resp.json().get("id", "unknown")
+            log.info("Posted to Facebook Page: %s", post_id)
+            return True
+        except requests.HTTPError as exc:
+            body = exc.response.text[:400] if exc.response is not None else str(exc)
+            log.error("Facebook API error: %s — %s", exc, body)
+            return False
+        except Exception as exc:
+            log.error("Facebook post error: %s", exc)
+            return False
+    return False
 
 # ── Article / Redis helpers ────────────────────────────────────────────────────
 def get_article(article_id: str) -> dict | None:
@@ -242,10 +328,13 @@ def autopost_enabled() -> bool:
 
 # ── main loop ──────────────────────────────────────────────────────────────────
 def main():
-    log.info("facebook_poster v1.0 starting — page_id: %s", PAGE_ID or "(not set)")
+    log.info("facebook_poster v1.1 starting — page_id: %s  app_id: %s",
+             PAGE_ID or "(not set)", APP_ID or "(not set)")
     if not PAGE_ID or not ACCESS_TOKEN:
         log.error("FACEBOOK_PAGE_ID and FACEBOOK_ACCESS_TOKEN must be set in .env — exiting")
         sys.exit(1)
+    if not APP_ID or not APP_SECRET:
+        log.warning("FACEBOOK_APP_ID / FACEBOOK_APP_SECRET not set — token auto-refresh disabled")
 
     seed_posted_set()
 
