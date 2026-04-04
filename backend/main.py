@@ -1110,28 +1110,55 @@ def submit():
         except Exception:
             return jsonify({'error': 'Invalid URL'}), 400
 
+    job_id = str(uuid.uuid4())
+
     payload = {
         'origin': content_type,
         'url':    content if content_type == 'url'  else '',
         'text':   content if content_type == 'text' else '',
         'title':  title,
-        'image_url': (data.get('image_url') or '').strip() or None,  # ← add this
+        'image_url': (data.get('image_url') or '').strip() or None,
         'visibility': (data.get('visibility') or 'public'),
         'owner': request.headers.get('X-User-Id') or session.get('username', ''),
+        'job_id': job_id,
     }
 
     try:
         r.lpush(REDIS_PRIORITY_QUEUE_KEY, json.dumps(payload))
         queue_len = r.llen(REDIS_PRIORITY_QUEUE_KEY)
-        app.logger.info(f"⚡ Queued {content_type} submission: '{title or content[:60]}' (queue depth: {queue_len})")
+        app.logger.info(f"⚡ Queued {content_type} submission: '{title or content[:60]}' (queue depth: {queue_len}, job_id: {job_id})")
         return jsonify({
             'success': True,
             'message': 'Submitted. Your content will be published shortly.',
             'queue_position': queue_len,
+            'job_id': job_id,
         }), 202
     except Exception as e:
         app.logger.error(f"🔥 Failed to queue submission: {e}", exc_info=True)
         return jsonify({'error': 'Failed to queue submission.'}), 500
+
+
+@app.route('/api/job/<job_id>', methods=['GET'])
+def job_status(job_id):
+    """
+    Poll the processing status of a queued submission.
+
+    Returns:
+        {"status": "pending"}                          — not yet processed
+        {"status": "published", "article_id": "..."}  — success
+        {"status": "failed",    "reason": "..."}       — URL could not be fetched etc.
+    """
+    if not r:
+        return jsonify({"error": "Database unavailable"}), 503
+
+    raw = r.get(f"arc:job:{job_id}:status")
+    if not raw:
+        return jsonify({"status": "pending"}), 200
+
+    try:
+        return jsonify(json.loads(raw)), 200
+    except Exception:
+        return jsonify({"status": "pending"}), 200
 
 
 @app.route('/api/submit_prompt', methods=['POST'])

@@ -856,7 +856,8 @@ def process_priority_queue(api_client, recently_published):
             continue
 
         origin = item.get('origin', 'url')
-        logger.info(f"⚡ Priority item dequeued (origin={origin}, owner={item.get('owner', 'NONE')})")
+        job_id = item.get('job_id')
+        logger.info(f"⚡ Priority item dequeued (origin={origin}, owner={item.get('owner', 'NONE')}, job_id={job_id})")
 
         article_text = None
         title = item.get('title', '')
@@ -883,6 +884,15 @@ def process_priority_queue(api_client, recently_published):
                 article_data = fetch_article_data(source_url)
                 if not article_data:
                     logger.warning(f"⚡ Could not fetch priority URL: {source_url}")
+                    if job_id:
+                        r.setex(
+                            f"arc:job:{job_id}:status",
+                            300,
+                            json.dumps({
+                                "status": "failed",
+                                "reason": "URL could not be fetched — the site may be blocking automated access. Please paste the article text directly instead.",
+                            }),
+                        )
                     continue
                 article_text = article_data['text']
                 if not title:
@@ -970,6 +980,12 @@ def process_priority_queue(api_client, recently_published):
                 _inc(STATS_PRIORITY, origin)
                 _inc(STATS_PUBLISH, 'ok')
                 logger.info(f"⚡ Priority item published: '{title[:60]}'")
+                if job_id:
+                    r.setex(
+                        f"arc:job:{job_id}:status",
+                        300,
+                        json.dumps({"status": "published", "article_id": article_hash}),
+                    )
 
         except Exception as e:
             logger.error(f"⚡ Priority queue processing error: {e}", exc_info=True)

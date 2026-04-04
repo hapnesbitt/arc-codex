@@ -233,11 +233,13 @@ export default function PublishPage() {
   const [imageFile, setImageFile]           = useState<File | null>(null);
   const [imagePreview, setImagePreview]     = useState<string | null>(null);
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
+  const [urlFetchFailed, setUrlFetchFailed] = useState(false);
   const submitBtnRef     = useRef<HTMLButtonElement>(null);
   const imageInputRef    = useRef<HTMLInputElement>(null);
   const fileInputRef     = useRef<HTMLInputElement>(null);
   const liveRegionRef    = useRef<HTMLDivElement>(null);
   const confirmModalRef  = useRef<HTMLDivElement>(null);
+  const pollTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (message && liveRegionRef.current) {
@@ -290,6 +292,57 @@ export default function PublishPage() {
     setContent('');
     setFile(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  }, []);
+
+  // Poll /api/job/<id> up to maxAttempts × intervalMs for URL fetch result
+  const pollJobStatus = useCallback((jobId: string, submittedUrl: string) => {
+    let attempts = 0;
+    const MAX_ATTEMPTS = 10; // 10 × 3 s = 30 s
+    const INTERVAL_MS  = 3000;
+
+    const tick = async () => {
+      attempts++;
+      try {
+        const res  = await fetch(`/api/job/${jobId}`);
+        const data = await res.json();
+
+        if (data.status === 'published') {
+          setStatus('success');
+          setMessage('Published! Your article is live.');
+          setShowConfetti(true);
+          clearDraft();
+          setTitle('');
+          setContent('');
+          setTimeout(() => {
+            setShowConfetti(false);
+            router.push(data.article_id ? `/article/${data.article_id}` : '/');
+          }, 2000);
+          return; // stop polling
+
+        } else if (data.status === 'failed') {
+          setUrlFetchFailed(true);
+          setStatus('error');
+          setMessage(data.reason ?? 'URL could not be fetched — please paste the article text directly.');
+          return; // stop polling
+        }
+      } catch {
+        // network error during poll — treat as pending
+      }
+
+      if (attempts < MAX_ATTEMPTS) {
+        pollTimerRef.current = setTimeout(tick, INTERVAL_MS);
+      } else {
+        // Timed out — article is probably still being analysed; leave success message
+        setMessage('Submitted! Your article will appear in the feed shortly.');
+      }
+    };
+
+    pollTimerRef.current = setTimeout(tick, INTERVAL_MS);
+  }, [clearDraft, router]);
+
+  // Clean up any running poll on unmount
+  useEffect(() => {
+    return () => { if (pollTimerRef.current) clearTimeout(pollTimerRef.current); };
   }, []);
 
   const isProbablyUrl = useCallback((s: string): boolean => {
@@ -394,6 +447,7 @@ export default function PublishPage() {
 
     // --- URL / TEXT mode → /api/submit (async, 202) ---
     if (contentType === 'url' || contentType === 'text') {
+      setUrlFetchFailed(false);
       setMessage('Submitting to Arc Codex...');
       try {
         // If image attached but no valid URL, submit as text
@@ -415,16 +469,24 @@ export default function PublishPage() {
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.error || 'Unknown error from server.');
 
-        setStatus('success');
-        setMessage(visibility === 'private' ? 'Saved privately! Only you can see this article.' : 'Submitted! Your content will be published shortly.');
-        setShowConfetti(true);
-        clearDraft();
-        setTitle('');
-        setContent('');
-        setTimeout(() => {
-          setShowConfetti(false);
-          router.push('/');
-        }, 2000);
+        if (effectiveContentType === 'url' && data.job_id) {
+          // URL submissions: show optimistic message and poll for fetch result
+          setStatus('loading');
+          setMessage('Submitted! Verifying article fetch…');
+          pollJobStatus(data.job_id, effectiveContent);
+        } else {
+          // Text/image submissions: no fetch step — success immediately
+          setStatus('success');
+          setMessage(visibility === 'private' ? 'Saved privately! Only you can see this article.' : 'Submitted! Your content will be published shortly.');
+          setShowConfetti(true);
+          clearDraft();
+          setTitle('');
+          setContent('');
+          setTimeout(() => {
+            setShowConfetti(false);
+            router.push('/');
+          }, 2000);
+        }
       } catch (err) {
         setStatus('error');
         setMessage(err instanceof Error ? err.message : 'Something went wrong.');
@@ -832,6 +894,28 @@ export default function PublishPage() {
 
           {/* Status Message */}
           <StatusMessage status={status} message={message} />
+
+          {/* URL fetch failure recovery */}
+          {urlFetchFailed && (
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 p-4 rounded-xl border border-amber-500/30 bg-amber-600/10">
+              <span className="text-sm text-amber-300 font-serif flex-1">
+                Tip: paste the article text directly using the <strong>Write Text</strong> mode below.
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setUrlFetchFailed(false);
+                  setStatus('idle');
+                  setMessage('');
+                  setContentType('text');
+                  setContent('');
+                }}
+                className="shrink-0 px-4 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-sm font-semibold transition-colors outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+              >
+                Switch to Write Text
+              </button>
+            </div>
+          )}
 
           {/* Publish Controls */}
           <Section
