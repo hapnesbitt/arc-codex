@@ -35,6 +35,7 @@ const MobileAuthButton = () => {
   const closeButtonRef  = useRef<HTMLButtonElement>(null);
   const triggerRef      = useRef<HTMLButtonElement>(null);
   const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listboxRef      = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -175,11 +176,35 @@ const MobileAuthButton = () => {
                 </div>
 
                 <div
+                  ref={listboxRef}
                   role="listbox"
                   aria-label="Select preferred language"
                   aria-activedescendant={tempLang ? `lang-opt-${tempLang.replace(/\s+/g, '-')}` : undefined}
-                  className="flex-1 overflow-y-auto pr-2 mb-6 space-y-1 custom-scrollbar"
+                  tabIndex={0}
+                  className="flex-1 overflow-y-auto pr-2 mb-6 space-y-1 custom-scrollbar outline-none focus-visible:ring-2 focus-visible:ring-amber-500 rounded-xl"
                   style={{ maxHeight: '350px' }}
+                  onKeyDown={(e) => {
+                    const idx = tempLang ? LANGUAGES.findIndex(l => l.name === tempLang) : -1;
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      const next = Math.min(idx + 1, LANGUAGES.length - 1);
+                      setTempLang(LANGUAGES[next].name);
+                      document.getElementById(`lang-opt-${LANGUAGES[next].name.replace(/\s+/g, '-')}`)?.scrollIntoView({ block: 'nearest' });
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      const prev = Math.max(idx - 1, 0);
+                      setTempLang(LANGUAGES[prev].name);
+                      document.getElementById(`lang-opt-${LANGUAGES[prev].name.replace(/\s+/g, '-')}`)?.scrollIntoView({ block: 'nearest' });
+                    } else if (e.key === 'Home') {
+                      e.preventDefault();
+                      setTempLang(LANGUAGES[0].name);
+                      document.getElementById(`lang-opt-${LANGUAGES[0].name.replace(/\s+/g, '-')}`)?.scrollIntoView({ block: 'nearest' });
+                    } else if (e.key === 'End') {
+                      e.preventDefault();
+                      setTempLang(LANGUAGES[LANGUAGES.length - 1].name);
+                      document.getElementById(`lang-opt-${LANGUAGES[LANGUAGES.length - 1].name.replace(/\s+/g, '-')}`)?.scrollIntoView({ block: 'nearest' });
+                    }
+                  }}
                 >
                   {LANGUAGES.map(({ code, name }) => (
                     <button
@@ -188,8 +213,9 @@ const MobileAuthButton = () => {
                       role="option"
                       aria-selected={tempLang === name}
                       onClick={() => setTempLang(name)}
+                      tabIndex={-1}
                       className={cn(
-                        "w-full text-left px-4 py-2.5 rounded-xl text-sm transition-all focus-visible:ring-2 focus-visible:ring-amber-500 outline-none",
+                        "w-full text-left px-4 py-2.5 rounded-xl text-sm transition-all",
                         tempLang === name
                           ? "bg-amber-500/20 text-amber-300 font-bold"
                           : "text-slate-400 hover:bg-white/5 hover:text-white"

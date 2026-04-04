@@ -101,7 +101,8 @@ export default function UserMenu() {
 
     if (status === "loading") {
         return (
-            <div className="px-3 py-2">
+            <div className="px-3 py-2" role="status">
+                <span className="sr-only">Loading user menu…</span>
                 <div className="h-8 w-full rounded-lg bg-white/5 animate-pulse" aria-hidden="true" />
             </div>
         );

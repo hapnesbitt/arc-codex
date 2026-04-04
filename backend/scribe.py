@@ -67,7 +67,7 @@ logger = logging.getLogger(__name__)
 # --- CONFIGURATION ---
 manual_upload_event = threading.Event()
 REDIS_PRIORITY_QUEUE_KEY = "arc:priority_uploads"
-CYCLE_MINUTES = 17  # Prime — change to 19, 23, 29 etc. if adding more stacks
+CYCLE_MINUTES = 23  # Prime — change to 19, 23, 29 etc. if adding more stacks
 
 # --- Instrumentation Redis keys ---
 STATS_FETCH          = "arc:stats:fetch"
@@ -1446,7 +1446,13 @@ def main():
             # before RSS scanning so the user gets fast feedback.
             priority_count = process_priority_queue(api_client, recently_published)
             if priority_count:
-                logger.info(f"⚡ Processed {priority_count} priority item(s)")
+                logger.info(f"⚡ Processed {priority_count} priority item(s) — skipping RSS cycle so M1 is free")
+                logger.info(f"💤 Priority cycle complete. Sleeping {CYCLE_MINUTES} minutes ...")
+                for _ in range(CYCLE_MINUTES * 60):
+                    time.sleep(1)
+                    if r.llen(REDIS_PRIORITY_QUEUE_KEY) > 0:
+                        break
+                continue
 
             # --- RSS CYCLE ---
             processed_hashes = r.smembers('processed_hashes')

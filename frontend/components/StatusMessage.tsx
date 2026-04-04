@@ -10,31 +10,36 @@ interface StatusMessageProps {
   message: string;
 }
 
-// This component maps the "status" string directly to an icon and style.
 function StatusMessage({ status, message }: StatusMessageProps) {
   if (!message) return null;
 
   const ICONS: Record<Status, React.ReactNode> = {
-    success: <CheckCircle className="h-5 w-5" />,
-    error: <XCircle className="h-5 w-5" />,
-    loading: <Loader className="h-5 w-5 animate-spin" />,
-    idle: <Info className="h-5 w-5" />,
+    success: <CheckCircle aria-hidden="true" className="h-5 w-5 flex-shrink-0" />,
+    error:   <XCircle    aria-hidden="true" className="h-5 w-5 flex-shrink-0" />,
+    loading: <Loader     aria-hidden="true" className="h-5 w-5 animate-spin flex-shrink-0" />,
+    idle:    <Info       aria-hidden="true" className="h-5 w-5 flex-shrink-0" />,
   };
 
   const STYLES: Record<Status, string> = {
     success: 'bg-green-600/10 border-green-500/30 text-green-300',
-    error: 'bg-red-600/10 border-red-500/30 text-red-300',
+    error:   'bg-red-600/10 border-red-500/30 text-red-300',
     loading: 'bg-blue-600/10 border-blue-500/30 text-blue-300',
-    idle: 'bg-blue-600/10 border-blue-500/30 text-blue-300',
+    idle:    'bg-blue-600/10 border-blue-500/30 text-blue-300',
   };
 
-  // Fallback to 'idle' icon if status is unrecognized
-  const icon = ICONS[status] || ICONS.idle;
-  const style = STYLES[status] || STYLES.idle;
+  // errors interrupt immediately; everything else is polite
+  const role     = status === 'error' ? 'alert'  : 'status';
+  const ariaLive = status === 'error' ? 'assertive' : 'polite';
+
+  const icon  = ICONS[status]  ?? ICONS.idle;
+  const style = STYLES[status] ?? STYLES.idle;
 
   return (
     <AnimatePresence>
       <motion.div
+        role={role}
+        aria-live={ariaLive}
+        aria-atomic="true"
         initial={{ opacity: 0, y: 10, scale: 0.95 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: -10, scale: 0.95 }}

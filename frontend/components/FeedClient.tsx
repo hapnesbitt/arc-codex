@@ -204,7 +204,7 @@ function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JS
                 }}
                 className="space-y-4 outline-none"
               >
-                <IntelligenceCard card={card} comments={cardComments} isCompact={true} initialLang={preferredLang} />
+                <IntelligenceCard card={card} comments={cardComments} isCompact={true} />
               </motion.li>
             );
           })}
