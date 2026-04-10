@@ -38,6 +38,17 @@ function PageWrapper({ children, showBackButton = false }: { children: React.Rea
           {children}
         </motion.div>
       </main>
+
+      <footer className="relative z-10 border-t border-white/5 py-6 text-center text-xs text-slate-600">
+        <a
+          href="https://soc.arc-codex.com"
+          className="inline-flex items-center gap-1.5 hover:text-slate-400 transition-colors focus-visible:outline-none focus-visible:text-amber-400"
+          aria-label="School of Chat — AI-graded compliance and certification practice"
+        >
+          <span aria-hidden="true">🎸</span>
+          School of Chat
+        </a>
+      </footer>
     </div>
   );
 }

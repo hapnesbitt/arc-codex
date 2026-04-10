@@ -74,6 +74,21 @@
       "avg_time_s": 0.02,
       "efficiency": 0.0,
       "status": "poor"
+    },
+    {
+      "label": "gemma4-e2b",
+      "model": "gemma4:e2b",
+      "run_at": "2026-04-10T05:45:21.007936",
+      "quick_mode": true,
+      "articles": 1,
+      "composite": 0.855,
+      "fact": 0.9,
+      "narrative": 1.0,
+      "critical": 0.7,
+      "synthesis": 1.0,
+      "avg_time_s": 45.14,
+      "efficiency": 0.0189,
+      "status": "excellent"
     }
   ]
 }

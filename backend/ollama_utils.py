@@ -26,6 +26,10 @@ OLLAMA_LOCAL_FALLBACK2 = os.environ.get("OLLAMA_LOCAL_FALLBACK2", "llama3.2:late
 TRANSLATION_LOCK_KEY      = "translation:active"
 TRANSLATION_LOCK_MAX_WAIT = 60  # seconds to wait before proceeding anyway
 
+# Cloud circuit breaker — set on HTTP 429, cleared automatically after 24 h
+CLOUD_UNAVAILABLE_KEY = "ollama:cloud_unavailable"
+CLOUD_UNAVAILABLE_TTL = 86_400  # 24 hours
+
 # Lightweight Redis connection for lock checks only
 try:
     _redis = redis_lib.Redis.from_url(
@@ -36,6 +40,20 @@ try:
     _redis.ping()
 except Exception:
     _redis = None
+
+
+def is_cloud_available() -> bool:
+    """Returns True if the cloud circuit breaker is not tripped (key absent)."""
+    if _redis is None:
+        return True
+    return not bool(_redis.exists(CLOUD_UNAVAILABLE_KEY))
+
+
+def _trip_cloud_breaker() -> None:
+    """Set 24 h Redis key to bypass cloud after a 429 rate-limit response."""
+    if _redis is not None:
+        _redis.setex(CLOUD_UNAVAILABLE_KEY, CLOUD_UNAVAILABLE_TTL, "1")
+        logger.warning("☁️  Cloud circuit breaker OPEN (429 received) — skipping cloud for 24 h")
 
 
 def _wait_for_translation(max_wait: int = TRANSLATION_LOCK_MAX_WAIT) -> None:
@@ -70,7 +88,12 @@ def call_ollama_with_fallback(prompt_text: str, timeout: int = 900):
     """
     _wait_for_translation()
 
-    for model, label in [(OLLAMA_CLOUD_MODEL, "cloud"), (OLLAMA_LOCAL_FALLBACK, "local"), (OLLAMA_LOCAL_FALLBACK2, "local2")]:
+    candidates = [(OLLAMA_CLOUD_MODEL, "cloud"), (OLLAMA_LOCAL_FALLBACK, "local"), (OLLAMA_LOCAL_FALLBACK2, "local2")]
+    if not is_cloud_available():
+        logger.info("☁️  Cloud circuit breaker is OPEN — skipping cloud model")
+        candidates = [(m, l) for m, l in candidates if l != "cloud"]
+
+    for model, label in candidates:
         try:
             logger.info(f"{'🌩️' if label == 'cloud' else '🖥️ '} Trying {label} model: {model}")
             payload = {"model": model, "prompt": prompt_text, "stream": False}
@@ -86,6 +109,9 @@ def call_ollama_with_fallback(prompt_text: str, timeout: int = 900):
                 if response_text:
                     logger.info(f"✅ {label.capitalize()} model response in {duration_ms:.0f}ms ({len(response_text)} chars)")
                     return (response_text, duration_ms, model)
+
+            if resp.status_code == 429 and label == "cloud":
+                _trip_cloud_breaker()
 
             logger.warning(f"{label.capitalize()} model failed (status {resp.status_code}), trying next")
 

@@ -1,0 +1,98 @@
+{
+  "generated_at": "2026-04-10T05:42:18.426127",
+  "version": "3.0 - A.R.C. News Analysis Benchmark",
+  "label": "gemma4-e2b",
+  "host": "http://192.168.1.185:11434",
+  "models_tested": 1,
+  "quick_mode": true,
+  "articles_used": 1,
+  "full_rankings": [
+    {
+      "model": "gemma4:e2b",
+      "composite": 0.855,
+      "fact_extraction": 0.9,
+      "narrative": 1.0,
+      "critical": 0.7,
+      "synthesis": 1.0,
+      "avg_time": 45.14,
+      "efficiency": 0.0189,
+      "status": "excellent"
+    }
+  ],
+  "detailed_results": [
+    {
+      "model": "gemma4:e2b",
+      "timestamp": "2026-04-10T05:42:18.426153",
+      "tests": {
+        "fact_extraction": [
+          {
+            "article": "geopolitical_sanctions",
+            "score": 0.9,
+            "time": 58.33,
+            "details": {
+              "fact_coverage": "7/9",
+              "bullet_points": 10,
+              "opinion_markers": 0,
+              "length": 915
+            },
+            "response_preview": "*   The European Union announced its 15th sanctions package on Monday.\n*   The sanctions targeted semiconductor equipment exports to Russia.\n*   The package added 47 entities to the EU's restricted li"
+          }
+        ],
+        "narrative_synthesis": [
+          {
+            "article": "geopolitical_sanctions",
+            "score": 1.0,
+            "time": 32.92,
+            "details": {
+              "key_facts": "7/9",
+              "paragraphs": 3,
+              "perspective_markers": 2,
+              "word_count": 155
+            },
+            "response_preview": "The European Union has introduced its 15th sanctions package, specifically targeting semiconductor equipment exports to Russia and expanding the restricted list by 47 entities. The measures include re"
+          }
+        ],
+        "critical_analysis": [
+          {
+            "article": "geopolitical_sanctions",
+            "score": 0.7,
+            "time": 44.16,
+            "details": {
+              "steelmanning": 0,
+              "pattern_recognition": 2,
+              "questions_asked": 3,
+              "cynicism_flags": 0,
+              "word_count": 269
+            },
+            "response_preview": "The narrative presented is a classic tension between geopolitical strategy and economic reality. The EU\u2019s action is framed as a necessary regulatory response to circumvent illicit trade routes, positi"
+          }
+        ]
+      },
+      "scores": {
+        "fact_extraction": {
+          "avg_score": 0.9,
+          "avg_time": 58.33
+        },
+        "narrative_synthesis": {
+          "avg_score": 1.0,
+          "avg_time": 32.92
+        },
+        "critical_analysis": {
+          "avg_score": 0.7,
+          "avg_time": 44.16
+        },
+        "analysis_composite": 0.855,
+        "avg_time_per_task": 45.14,
+        "efficiency": 0.0189
+      },
+      "total_time": 135.4178032875061,
+      "status": "excellent"
+    }
+  ],
+  "synthesis_results": {
+    "gemma4:e2b": {
+      "score": 1.0,
+      "time": 47.16
+    }
+  }
+}

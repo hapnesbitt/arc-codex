@@ -102,7 +102,7 @@ TRANSLATABLE_FIELDS = TRANSLATABLE_FIELDS_PRO  # translate all 5 fields
 # Falls back to call_ollama_with_fallback on any error
 # ---------------------------------------------------------------------------
 
-def _call_translation_model(text: str, language: str, timeout: int = 300) -> str:
+def _call_translation_model(text: str, language: str, source_lang: str = "English", timeout: int = 300) -> str:
     """
     Call TranslateGemma-4B via Ollama /api/chat.
     Uses the model's required system preamble and ISO 639-1 language codes.
@@ -111,21 +111,31 @@ def _call_translation_model(text: str, language: str, timeout: int = 300) -> str
     # Acquire translation lock — signals analysis pipeline to back off
     _redis.setex(TRANSLATION_LOCK_KEY, TRANSLATION_LOCK_TTL, "1")
     try:
-      return _call_translation_model_inner(text, language, timeout)
+        return _call_translation_model_inner(text, language, source_lang, timeout)
     finally:
         _redis.delete(TRANSLATION_LOCK_KEY)
 
 
-def _call_translation_model_inner(text: str, language: str, timeout: int = 300) -> str:
+def _call_translation_model_inner(text: str, language: str, source_lang: str = "English", timeout: int = 300) -> str:
     """Inner implementation — called with lock held."""
     lang_lower = language.lower().strip()
     target_code = LANGUAGE_CODES.get(lang_lower, lang_lower[:2])
 
+    src_lower = source_lang.lower().strip()
+    src_code = LANGUAGE_CODES.get(src_lower, src_lower[:2])
+
     system_prompt = (
-        f"You are a professional English (en) to {language} ({target_code}) translator. "
-        f"Your goal is to accurately convey the meaning and nuances of the original English text "
-        f"while adhering to {language} grammar, vocabulary, and cultural sensitivities. "
-        f"Produce only the {language} translation, without any additional explanations or commentary."
+        f"You are a professional {source_lang} ({src_code}) to {language} ({target_code}) translator. "
+        f"Translate the full text completely and accurately — do not summarize, shorten, or omit any content. "
+        f"Output only the {language} translation. "
+        f"Do not include the original {source_lang} text. "
+        f"Do not respond in {source_lang}. "
+        f"Do not add explanations, commentary, or any text other than the translation itself."
+    )
+
+    user_content = (
+        f"Translate the following {source_lang} text to {language}. "
+        f"Output only the complete {language} translation, nothing else.\n\n{text}"
     )
 
     try:
@@ -135,7 +145,7 @@ def _call_translation_model_inner(text: str, language: str, timeout: int = 300) 
                 "model": TRANSLATION_MODEL,
                 "messages": [
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": text},
+                    {"role": "user", "content": user_content},
                 ],
                 "stream": False,
                 "options": {
@@ -149,7 +159,7 @@ def _call_translation_model_inner(text: str, language: str, timeout: int = 300) 
         result = resp.json()
         translated = result.get("message", {}).get("content", "").strip()
         if translated:
-            logger.info("TranslateGemma succeeded (model=%s, lang=%s/%s)", TRANSLATION_MODEL, language, target_code)
+            logger.info("TranslateGemma succeeded (model=%s, %s/%s→%s/%s)", TRANSLATION_MODEL, source_lang, src_code, language, target_code)
             return translated
         logger.warning("TranslateGemma returned empty response for lang=%s", language)
     except Exception as e:
@@ -157,8 +167,9 @@ def _call_translation_model_inner(text: str, language: str, timeout: int = 300) 
 
     # Fallback — devstral or gemma3 on M1
     fallback_prompt = (
-        f"Translate the following text to {language}. "
-        f"Return ONLY the translated text, no commentary.\n\n{text}"
+        f"Translate the following {source_lang} text to {language}. "
+        f"Output ONLY the complete {language} translation. "
+        f"Do not summarize. Do not respond in {source_lang}. Do not add any commentary.\n\n{text}"
     )
     return call_ollama_with_fallback(fallback_prompt)[0]
 
@@ -199,7 +210,7 @@ def _get_article(article_id: str) -> dict | None:
     return None
 
 
-def _translate(fields: dict, language: str) -> dict | None:
+def _translate(fields: dict, language: str, source_lang: str = "English") -> dict | None:
     """
     Translate each field individually using TranslateGemma.
     Fields are translated one at a time (model works best on plain text, not JSON).
@@ -211,7 +222,7 @@ def _translate(fields: dict, language: str) -> dict | None:
 
     translated = {}
     for key, value in payload.items():
-        result = _call_translation_model(value, language)
+        result = _call_translation_model(value, language, source_lang)
         if result:
             translated[key] = result
         else:
@@ -252,8 +263,11 @@ def translate_article(article_id: str):
         for field in TRANSLATABLE_FIELDS
     }
 
+    # Determine source language from article metadata (defaults to English)
+    source_lang = article.get("source_lang") or "English"
+
     # Translate
-    translated = _translate(fields_to_translate, lang)
+    translated = _translate(fields_to_translate, lang, source_lang)
     if translated is None:
         return jsonify({"error": "Translation failed — model unavailable"}), 503
 

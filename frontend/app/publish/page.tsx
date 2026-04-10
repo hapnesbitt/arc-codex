@@ -528,7 +528,7 @@ export default function PublishPage() {
       setStatus('error');
       setMessage(err instanceof Error ? err.message : 'Something went wrong.');
     }
-  }, [title, content, contentType, file, clearDraft, router, isProbablyUrl, imageFile, uploadedImageUrl]);
+  }, [title, content, contentType, file, clearDraft, router, isProbablyUrl, imageFile, uploadedImageUrl, pollJobStatus]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

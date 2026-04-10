@@ -1161,6 +1161,17 @@ def job_status(job_id):
         return jsonify({"status": "pending"}), 200
 
 
+@app.route('/api/cloud_status', methods=['GET'])
+def cloud_status():
+    """Return whether the cloud Ollama model is currently available (circuit breaker state)."""
+    try:
+        from ollama_utils import is_cloud_available
+        available = is_cloud_available()
+    except Exception:
+        available = True  # assume available if we can't check
+    return jsonify({"available": available})
+
+
 @app.route('/api/submit_prompt', methods=['POST'])
 def submit_prompt():
     """
