@@ -828,7 +828,11 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
         setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
     };
 
-    const score = dossier?.chimera_score || 0;
+    // Primary: dossier.chimera_score (set by pre_analyze for all articles).
+    // Fallback: nlp_chimera_score top-level Redis field (also written by pre_analyze).
+    const score = dossier?.chimera_score
+        || parseFloat((card as any).nlp_chimera_score || '0')
+        || 0;
     const talkingPoints = dossier?.talking_points;
     const deepAnalysisSummary = dossier?.deep_analysis_summary;
 

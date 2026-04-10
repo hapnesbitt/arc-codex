@@ -945,6 +945,21 @@ def process_priority_queue(api_client, recently_published):
             if not image_url:
                 image_url = DEFAULT_IMAGE_URL
 
+            # Run pre_analyze to score the article (chimera_score, sentiment, etc.)
+            # so the gauge renders in the card header.  Best-effort — if it fails
+            # or times out we fall back to the minimal dossier and publish anyway.
+            dossier = {'sentiment': 0.0}
+            if article_text:
+                try:
+                    result = api_client.pre_analyze(article_text, article_hash)
+                    if result and isinstance(result, dict) and result.get('chimera_score') is not None:
+                        dossier = result
+                        logger.info(f"⚡ pre_analyze OK for priority item (chimera={result.get('chimera_score'):.4f})")
+                    else:
+                        logger.warning(f"⚡ pre_analyze returned no chimera_score for priority item — using fallback dossier")
+                except Exception as pa_err:
+                    logger.warning(f"⚡ pre_analyze failed for priority item: {pa_err} — using fallback dossier")
+
             # Build candidate in the same shape as RSS candidates
             candidate = {
                 'source_name': source_name,
@@ -958,7 +973,7 @@ def process_priority_queue(api_client, recently_published):
                 'origin': origin,
                 'owner': item.get('owner', ''),
                 'visibility': item.get('visibility', 'public'),
-                'dossier': {'sentiment': 0.0},
+                'dossier': dossier,
             }
 
             # Publish directly — no directive matching for priority items

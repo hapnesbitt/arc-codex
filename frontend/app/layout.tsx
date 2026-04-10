@@ -1,23 +1,23 @@
 // File: app/layout.tsx
+import type { Metadata, Viewport } from 'next';
 import { Ubuntu } from 'next/font/google';
 import './globals.css';
 import ClientLayout from './ClientLayout';
+import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration';
 
-const fontUbuntu = Ubuntu({ 
-  subsets: ["latin"], 
-  weight: ["400", "700"], 
-  variable: "--font-sans" 
+const fontUbuntu = Ubuntu({
+  subsets: ["latin"],
+  weight: ["400", "700"],
+  variable: "--font-sans"
 });
 
-export const metadata = {
+export const metadata: Metadata = {
   title: 'Arc Codex',
   description: 'AI-powered news intelligence with A.R.C. analysis — Facts Only, Executive Summary, and Full Take on every story.',
   metadataBase: new URL('https://arc-codex.com'),
-  
-  // PWA Manifest Connection
+
   manifest: '/manifest.json',
 
-  // Discovery Links (RSS & OpenSearch)
   alternates: {
     types: {
       'application/opensearchdescription+xml': '/opensearch.xml',
@@ -25,11 +25,25 @@ export const metadata = {
     },
   },
 
-  // App Icons for Mobile Devices
   icons: {
     icon: '/favicon.ico',
-    apple: '/arc-codex-logo.jpg', // Using your logo as the touch icon
+    apple: [
+      { url: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+    ],
   },
+
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Arc Codex',
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#f59e0b',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -39,6 +53,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ClientLayout>
           {children}
         </ClientLayout>
+        <ServiceWorkerRegistration />
       </body>
     </html>
   );

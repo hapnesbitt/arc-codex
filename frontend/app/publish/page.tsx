@@ -37,8 +37,11 @@ const ALLOWED_FILE_TYPES = [
   'text/plain',
   'text/markdown',
   'application/pdf',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+  'application/vnd.oasis.opendocument.text',                                  // .odt
 ];
+
+const DOC_EXTENSIONS = ['.pdf', '.docx', '.odt'];
 
 // --- TYPES ---
 type ContentType = 'text' | 'url' | 'file' | 'prompt';
@@ -494,7 +497,43 @@ export default function PublishPage() {
       return;
     }
 
-    // --- FILE mode → existing /api/submit_content (multipart, unchanged) ---
+    // --- FILE mode ---
+    if (file?.type === 'application/pdf') {
+      // PDF: extract text server-side, then queue via priority queue
+      setMessage('Extracting text from PDF...');
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('title', title.trim());
+        formData.append('visibility', visibility);
+
+        const resp = await fetch('/api/submit_pdf', {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Unknown error from server.');
+
+        setStatus('success');
+        setMessage('PDF extracted and queued! Your article will be published shortly.');
+        setShowConfetti(true);
+        clearDraft();
+        setTitle('');
+        setContent('');
+        setFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        setTimeout(() => {
+          setShowConfetti(false);
+          router.push('/');
+        }, 2000);
+      } catch (err) {
+        setStatus('error');
+        setMessage(err instanceof Error ? err.message : 'Something went wrong.');
+      }
+      return;
+    }
+
+    // Non-PDF files → existing /api/submit_content (multipart)
     setMessage('Processing with A.R.C. analysis...');
     try {
       const formData = new FormData();
@@ -553,7 +592,7 @@ export default function PublishPage() {
       setMessage('File ready.');
       setStatus('idle');
     } else {
-      setMessage('Please upload a supported file type (.txt, .md, .pdf, .docx)');
+      setMessage('Please upload a supported file type (.txt, .md, .pdf, .docx, .odt)');
       setStatus('error');
       setFile(null);
     }

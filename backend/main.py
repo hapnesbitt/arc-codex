@@ -1138,6 +1138,89 @@ def submit():
         return jsonify({'error': 'Failed to queue submission.'}), 500
 
 
+@app.route('/api/submit_pdf', methods=['POST'])   # kept for backwards-compat
+@app.route('/api/submit_doc', methods=['POST'])
+def submit_doc():
+    """
+    Upload a document (PDF, DOCX, ODT), extract its text via extract_file_text(),
+    and push it into the priority queue as a text submission.
+
+    Multipart body:
+        file        — .pdf, .docx, or .odt file
+        title       — article title (optional; falls back to filename stem)
+        visibility  — "public" | "private" (default: public)
+
+    Returns 202 on success, 400 if the file type is unsupported, extraction
+    fails, or the extracted text is under 200 characters.
+    """
+    if not r:
+        app.logger.error("🔥 Redis unavailable for submit_doc")
+        return jsonify({"error": "Database connection is offline."}), 503
+
+    file = request.files.get('file')
+    if not file or file.filename == '':
+        return jsonify({'error': 'No file provided.'}), 400
+
+    fname = file.filename.lower()
+    if not fname.endswith(('.pdf', '.docx', '.odt')):
+        return jsonify({'error': 'Unsupported file type. Please upload a PDF, DOCX, or ODT file.'}), 400
+
+    title      = (request.form.get('title') or '').strip()
+    visibility = (request.form.get('visibility') or 'public').strip()
+
+    success, extracted = extract_file_text(file)
+    if not success:
+        app.logger.error(f"🔥 Document extraction failed for '{file.filename}': {extracted}")
+        return jsonify({'error': f'Failed to extract text: {extracted}'}), 400
+
+    extracted = extracted.strip()
+
+    if len(extracted) < 200:
+        app.logger.warning(f"⚠️  '{file.filename}' yielded only {len(extracted)} chars — too short")
+        return jsonify({
+            'error': (
+                f'Text extraction produced too little content ({len(extracted)} characters). '
+                'The file may be image-only, password-protected, or nearly empty. '
+                'Please paste the text directly instead.'
+            )
+        }), 400
+
+    if len(extracted) > MAX_CONTENT_CHARS:
+        app.logger.warning(f"⚠️  '{file.filename}' text truncated from {len(extracted)} to {MAX_CONTENT_CHARS} chars")
+        extracted = extracted[:MAX_CONTENT_CHARS]
+
+    stem = secure_filename(file.filename).rsplit('.', 1)[0]
+    job_id = str(uuid.uuid4())
+    payload = {
+        'origin': 'text',
+        'url':    '',
+        'text':   extracted,
+        'title':  title or stem,
+        'image_url': None,
+        'visibility': visibility,
+        'owner': request.headers.get('X-User-Id') or session.get('username', ''),
+        'job_id': job_id,
+    }
+
+    try:
+        r.lpush(REDIS_PRIORITY_QUEUE_KEY, json.dumps(payload))
+        queue_len = r.llen(REDIS_PRIORITY_QUEUE_KEY)
+        ext = fname.rsplit('.', 1)[-1].upper()
+        app.logger.info(
+            f"⚡ Queued {ext} submission: '{payload['title']}' "
+            f"({len(extracted)} chars, queue depth: {queue_len}, job_id: {job_id})"
+        )
+        return jsonify({
+            'success': True,
+            'message': 'Document text extracted and queued. Your article will be published shortly.',
+            'queue_position': queue_len,
+            'job_id': job_id,
+        }), 202
+    except Exception as e:
+        app.logger.error(f"🔥 Failed to queue document submission: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to queue submission.'}), 500
+
+
 @app.route('/api/job/<job_id>', methods=['GET'])
 def job_status(job_id):
     """
