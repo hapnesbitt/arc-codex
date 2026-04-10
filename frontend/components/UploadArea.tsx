@@ -59,8 +59,8 @@ function UploadArea({ file, onFileChange, disabled }: UploadAreaProps) {
           id="file-upload-input"
           type="file"
           onChange={(e) => onFileChange(e.target.files?.[0] || null)}
-          accept=".txt,.md,.pdf,.docx"
-          aria-label="Upload file — supports .txt, .md, .pdf, .docx up to 10MB"
+          accept=".txt,.md,.pdf,.docx,.odt"
+          aria-label="Upload file — supports .txt, .md, .pdf, .docx, .odt up to 10MB"
           className="absolute inset-0 opacity-0 cursor-pointer focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-green-400 rounded-xl"
           disabled={disabled}
         />
@@ -70,7 +70,7 @@ function UploadArea({ file, onFileChange, disabled }: UploadAreaProps) {
             Drop your file here, or click to browse
           </p>
           <p className="text-slate-400 text-sm">
-            Supports .txt, .md, .pdf, .docx files up to 10MB
+            Supports .txt, .md, .pdf, .docx, .odt files up to 10MB
           </p>
         </div>
         {file && (

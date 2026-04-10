@@ -498,16 +498,17 @@ export default function PublishPage() {
     }
 
     // --- FILE mode ---
-    if (file?.type === 'application/pdf') {
-      // PDF: extract text server-side, then queue via priority queue
-      setMessage('Extracting text from PDF...');
+    const isDocFile = file && DOC_EXTENSIONS.some(ext => file.name.toLowerCase().endsWith(ext));
+    if (isDocFile) {
+      // PDF / DOCX / ODT: extract text server-side, then queue via priority queue
+      setMessage('Extracting text from document...');
       try {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('title', title.trim());
         formData.append('visibility', visibility);
 
-        const resp = await fetch('/api/submit_pdf', {
+        const resp = await fetch('/api/submit_doc', {
           method: 'POST',
           body: formData,
         });
@@ -515,7 +516,7 @@ export default function PublishPage() {
         if (!resp.ok) throw new Error(data.error || 'Unknown error from server.');
 
         setStatus('success');
-        setMessage('PDF extracted and queued! Your article will be published shortly.');
+        setMessage('Document extracted and queued! Your article will be published shortly.');
         setShowConfetti(true);
         clearDraft();
         setTitle('');
@@ -533,7 +534,7 @@ export default function PublishPage() {
       return;
     }
 
-    // Non-PDF files → existing /api/submit_content (multipart)
+    // Plain-text / markdown → existing /api/submit_content (multipart)
     setMessage('Processing with A.R.C. analysis...');
     try {
       const formData = new FormData();
