@@ -126,3 +126,25 @@
 ::-webkit-scrollbar-thumb:hover {
   background-color: #fbbf24; /* Make the thumb brighter on hover */
 }
+
+/* ==============================================
+   PRINT STYLES
+   ============================================== */
+
+@media print {
+  /* Hide navigation chrome */
+  aside { display: none !important; }
+
+  /* Remove sidebar-induced padding and overflow constraints */
+  body { overflow: visible !important; background: white !important; color: #1e293b !important; }
+  #main-content {
+    padding-left: 0 !important;
+    padding-bottom: 0 !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+  .max-w-6xl { max-width: 100% !important; padding: 0.5rem !important; }
+
+  /* Prevent page breaks splitting sections */
+  article { page-break-inside: avoid; }
+}

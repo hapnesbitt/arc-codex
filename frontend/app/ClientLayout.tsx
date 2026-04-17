@@ -10,7 +10,7 @@ import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BookOpen, Send, Search, Activity, Home, LogIn,
-  X, Globe, Check, AlertCircle, Trash2, Shield,
+  X, Globe, Check, AlertCircle, Trash2, Shield, Library,
 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import styles from './LayoutTheme.module.css';
@@ -324,6 +324,7 @@ const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => {
     ...(isMobile ? [{ href: "/",      icon: <Home     size={20}             aria-hidden="true" />, label: "Home",    color: "text-white"     }] : []),
     {               href: "/search",  icon: <Search   size={isMobile?20:22} aria-hidden="true" />, label: "Search",  color: "text-amber-400" },
     {               href: "/publish", icon: <Send     size={isMobile?20:22} aria-hidden="true" />, label: "Publish", color: "text-blue-400"  },
+    {               href: "/wiki",    icon: <Library  size={isMobile?20:22} aria-hidden="true" />, label: "Wiki",    color: "text-slate-400" },
     {               href: "/about",   icon: <BookOpen size={isMobile?20:22} aria-hidden="true" />, label: "More",    color: "text-amber-400" },
   ];
 

@@ -129,8 +129,8 @@ services:
   # ports/extra_hosts removed — incompatible with host network mode.
   frontend:
     build:
-      context: ./frontend
-      dockerfile: ../Dockerfile.frontend
+      context: .
+      dockerfile: ./Dockerfile.frontend
       args:
         NEXTAUTH_URL: ${NEXTAUTH_URL:-https://arc-codex.com}
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5005}

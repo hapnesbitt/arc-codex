@@ -113,6 +113,16 @@ DB 5 is shared auth across all stacks (`arc:users` SET, `arc:user:{username}` HA
 - `lib/types.ts` — All TypeScript interfaces (Article, Comment, Dossier, etc.)
 - `lib/auth.ts` — NextAuth.js config with backend upsert on sign-in
 
+### IntelligenceCard Icon Row (left→right)
+| Button | Destination | Behaviour |
+|--------|-------------|-----------|
+| Permalink (`LinkIcon`) | `card.sourceUrl` | External source, new tab. Falls back to `#`. |
+| Copy link (`Copy`) | `/article/[id]` | Copies Arc Codex URL + counter-analyst blurb to clipboard. |
+| Research | Claude / ChatGPT / Perplexity / Google | Dropdown menu, opens in new tab with article context. |
+| Share | Social platforms + email | Dropdown menu. |
+| Torch (`Flashlight`) | `/wiki/[directive-slug]#article-[id]` | Wiki directive page anchored to the article entry, new tab. Falls back to `/wiki`. |
+| Print (`Printer`) | — | Calls `window.print()`. `beforeprint` event expands all collapsed sections first. `@media print` in `globals.css` hides sidebars and nav chrome. |
+
 ### Environment Variables
 **Frontend** (`frontend/.env.local`):
 - `NEXT_PUBLIC_BACKEND_URL` — Public URL for client-side fetches (e.g. `https://arc-codex.com`)
@@ -134,6 +144,43 @@ The two stacks are nearly identical in code but run independently. When fixing a
 - Domain-specific strings (arc-codex.com vs huntaegis.com, branding) are intentionally different
 
 Shared utilities: `auth.py`, `ollama_utils.py`, `fetch_utils.py`, `stream_utils.py` — changes here may need mirroring.
+
+### Wiki
+
+A read-only intelligence directory layered over existing Redis data — no separate storage.
+
+| Route | File | Notes |
+|-------|------|-------|
+| `/wiki` | `app/wiki/page.tsx` | Index — groups directives by topic, reads `frontend/public/directives.json` at request time. Excludes `topic === "System Directives"`. |
+| `/wiki/[slug]` | `app/wiki/[slug]/page.tsx` | Directive page — resolves slug → directive name, fetches up to 50 articles from Flask `GET /api/wiki/<directive_name>`. |
+
+**Slugification** (identical logic in all three files — `wiki/page.tsx`, `wiki/[slug]/page.tsx`, `IntelligenceCard.tsx`):
+```ts
+const toSlug = (name: string) =>
+  name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+```
+Example: `"Consumer Tech & Electronics"` → `"consumer-tech-electronics"`.
+
+**`directives.json` sync**: `backend/directives.json` is the source of truth. `frontend/public/directives.json` is a copy for the frontend runtime. `Dockerfile.frontend` overlays it with `COPY backend/directives.json ./public/directives.json` during the builder stage so the image is always in sync. The Docker build context must be the project root (`.`), not `./frontend` — both `Dockerfile.frontend` and `docker-compose.yml` reflect this.
+
+**Flask endpoint** (`backend/main.py`):
+- `GET /api/wiki/<directive_name>` — scans feed ZSET newest-first in batches of 100, returns up to 50 public articles with `purple_team_analysis` for the given directive. Never uses `r.keys()`.
+
+**Article lifecycle**: Wiki pages are derived live from Redis. An article trimmed from the feed ZSET automatically disappears from the wiki on next page load (5-min revalidation cache).
+
+**SEO**: Each `<li>` in `wiki/[slug]/page.tsx` has `id="article-{id}"`. Full `purple_team_analysis` text is in a `<details>` element (collapsed for users, indexed by crawlers). `generateMetadata` sets canonical URL.
+
+### Sitemap
+
+`app/sitemap.ts` — Next.js dynamic sitemap, revalidates every hour for articles.
+
+| Entry | Source |
+|-------|--------|
+| `/wiki` | Static |
+| `/wiki/[slug]` (all non-system directives) | `frontend/public/directives.json` |
+| `/article/[id]` (all public articles) | Flask `GET /api/sitemap` |
+
+**Flask endpoint**: `GET /api/sitemap` — scans feed ZSET with `ZREVRANGE`, filters `visibility != 'private'`, returns all public article IDs as a JSON array. No limit.
 
 ## Important Constraints
 

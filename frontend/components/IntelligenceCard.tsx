@@ -34,6 +34,8 @@ import {
     Mail,
     ScanLine,
     Lock,
+    Printer,
+    Flashlight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card as ShadCard } from "@/components/ui/card";
@@ -64,6 +66,7 @@ interface IntelligenceCardProps {
     comments: Comment[];
     isCompact?: boolean;
     initialLang?: string | null;
+    defaultExpandedSection?: keyof ExpandedSections;
 }
 
 interface AccordionTextProps {
@@ -99,6 +102,10 @@ const safeText = (field: any): string => {
     if (!field) return '';
     return typeof field === 'string' ? field : JSON.stringify(field);
 };
+
+// --- Helper: Directive name → wiki slug (mirrors app/wiki/page.tsx) ---
+const toSlug = (name: string) =>
+    name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 // --- Helper: Extract clean domain from URL ---
 const extractDomain = (url: string): string => {
@@ -222,6 +229,12 @@ const markdownToHtml = (text: string): string => {
 // --- Helper: Text with "Read More" Accordion ---
 const AccordionText: React.FC<AccordionTextProps> = ({ text, characterLimit = 400 }) => {
     const [isExpanded, setIsExpanded] = useState<boolean>(false);
+
+    useEffect(() => {
+        const expand = () => setIsExpanded(true);
+        window.addEventListener('beforeprint', expand);
+        return () => window.removeEventListener('beforeprint', expand);
+    }, []);
 
     const { plainText, needsTruncation, fullHtml } = useMemo(() => {
         const cleanText = safeText(text);
@@ -731,6 +744,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
     comments,
     isCompact = false,
     initialLang = null,
+    defaultExpandedSection,
 }) => {
     const [hasCopied, setHasCopied] = useState<boolean>(false);
     const [translatedFields, setTranslatedFields] = useState<TranslatedFields | null>(null);
@@ -770,16 +784,25 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initialLang]);
 
+    useEffect(() => {
+        const expandAll = () => setExpandedSections({
+            talkingPoints: true, deepAnalysis: true, redTeam: true,
+            blueTeam: true, purpleTeam: true, sentinel: true,
+        });
+        window.addEventListener('beforeprint', expandAll);
+        return () => window.removeEventListener('beforeprint', expandAll);
+    }, []);
+
     const t = <K extends keyof TranslatedFields>(field: K, original: string): string =>
         translatedFields?.[field] ?? original;
 
     const [expandedSections, setExpandedSections] = useState<ExpandedSections>({
-        talkingPoints: false,
-        deepAnalysis: false,
-        redTeam: false,
-        blueTeam: false,
-        purpleTeam: false,
-        sentinel: false,
+        talkingPoints: defaultExpandedSection === 'talkingPoints',
+        deepAnalysis: defaultExpandedSection === 'deepAnalysis',
+        redTeam: defaultExpandedSection === 'redTeam',
+        blueTeam: defaultExpandedSection === 'blueTeam',
+        purpleTeam: defaultExpandedSection === 'purpleTeam',
+        sentinel: defaultExpandedSection === 'sentinel',
     });
 
     const sourceName = card.source_name || card.source || 'Unknown Source';
@@ -930,7 +953,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 </h2>
                             </a>
 
-                            <div className="mt-2">
+                            <div className="mt-2 print:hidden">
                                 <TranslateButton
                                     articleId={card.id}
                                     cachedLangs={(card as any).cached_langs ?? []}
@@ -959,7 +982,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                         )}
 
                         {/* Action Buttons */}
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 print:hidden">
                             {isPrivate && isOwner && (
                                 <span
                                     title="Private — only visible to you"
@@ -969,14 +992,15 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                     <Lock className="h-4 w-4" aria-hidden="true" />
                                 </span>
                             )}
-                            <Link href={articleUrl} passHref legacyBehavior>
-                                <a
-                                    aria-label="Permalink to this article"
-                                    className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
-                                >
-                                    <LinkIcon className="h-5 w-5" aria-hidden="true" />
-                                </a>
-                            </Link>
+                            <a
+                                href={card.sourceUrl || '#'}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                aria-label="Visit original source"
+                                className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
+                            >
+                                <LinkIcon className="h-5 w-5" aria-hidden="true" />
+                            </a>
                             <Button
                                 variant="ghost"
                                 size="icon"
@@ -1002,6 +1026,25 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 lang={currentLang}
                                 counterComment={counterComment ?? undefined}
                             />
+                            <a
+                                href={card.directive ? `/wiki/${toSlug(card.directive)}#article-${card.id}` : '/wiki'}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                aria-label="Full take — open wiki directive page"
+                                title="Full Take"
+                                className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-purple-400 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
+                            >
+                                <Flashlight className="h-5 w-5" aria-hidden="true" />
+                            </a>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={(e: React.MouseEvent) => { e.stopPropagation(); window.print(); }}
+                                className="text-slate-400 hover:text-amber-400 hover:bg-white/10"
+                                aria-label="Print article"
+                            >
+                                <Printer className="h-5 w-5" aria-hidden="true" />
+                            </Button>
                         </div>
                         </div>
                     </header>

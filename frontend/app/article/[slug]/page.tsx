@@ -82,16 +82,24 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   const score = dossier.chimera_score || dossier.sentiment || 0;
   const formattedScore = Math.round(score * 100);
 
-  // Use purple team for description 
-  const description = 
-    article.purple_team_analysis?.substring(0, 160) ||
-    article.blue_team_analysis?.substring(0, 160) || 
-    article.original_text?.substring(0, 160) ||
+  const stripMd = (text: string) =>
+    text.replace(/^#{1,6}\s+/gm, '').replace(/\*{1,3}(.*?)\*{1,3}/g, '$1')
+        .replace(/^[-*]\s+/gm, '').replace(/^>\s+/gm, '').replace(/^---+$/gm, '').trim();
+
+  const rawDesc =
+    article.purple_team_analysis ||
+    article.blue_team_analysis ||
+    article.original_text ||
     `Arc Codex Intelligence Analysis - A.R.C. Score: ${formattedScore}/100`;
 
-  return { 
-    title: `${article.title} | Arc Codex`,
+  const description = stripMd(rawDesc).substring(0, 155);
+
+  return {
+    title: `${article.title} — Arc Codex`,
     description,
+    alternates: {
+      canonical: `https://arc-codex.com/article/${params.slug}`,
+    },
     openGraph: {
       title: article.title,
       description,
@@ -168,9 +176,9 @@ export default async function ArticlePage(props: PageProps) {
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
         {/* Navigation Bar */}
-        <nav 
+        <nav
           aria-label="Article navigation"
-          className="mb-10 flex items-center justify-between"
+          className="mb-10 flex items-center justify-between print:hidden"
         >
           <Link 
             href="/" 
@@ -187,16 +195,17 @@ export default async function ArticlePage(props: PageProps) {
 
         {/* Intelligence Container */}
         <article className="animate-in fade-in slide-in-from-bottom-4 duration-700">
-          <IntelligenceCard 
-            card={article} 
+          <IntelligenceCard
+            card={article}
             comments={comments}
             isCompact={false}
             initialLang={initialLang}
+            defaultExpandedSection="purpleTeam"
           />
         </article>
 
         {/* Vertical alignment guide / footer spacer */}
-        <footer className="h-24 flex items-center justify-center opacity-20">
+        <footer className="h-24 flex items-center justify-center opacity-20 print:hidden">
            <div className="w-0.5 bg-gradient-to-b from-amber-500 to-transparent h-full rounded-full" />
         </footer>
       </main>

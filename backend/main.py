@@ -53,7 +53,7 @@ app.logger.setLevel(logging.INFO)
 # --- CONFIGURATION & INITIALIZATION ---
 SCRIBE_SECRET_KEY = os.getenv("SCRIBE_SECRET_KEY")
 REDIS_URL = os.getenv("REDIS_URL")
-MAX_CONTENT_CHARS = 29999  # Unified truncation limit
+MAX_CONTENT_CHARS = 60000  # Unified truncation limit for stored article text
 DEFAULT_IMAGE_URL = "https://arc-codex.com/information-warfare.jpg"
 PROMPTS = {}
 
@@ -196,30 +196,30 @@ def fetch_and_process_url(url):
                 pdf_file = io.BytesIO(response.content)
                 pdf_reader = PdfReader(pdf_file)
                 
-                extracted_text = ""
+                page_texts = []
                 for page_num in range(len(pdf_reader.pages)):
-                    page = pdf_reader.pages[page_num]
-                    extracted_text += page.extract_text() + "\n\n"
-                    
-                    # Stop if we've hit the size limit to prevent OOM
-                    if len(extracted_text) > MAX_CONTENT_CHARS:
+                    page_texts.append(pdf_reader.pages[page_num].extract_text() or '')
+                    # Stop early if raw accumulation already exceeds limit (saves memory)
+                    if sum(len(t) for t in page_texts) > MAX_CONTENT_CHARS * 2:
                         app.logger.warning(f"⚠️  PDF extraction stopped at page {page_num+1} - size limit reached")
                         break
-                
-                if not extracted_text.strip():
+
+                extracted_text = _normalize_pdf_text('\n\n'.join(page_texts))
+
+                if not extracted_text:
                     app.logger.warning(f"⚠️  PDF text extraction returned empty content")
                     return (False, "The PDF appears to be empty or contains only images. Text extraction failed.")
-                
+
                 # Truncate if needed
                 if len(extracted_text) > MAX_CONTENT_CHARS:
                     app.logger.warning(f"⚠️  PDF text truncated from {len(extracted_text)} to {MAX_CONTENT_CHARS} chars")
                     extracted_text = extracted_text[:MAX_CONTENT_CHARS]
-                
+
                 extract_duration = (time.perf_counter() - extract_start) * 1000
                 total_duration = fetch_duration + extract_duration
-                
+
                 app.logger.info(f"✅ PDF extraction complete in {extract_duration:.0f}ms (fetch: {fetch_duration:.0f}ms, total: {total_duration:.0f}ms) - {len(extracted_text)} chars")
-                return (True, extracted_text.strip())
+                return (True, extracted_text)
                 
             except Exception as pdf_error:
                 app.logger.error(f"🔥 PDF extraction failed: {pdf_error}")
@@ -426,9 +426,13 @@ def get_single_article(article_id):
             article_data['dossier'] = {}
         
         # --- ON-DEMAND ANALYSIS TRIGGER ---
-        # If article has no red/blue/purple analysis yet, queue it for analyzer.py
+        # Queue for analyzer.py if any of the three analyses are missing or incomplete.
+        # Check all three — a partial run (e.g. only blue_team written due to a truncated
+        # Ollama response) must re-queue so red and purple are filled.
         blue_analysis = article_data.get('blue_team_analysis', '')
-        if not blue_analysis or len(blue_analysis) < 10:
+        red_analysis = article_data.get('red_team_analysis', '')
+        purple_analysis = article_data.get('purple_team_analysis', '')
+        if not (len(blue_analysis) > 10 and len(red_analysis) > 10 and len(purple_analysis) > 10):
             actual_id = article_data.get('id', article_id)
             try:
                 # Only queue if not already queued recently (simple dedup)
@@ -949,6 +953,31 @@ def pre_analyze():
     finally:
         _pre_analyze_sem.release()
 
+# --- PDF text normalizer ---
+def _normalize_pdf_text(raw_text: str) -> str:
+    """
+    Clean up text extracted from a PDF so it reads as natural paragraphs.
+
+    PyPDF often produces word-per-line output because each PDF glyph run is a
+    separate text object.  The three fixes applied in order:
+
+    1. Rejoin soft hyphens at line breaks  (e.g. "compu-\\nter" → "computer")
+    2. Collapse single newlines into spaces (intra-paragraph line wraps)
+    3. Normalise runs of blank lines to a single paragraph break
+    4. Collapse any remaining runs of spaces
+    """
+    text = raw_text
+    # 1. Soft hyphen at end of line: remove the hyphen and join the word
+    text = re.sub(r'(\w)-\n(\w)', r'\1\2', text)
+    # 2. Single newline (not preceded or followed by another newline) → space
+    text = re.sub(r'(?<!\n)\n(?!\n)', ' ', text)
+    # 3. Three or more consecutive newlines → two (one blank line between paragraphs)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    # 4. Multiple spaces → single space
+    text = re.sub(r' {2,}', ' ', text)
+    return text.strip()
+
+
 # --- STM ENDPOINT with enhanced logging ---
 def extract_file_text(file_storage):
     """Extract text from uploaded files: txt, md, pdf, docx, odt"""
@@ -965,7 +994,8 @@ def extract_file_text(file_storage):
 
         elif filename.endswith('.pdf'):
             reader = PdfReader(io.BytesIO(raw))
-            text = '\n'.join(page.extract_text() or '' for page in reader.pages)
+            raw_text = '\n\n'.join(page.extract_text() or '' for page in reader.pages)
+            text = _normalize_pdf_text(raw_text)
             return True, text[:50000]
 
         elif filename.endswith('.docx'):
@@ -1532,5 +1562,98 @@ def post_bluesky():
     except Exception as e:
         app.logger.error(f"🔥 Bluesky post failed: {e}")
         return jsonify({"error": str(e)}), 500
+@app.route('/api/wiki/<path:directive_name>', methods=['GET'])
+def wiki_directive(directive_name):
+    """
+    Return up to 50 public articles (newest first) for a given directive
+    that have a purple_team_analysis. Uses ZRANGE on the feed ZSET.
+    """
+    if not r:
+        return jsonify({"error": "Database offline"}), 503
+
+    BATCH_SIZE = 100
+    results = []
+    cursor = 0
+    total = r.zcard('feed')
+
+    while len(results) < 50 and cursor < total:
+        ids = r.zrevrange('feed', cursor, cursor + BATCH_SIZE - 1)
+        if not ids:
+            break
+
+        pipe = r.pipeline()
+        for aid in ids:
+            pipe.hmget(
+                f"article:{aid}",
+                'directive', 'title', 'source_name', 'timestamp',
+                'sourceUrl', 'purple_team_analysis', 'dossier', 'id', 'visibility'
+            )
+        rows = pipe.execute()
+
+        for row in rows:
+            d, title, source_name, timestamp, sourceUrl, purple, dossier_raw, art_id, visibility = row
+            if d != directive_name:
+                continue
+            if not purple:
+                continue
+            if visibility == 'private':
+                continue
+
+            chimera_score = 0
+            if dossier_raw:
+                try:
+                    dossier = json.loads(dossier_raw)
+                    chimera_score = dossier.get('chimera_score', 0)
+                except Exception:
+                    pass
+
+            results.append({
+                'id': art_id,
+                'title': title or '',
+                'source_name': source_name or '',
+                'timestamp': timestamp or '',
+                'sourceUrl': sourceUrl or '',
+                'purple_team_analysis': purple,
+                'chimera_score': chimera_score,
+            })
+
+            if len(results) >= 50:
+                break
+
+        cursor += BATCH_SIZE
+
+    app.logger.info(f"📖 Wiki query for '{directive_name}' returned {len(results)} articles")
+    return jsonify(results)
+
+
+@app.route('/api/sitemap', methods=['GET'])
+def get_sitemap_ids():
+    """Return all public article IDs from the feed ZSET, newest first."""
+    if not r:
+        return jsonify([]), 503
+    try:
+        all_ids = r.zrevrange('feed', 0, -1)
+        if not all_ids:
+            return jsonify([])
+
+        BATCH_SIZE = 200
+        public_ids = []
+        for i in range(0, len(all_ids), BATCH_SIZE):
+            batch = all_ids[i:i + BATCH_SIZE]
+            pipe = r.pipeline()
+            for aid in batch:
+                pipe.hget(f"article:{aid}", 'visibility')
+            visibilities = pipe.execute()
+            for aid, vis in zip(batch, visibilities):
+                if vis != 'private':
+                    public_ids.append(aid)
+
+        app.logger.info(f"🗺️  Sitemap returned {len(public_ids)} public article IDs")
+        return jsonify(public_ids)
+    except Exception as e:
+        app.logger.error(f"🔥 Sitemap error: {e}", exc_info=True)
+        return jsonify([]), 500
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5005, debug=False)

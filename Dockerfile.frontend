@@ -6,8 +6,8 @@
 # Stage 2 (builder): next build — cached unless source changes
 # Stage 3 (runner):  Minimal Alpine runtime, standalone output only (~200MB)
 #
-# Build:
-#   docker build -f Dockerfile.frontend -t arc-codex-frontend:latest ./frontend
+# Build (context must be project root so backend/directives.json is reachable):
+#   docker build -f Dockerfile.frontend -t arc-codex-frontend:latest .
 #
 # Run standalone:
 #   docker run -p 3000:3000 --env-file frontend/.env.local arc-codex-frontend:latest
@@ -19,7 +19,7 @@ ARG NODE_VERSION=22.16.0
 FROM node:${NODE_VERSION}-alpine AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --legacy-peer-deps
 
 # ── Stage 2: builder ─────────────────────────────────────────────────────────
@@ -30,12 +30,14 @@ COPY --from=deps /app/node_modules ./node_modules
 
 # Copy coarse-to-fine — maximises layer cache hits.
 # Config files change less often than components.
-COPY next.config.mjs tsconfig.json tailwind.config.mjs postcss.config.js ./
-COPY package.json package-lock.json .npmrc ./ 
-COPY public      ./public
-COPY app         ./app
-COPY components  ./components
-COPY lib         ./lib
+COPY frontend/next.config.mjs frontend/tsconfig.json frontend/tailwind.config.mjs frontend/postcss.config.js ./
+COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
+COPY frontend/public ./public
+# Keep directives.json in sync with backend at image build time
+COPY backend/directives.json ./public/directives.json
+COPY frontend/app         ./app
+COPY frontend/components  ./components
+COPY frontend/lib         ./lib
 
 # NEXT_PUBLIC_* vars must be present at build time
 ARG NEXTAUTH_URL
