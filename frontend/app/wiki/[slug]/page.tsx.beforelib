@@ -1,0 +1,149 @@
+// Filename: /frontend/app/wiki/[slug]/page.tsx
+// Forensic Ledger — Directive Specimen View
+// v3.0 Apr 20 2026 — Refined for Epistemic Responsibility
+
+import React from 'react';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { notFound } from 'next/navigation';
+import Link from 'next/link';
+import type { Metadata } from 'next';
+import { Flashlight, ChevronLeft, Hash, Scale } from 'lucide-react';
+
+interface WikiArticle {
+  id: string;
+  title: string;
+  source_name: string;
+  timestamp: string;
+  sourceUrl: string;
+  purple_team_analysis: string;
+  chimera_score: number;
+}
+
+interface DirectiveEntry { name: string; }
+interface TopicGroup { topic: string; directives: DirectiveEntry[]; }
+
+const toSlug = (name: string) =>
+  name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+const BACKEND = process.env.BACKEND_INTERNAL_URL ?? process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://arc-codex.com';
+
+function resolveDirective(slug: string): { name: string; topic: string } | null {
+  const directivesPath = join(process.cwd(), 'public', 'directives.json');
+  const groups: TopicGroup[] = JSON.parse(readFileSync(directivesPath, 'utf-8'));
+  for (const group of groups) {
+    if (group.topic === 'System Directives') continue;
+    for (const d of group.directives) {
+      if (toSlug(d.name) === slug) return { name: d.name, topic: group.topic };
+    }
+  }
+  return null;
+}
+
+async function getWikiArticles(directiveName: string): Promise<WikiArticle[]> {
+  try {
+    const res = await fetch(`${BACKEND}/api/wiki/${encodeURIComponent(directiveName)}`, { next: { revalidate: 300 } });
+    return res.ok ? await res.json() : [];
+  } catch { return []; }
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params;
+  const resolved = resolveDirective(slug);
+  if (!resolved) return { title: '404 — Arc Codex Wiki' };
+  return {
+    title: `${resolved.name} // A.R.C. Ledger`,
+    description: `Forensic analysis of ${resolved.name} within the A.R.C. Framework.`,
+  };
+}
+
+export default async function WikiDirectivePage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const resolved = resolveDirective(slug);
+  if (!resolved) notFound();
+
+  const articles = await getWikiArticles(resolved.name);
+
+  return (
+    <div className="min-h-screen bg-[#fdfbf7] text-slate-900 font-ubuntu selection:bg-slate-900 selection:text-white">
+      <main className="max-w-5xl mx-auto px-8 py-24 md:py-40">
+        
+        {/* BREADCRUMB: THE PATHWAY */}
+        <nav className="mb-16 flex items-center gap-4 text-[10px] font-mono uppercase tracking-[0.3em] text-slate-400">
+          <Link href="/wiki" className="hover:text-slate-900 transition-colors flex items-center gap-2">
+            <ChevronLeft className="h-3 w-3" /> Taxonomy
+          </Link>
+          <span>/</span>
+          <span className="text-slate-900 italic font-bold">{resolved.topic}</span>
+        </nav>
+
+        {/* HEADER: THE SPECIMEN DEFINITION */}
+        <header className="mb-24 space-y-6 max-w-3xl">
+          <div className="flex items-center gap-3">
+            <Hash className="h-5 w-5 text-slate-300" />
+            <span className="text-xs font-mono uppercase tracking-widest text-slate-400">Directive Registry</span>
+          </div>
+          <h1 className="text-5xl md:text-7xl font-bold tracking-tighter italic leading-none text-slate-900">
+            {resolved.name}
+          </h1>
+          <p className="text-lg text-slate-500 italic font-light leading-relaxed">
+            Forensic ledger of {articles.length} intelligence entries classified under {resolved.name}. 
+            Filtered via the A.R.C. Analytical Triad.
+          </p>
+        </header>
+
+        {/* THE ENTRIES: THE LEDGER GRID */}
+        {articles.length === 0 ? (
+          <div className="border-t border-slate-200 pt-12 text-sm font-mono text-slate-400 uppercase tracking-widest">
+            No entries currently recorded in this quadrant.
+          </div>
+        ) : (
+          <div className="grid gap-px bg-slate-200 border border-slate-200">
+            {articles.map((article) => (
+              <article key={article.id} className="bg-[#fdfbf7] p-10 md:p-16 group hover:bg-white transition-colors duration-500">
+                <div className="flex flex-col md:flex-row md:items-start justify-between gap-12">
+                  
+                  <div className="flex-1 space-y-6">
+                    <header className="space-y-2">
+                      <div className="flex items-center gap-4 text-[10px] font-mono uppercase tracking-widest text-slate-400">
+                        <span>{article.source_name || 'Unknown Source'}</span>
+                        <span>//</span>
+                        <time>{new Date(article.timestamp).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })}</time>
+                      </div>
+                      <Link href={`/article/${article.id}`} className="block group-hover:translate-x-1 transition-transform duration-300">
+                        <h2 className="text-2xl md:text-3xl font-bold tracking-tight italic leading-snug">
+                          {article.title}
+                        </h2>
+                      </Link>
+                    </header>
+
+                    <p className="text-slate-500 leading-relaxed italic line-clamp-3 text-lg font-light">
+                      {article.purple_team_analysis.slice(0, 300)}...
+                    </p>
+
+                    <div className="pt-4 flex items-center gap-8 text-[10px] font-mono uppercase tracking-[0.2em] text-slate-400">
+                       <Link href={`/article/${article.id}`} className="flex items-center gap-2 hover:text-slate-900 transition-colors">
+                         <Flashlight className="h-3 w-3" /> Full Forensics
+                       </Link>
+                       <div className="flex items-center gap-2">
+                         <Scale className="h-3 w-3" /> Gravity: {article.chimera_score || 'N/A'}
+                       </div>
+                    </div>
+                  </div>
+
+                  <div className="hidden md:block w-32 h-px bg-slate-200 mt-4 group-hover:bg-slate-900 transition-colors duration-700" />
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+
+        <footer className="mt-32 pt-12 border-t border-slate-200 opacity-30 text-center">
+          <p className="text-[10px] font-mono uppercase tracking-[0.8em]">
+             Fort Collins // A.R.C. Forensic Division
+          </p>
+        </footer>
+      </main>
+    </div>
+  );
+}

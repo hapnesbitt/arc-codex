@@ -1,214 +1,135 @@
-/**
- * Arc Codex — About Gateway
- * frontend/app/about/page.tsx
- * v2.0 Mar 15 2026 — Updated cards, contact added, version corrected
- */
-
-'use client';
+// Filename: /frontend/app/about/page.tsx
+// About — Front matter for Arc Codex.
+// Librarian aesthetic: serif body, sans-serif metadata, hairline-separated
+// sections, no card chrome. Server component — SEO-friendly.
 
 import React from 'react';
-import { motion } from 'framer-motion';
-import { Shield, Cpu, Terminal, ArrowRight, Zap, Mail } from 'lucide-react';
-import { Link as AriaLink } from 'react-aria-components';
-import PageWrapper from '@/components/layout/PageWrapper';
+import type { Metadata } from 'next';
+import Link from 'next/link';
+import { ChevronRight } from 'lucide-react';
 
-const reducedMotion = typeof window !== 'undefined'
-  ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  : false;
+export const metadata: Metadata = {
+  title: 'About — Arc Codex',
+  description: 'An instrument for stewarding the process of knowing — A.R.C. cognitive analysis applied to news and discourse.',
+};
 
-const fadeUp = reducedMotion
-  ? { initial: {}, animate: {} }
-  : { initial: { opacity: 0, y: -20 }, animate: { opacity: 1, y: 0 } };
-
-const cardHover = reducedMotion
-  ? {}
-  : { whileHover: { scale: 1.02 }, whileTap: { scale: 0.98 } };
-
-const CARDS = [
+const PILLARS = [
   {
     href: '/about/sales',
-    icon: Zap,
-    iconColor: 'text-blue-500',
-    accentBg: 'bg-blue-600',
-    accentShadow: 'shadow-[0_0_20px_rgba(37,99,235,0.6)]',
-    borderColor: 'border-blue-500/30 hover:border-blue-500',
-    glowIdle: 'shadow-[0_0_30px_rgba(59,130,246,0.1)]',
-    glowHover: 'hover:shadow-[0_0_50px_rgba(59,130,246,0.3)]',
-    focusRing: 'focus-visible:ring-blue-500/70',
-    titleColor: 'text-blue-100',
-    ctaColor: 'text-blue-400',
-    title: 'Vision & Platform',
-    description: 'How Arc Codex works, what makes it different, and how it has been deployed as a custom platform — including Huntaegis, a live cybersecurity intelligence site.',
-    cta: 'Explore the Vision',
-    ariaLabel: 'Vision and Platform — how Arc Codex works and how it can be deployed',
+    title: 'Vision & Doctrine',
+    description: 'The Vigil of the Refined Mind. An exploration of the duty to steward the process of knowing.',
   },
   {
     href: '/about/support',
-    icon: Cpu,
-    iconColor: 'text-amber-500',
-    accentBg: 'bg-amber-600',
-    accentShadow: 'shadow-[0_0_20px_rgba(217,119,6,0.6)]',
-    borderColor: 'border-amber-500/30 hover:border-amber-500',
-    glowIdle: 'shadow-[0_0_30px_rgba(245,158,11,0.1)]',
-    glowHover: 'hover:shadow-[0_0_50px_rgba(245,158,11,0.3)]',
-    focusRing: 'focus-visible:ring-amber-500/70',
-    titleColor: 'text-amber-100',
-    ctaColor: 'text-amber-400',
-    title: 'How to Use Arc Codex',
-    description: 'Reading the feed, understanding the A.R.C. analysis, translation, publishing (public and private), Sentinel scores, and sharing. Everything you need to get started.',
-    cta: 'Open the Guide',
-    ariaLabel: 'How to Use Arc Codex — full user guide covering all features',
+    title: 'The Art of Discernment',
+    description: 'User guidelines for navigating the analytical triad and the 48 A.R.C. patterns of interference.',
   },
   {
     href: '/about/developer',
-    icon: Terminal,
-    iconColor: 'text-green-500',
-    accentBg: 'bg-green-600',
-    accentShadow: 'shadow-[0_0_20px_rgba(22,163,74,0.6)]',
-    borderColor: 'border-green-500/30 hover:border-green-500',
-    glowIdle: 'shadow-[0_0_30px_rgba(34,197,94,0.1)]',
-    glowHover: 'hover:shadow-[0_0_50px_rgba(34,197,94,0.3)]',
-    focusRing: 'focus-visible:ring-green-500/70',
-    titleColor: 'text-green-100',
-    ctaColor: 'text-green-400',
-    title: 'Developer Docs',
-    description: 'Stack architecture, API contracts, Redis schemas, AI pipeline, deployment gotchas, and the technical roadmap. Flask + Next.js + Redis + Solr + Ollama.',
-    cta: 'Read the Spec',
-    ariaLabel: 'Developer Documentation — stack architecture, API contracts, and technical roadmap',
+    title: 'Infrastructure of Meaning',
+    description: 'The Z230 Blueprint. Technical specifications for the Scribe and the architecture of intent.',
   },
   {
     href: '/about/contact',
-    icon: Mail,
-    iconColor: 'text-purple-500',
-    accentBg: 'bg-purple-600',
-    accentShadow: 'shadow-[0_0_20px_rgba(147,51,234,0.6)]',
-    borderColor: 'border-purple-500/30 hover:border-purple-500',
-    glowIdle: 'shadow-[0_0_30px_rgba(168,85,247,0.1)]',
-    glowHover: 'hover:shadow-[0_0_50px_rgba(168,85,247,0.3)]',
-    focusRing: 'focus-visible:ring-purple-500/70',
-    titleColor: 'text-purple-100',
-    ctaColor: 'text-purple-400',
-    title: 'Contact & Consulting',
-    description: 'Ross Nesbitt — 30+ years Linux/UNIX, AI infrastructure, cognitive security, email authentication. Available for contract work.',
-    cta: 'Get in Touch',
-    ariaLabel: 'Contact and Consulting — reach Ross Nesbitt for contract work',
+    title: 'Stewardship',
+    description: 'Professional consulting on cognitive resilience and high-fidelity systems architecture.',
   },
-] as const;
+];
 
-const FOOTER_LINKS = [
-  { href: '/about/privacy', label: 'Privacy Policy' },
-  { href: '/about/terms', label: 'Terms of Service' },
-] as const;
+const UTILITY_NAV = [
+  { href: '/about/sales', label: 'Vision' },
+  { href: '/about/support', label: 'Support' },
+  { href: '/about/developer', label: 'Developer' },
+  { href: '/about/contact', label: 'Contact' },
+  { href: '/about/privacy', label: 'Privacy' },
+  { href: '/about/terms', label: 'Terms' },
+];
 
-interface GatewayCardProps {
-  card: typeof CARDS[number];
-  index: number;
-}
-
-const GatewayCard: React.FC<GatewayCardProps> = ({ card, index }) => {
-  const Icon = card.icon;
+export default function AboutGateway() {
   return (
-    <motion.div
-      {...cardHover}
-      initial={reducedMotion ? {} : { opacity: 0, y: 30 }}
-      animate={reducedMotion ? {} : { opacity: 1, y: 0 }}
-      transition={reducedMotion ? {} : { duration: 0.5, delay: 0.2 + index * 0.1 }}
-    >
-      <AriaLink
-        href={card.href}
-        aria-label={card.ariaLabel}
-        className={`
-          group relative block p-8 rounded-3xl bg-slate-900/40 border-2
-          ${card.borderColor} transition-all duration-500 overflow-hidden
-          ${card.glowIdle} ${card.glowHover}
-          outline-none focus-visible:ring-2 ${card.focusRing} focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950
-        `}
-      >
-        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-30 transition-opacity" aria-hidden="true">
-          <Icon className={`h-20 w-20 ${card.iconColor}`} />
-        </div>
-        <div className="relative z-10 space-y-4">
-          <div className={`h-10 w-20 ${card.accentBg} rounded-full ${card.accentShadow} mb-5 animate-pulse`} aria-hidden="true" />
-          <h2 className={`text-2xl font-bold ${card.titleColor}`}>{card.title}</h2>
-          <p className="text-slate-300 leading-relaxed">{card.description}</p>
-          <div className={`pt-3 flex items-center gap-2 ${card.ctaColor} font-bold`} aria-hidden="true">
-            {card.cta}
-            <ArrowRight className="h-5 w-5 group-hover:translate-x-2 transition-transform" />
-          </div>
-        </div>
-      </AriaLink>
-    </motion.div>
-  );
-};
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
 
-const AboutGateway = () => {
-  return (
-    <PageWrapper>
-      <a
-        href="#about-main"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[300] focus:px-4 focus:py-2 focus:bg-amber-500 focus:text-black focus:font-bold focus:rounded-lg focus:text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
-      >
-        Skip to main content
-      </a>
-
-      <main
-        id="about-main"
-        role="main"
-        aria-label="About Arc Codex"
-        className="min-h-[80vh] flex flex-col items-center justify-center max-w-5xl mx-auto px-4 py-12"
-      >
-        {/* Header */}
-        <motion.header {...fadeUp} className="text-center mb-16 space-y-6">
-          <div className="inline-block p-3 rounded-2xl bg-slate-900/50 border border-slate-700 mb-4" aria-hidden="true">
-            <Shield className="h-10 w-10 text-amber-400" />
+        {/* Header — front matter */}
+        <header className="text-center py-12 border-b border-slate-800/60 space-y-4">
+          <div className="font-sans text-[10px] uppercase tracking-[0.4em] text-slate-500">
+            Argumentative Resilience Codex
           </div>
-          <h1 className="text-4xl md:text-6xl font-black text-slate-50 tracking-tight">Arc Codex</h1>
-          <p className="text-xl text-slate-400 max-w-2xl mx-auto italic">
-            Intelligence infrastructure for the independent mind. 2,087 sources · 162 languages · 48 A.R.C. patterns.
+          <h1 className="font-serif text-5xl sm:text-6xl font-semibold tracking-tight text-slate-50 leading-none">
+            Arc Codex
+          </h1>
+          <p className="font-serif text-lg text-slate-400 italic leading-relaxed max-w-xl mx-auto">
+            An instrument for stewarding the process of knowing — A.R.C. cognitive analysis applied to news and discourse.
           </p>
-        </motion.header>
+          <div className="font-sans text-[10px] uppercase tracking-[0.4em] text-slate-500 pt-2">
+            Civility · Integrity · Availability
+          </div>
+        </header>
 
-        {/* Navigation cards — 2x2 grid */}
-        <section
-          aria-label="Explore Arc Codex sections"
-          className="grid md:grid-cols-2 gap-6 w-full"
+        {/* Pillars — written sections, not tiles */}
+        {PILLARS.map((pillar) => (
+          <section key={pillar.href} className="py-10 border-b border-slate-800/60 space-y-4">
+            <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
+              Protocol · {pillar.title.split(' ')[0]}
+            </div>
+            <h2 className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-slate-300">
+              {pillar.title}
+            </h2>
+            <p className="font-serif text-lg text-slate-200 leading-relaxed max-w-2xl">
+              {pillar.description}
+            </p>
+            <Link
+              href={pillar.href}
+              className="inline-flex items-center gap-2 font-sans text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+            >
+              Enter Archive
+              <ChevronRight className="h-3 w-3" aria-hidden="true" />
+            </Link>
+          </section>
+        ))}
+
+        {/* Utility nav — quiet footer-style row across all sub-pages */}
+        <nav
+          aria-label="About sections"
+          className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 py-8 border-b border-slate-800/60"
         >
-          {CARDS.map((card, index) => (
-            <GatewayCard key={card.href} card={card} index={index} />
-          ))}
-        </section>
-
-        {/* Footer navigation */}
-        <nav aria-label="Legal links" className="mt-12 flex flex-wrap gap-6 justify-center text-sm text-slate-500">
-          {FOOTER_LINKS.map((link, i) => (
-            <React.Fragment key={link.href}>
-              {i > 0 && <span aria-hidden="true">·</span>}
-              <AriaLink
-                href={link.href}
-                className="hover:text-slate-300 transition-colors outline-none focus-visible:text-amber-400 focus-visible:underline focus-visible:underline-offset-4"
-              >
-                {link.label}
-              </AriaLink>
-            </React.Fragment>
+          {UTILITY_NAV.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500 hover:text-slate-200 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+            >
+              {item.label}
+            </Link>
           ))}
         </nav>
 
-        <p className="mt-8 text-slate-500 text-sm font-mono uppercase tracking-widest" aria-hidden="true">
-          A.R.C. Framework v7.14 // Connection Secure
-        </p>
+        {/* Footer — identifier, metrics + sources, framework version */}
+        <footer className="text-center pt-12 pb-6 space-y-4 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
+          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-2">
+            <a
+              href="https://grafana.arc-codex.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-slate-200 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+            >
+              ◈ Corpus Metrics
+            </a>
+            <Link
+              href="/sources"
+              className="hover:text-slate-200 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+            >
+              ◈ Sources
+            </Link>
+          </div>
 
-        <a
-          href="https://grafana.arc-codex.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-2 text-slate-700 hover:text-slate-500 transition-colors text-xs font-mono tracking-widest outline-none focus-visible:text-amber-400 focus-visible:underline focus-visible:underline-offset-4"
-          aria-label="Corpus Intelligence Dashboard (Grafana)"
-        >
-          ◈ CORPUS METRICS
-        </a>
+          <div className="space-y-1 pt-4 text-slate-600">
+            <p>Harold Edwin Ross Nesbitt III</p>
+            <p>Fort Collins, CO · 40.5853° N, 105.0844° W</p>
+            <p>A.R.C. Framework v7.14 · Connection Secure</p>
+          </div>
+        </footer>
       </main>
-    </PageWrapper>
+    </div>
   );
-};
-
-export default AboutGateway;
+}

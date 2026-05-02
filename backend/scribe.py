@@ -11,9 +11,9 @@
 #   - Background analysis threading: sentinel + counter-analyst run in a
 #     dedicated ThreadPoolExecutor so the main loop never blocks on Ollama.
 #     Each background job creates its own Redis connection — no shared state.
-#   - is_priority flag: user submissions (priority queue) skip analysis entirely.
-#     Their posts appear in the feed in seconds regardless of what the RSS
-#     pipeline is doing. This is the fix for the demo-blocking 5-minute wait.
+#   - is_priority flag: user submissions publish immediately; sentinel +
+#     counter-analyst still run in the background thread. Red/Blue/Purple is
+#     deferred to analyzer.py (lazy on first view). No demo-blocking wait.
 #   - get_article_hash: UUID mix-in for empty text prevents duplicate photo
 #     posts (multiple "Lumi" photos) from being silently deduped.
 #
@@ -57,6 +57,8 @@ import gzip
 import zlib
 import yaml
 import yt_dlp
+from langdetect import detect, DetectorFactory, LangDetectException
+DetectorFactory.seed = 0  # deterministic
 
 # Load environment variables
 load_dotenv()
@@ -92,6 +94,16 @@ DEFAULT_IMAGES = {
     'default':   'https://arc-codex.com/uploads/arc-codex-default.jpg',
 }
 DEFAULT_IMAGE_URL = DEFAULT_IMAGES['default']
+
+# Language detection: ISO code → English name. Kept in sync with
+# frontend/lib/languages.json so search filters and detection share the map.
+_ISO_TO_NAME_PATH = os.path.join(BASE_DIR, 'languages.json')
+with open(_ISO_TO_NAME_PATH, 'r', encoding='utf-8') as _f:
+    _LANG_LIST = json.load(_f)
+ISO_TO_NAME = {entry['code'].lower(): entry['name'] for entry in _LANG_LIST}
+# langdetect emits 'zh-cn' / 'zh-tw' which our map has as 'zh'; normalize them.
+ISO_TO_NAME['zh-cn'] = ISO_TO_NAME.get('zh', 'Chinese')
+ISO_TO_NAME['zh-tw'] = ISO_TO_NAME.get('zh', 'Chinese')
 
 
 def _inc(key: str, field: str, amount: int = 1) -> None:
@@ -205,6 +217,20 @@ MIN_ARTICLE_LENGTH = 200
 RECENTLY_PUBLISHED_MEMORY = 10
 MAX_CONCURRENT_SCRAPERS = 5
 MAX_CONCURRENT_ANALYZERS = 1
+
+CATEGORY_TO_DIRECTIVE = {
+    'Health & Medicine':            'Healthcare and Public Health',
+    'Academic Journals':            'Peer-Reviewed Science and Research',
+    'Cybersecurity & Threat Intel': 'Active Threat Campaigns',
+    'Intelligence & Security':      'Intelligence Community Operations',
+    'Geopolitics & World Affairs':  'Geopolitics and International Relations',
+    'Finance & Economics':          'Economic Policy and Financial Markets',
+    'Governance & Policy':          'Government Actions and Political Discourse',
+    'Technology & AI':              'AI Developments and Discourse',
+    'Science & Environment':        'Climate and Environment',
+    'Agriculture & Food':           'US Farming and Agriculture',
+}
+
 FILE_LOCK = threading.Lock()
 
 USER_AGENTS = [
@@ -494,6 +520,19 @@ def assess_content_quality(article_text, html_content=None):
         return (False, "auto_generated")
 
     return (True, "acceptable")
+
+
+def detect_language(text: str) -> str:
+    """Detect language of article text. Returns full English name from
+    languages.json. Falls back to 'Unknown' if detection fails or text
+    is too short."""
+    if not text or len(text.strip()) < 50:
+        return 'Unknown'
+    try:
+        code = detect(text[:1000]).lower()
+        return ISO_TO_NAME.get(code, ISO_TO_NAME.get(code.split('-')[0], 'Unknown'))
+    except LangDetectException:
+        return 'Unknown'
 
 
 # --- CONTENT FETCHING ---
@@ -881,24 +920,32 @@ def process_priority_queue(api_client, recently_published):
                 if not source_url:
                     logger.warning("⚡ Priority url item has no url — skipping")
                     continue
-                article_data = fetch_article_data(source_url)
-                if not article_data:
-                    logger.warning(f"⚡ Could not fetch priority URL: {source_url}")
-                    if job_id:
-                        r.setex(
-                            f"arc:job:{job_id}:status",
-                            300,
-                            json.dumps({
-                                "status": "failed",
-                                "reason": "URL could not be fetched — the site may be blocking automated access. Please paste the article text directly instead.",
-                            }),
-                        )
-                    continue
-                article_text = article_data['text']
-                if not title:
-                    title = source_url
-                if not image_url and article_data.get('image_url'):
-                    image_url = article_data['image_url']
+                provided_description = (item.get('description') or '').strip()
+                if provided_description:
+                    # User supplied text directly — skip URL fetch entirely
+                    article_text = provided_description
+                    if not title:
+                        title = source_url
+                    logger.info(f"⚡ Using provided description for URL item ({len(article_text)} chars), skipping fetch")
+                else:
+                    article_data = fetch_article_data(source_url)
+                    if not article_data:
+                        logger.warning(f"⚡ Could not fetch priority URL: {source_url}")
+                        if job_id:
+                            r.setex(
+                                f"arc:job:{job_id}:status",
+                                300,
+                                json.dumps({
+                                    "status": "failed",
+                                    "reason": "URL could not be fetched — the site may be blocking automated access. Please paste the article text directly instead.",
+                                }),
+                            )
+                        continue
+                    article_text = article_data['text']
+                    if not title:
+                        title = source_url
+                    if not image_url and article_data.get('image_url'):
+                        image_url = article_data['image_url']
 
             elif origin == 'text':
                 article_text = (item.get('text') or item.get('content') or '').strip()
@@ -924,7 +971,8 @@ def process_priority_queue(api_client, recently_published):
                     logger.info(f"⚡ Priority item failed quality gate: {reason}")
                     continue
 
-            article_hash = get_article_hash(title, article_text)
+            url_for_hash = item.get('url', '') if origin == 'url' else ''
+            article_hash = get_article_hash(title, article_text, url_for_hash, image_url)
 
             if r.sismember('processed_hashes', article_hash):
                 logger.info(f"⚡ Priority item already processed: {article_hash}")
@@ -1244,13 +1292,26 @@ def load_json_file(filepath, default_content):
         return default_content
 
 
+def load_jsonl_file(filepath, default_content):
+    try:
+        sources = []
+        with open(filepath, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    sources.append(json.loads(line))
+        return sources
+    except (FileNotFoundError, json.JSONDecodeError):
+        return default_content
+
+
 def save_json_file(filepath, data):
     with FILE_LOCK:
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
 
 
-def get_article_hash(title, text_content):
+def get_article_hash(title, text_content, source_url='', image_url=''):
     snippet = text_content.strip()[:500]
     # For photo/image-only posts with no text, mix in a UUID so identical
     # titles (e.g. multiple "Lumi" photos) don't collide and get deduped.
@@ -1258,6 +1319,10 @@ def get_article_hash(title, text_content):
         unique_string = f"{title.strip()}::{uuid.uuid4().hex}"
     else:
         unique_string = f"{title.strip()}::{snippet}"
+    if source_url:
+        unique_string += f"::{source_url.strip()}"
+    if image_url:
+        unique_string += f"::{image_url.strip()}"
     return hashlib.md5(unique_string.encode('utf-8')).hexdigest()
 
 
@@ -1297,7 +1362,10 @@ def find_best_target(candidates, all_directives, recently_published):
             elif profile == 'high_negative':
                 emotion_score = abs(min(0, sentiment))
 
-            final_score = directive.get('priority', 1.0) + emotion_score
+            category_bonus = 2.0 if CATEGORY_TO_DIRECTIVE.get(
+                cand.get('source_category', ''), ''
+            ) == directive.get('name') else 0.0
+            final_score = directive.get('priority', 1.0) + emotion_score + category_bonus
             potential_targets.append({'score': final_score, 'article': cand, 'directive': directive})
 
     if not potential_targets:
@@ -1322,7 +1390,10 @@ def find_best_target(candidates, all_directives, recently_published):
                     emotion_score = max(0, sentiment)
                 elif profile == 'high_negative':
                     emotion_score = abs(min(0, sentiment))
-                final_score = directive.get('priority', 1.0) + emotion_score
+                category_bonus = 2.0 if CATEGORY_TO_DIRECTIVE.get(
+                    cand.get('source_category', ''), ''
+                ) == directive.get('name') else 0.0
+                final_score = directive.get('priority', 1.0) + emotion_score + category_bonus
                 potential_targets.append({'score': final_score, 'article': cand, 'directive': directive})
         if not potential_targets:
             return None
@@ -1334,10 +1405,11 @@ def find_best_target(candidates, all_directives, recently_published):
 
 
 def publish_and_prepare_comments(target, recently_published, api_client, is_priority=False):
-    """Publish article and generate sentinel + counter-analyst. Red/Blue/Purple is lazy.
-    
-    is_priority=True: skip all AI analysis passes so user sees their post immediately.
-    Analysis (sentinel, counter-analyst) is only run for RSS pipeline articles.
+    """Publish article and queue sentinel + counter-analyst in background. Red/Blue/Purple is lazy.
+
+    is_priority=True: article is published immediately regardless of analysis. Sentinel and
+    counter-analyst still run in a background thread — they don't block publishing.
+    Red/Blue/Purple is deferred to analyzer.py and fires on first article view.
     """
     article = target.get('article', {})
     directive = target.get('directive', {})
@@ -1375,6 +1447,7 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
             directive_name=directive.get('name', ''),
             source_category=article.get('source_category', '')
         ),
+        'source_lang': detect_language(article.get('article_text', '')),
         'blue_team_analysis': '',
         'red_team_analysis': '',
         'purple_team_analysis': '',
@@ -1383,6 +1456,16 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
         'visibility': article.get('visibility', 'public'),
         'owner': article.get('owner', ''),
     })
+
+    # Carry the pre_analyze nlp_* fields through to the article hash. They
+    # reach the hash only on quality-pass publish — never for articles that
+    # never make it past scribe's gates. corpus_exporter.py reads them from
+    # the article hash unchanged.
+    dossier_dict = article.get('dossier') or {}
+    if isinstance(dossier_dict, dict):
+        for k, v in dossier_dict.items():
+            if k.startswith('nlp_') and v is not None:
+                publish_payload[k] = v
 
     try:
         api_client.publish_article(publish_payload)
@@ -1430,13 +1513,14 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
     # appears in the feed immediately. RSS articles get the full treatment,
     # but analysis runs in a background thread — never blocks the main loop.
     text_for_analysis = article.get('article_text', '')
-    if is_priority:
-        logger.info(f"⚡ Priority post — skipping all analysis passes for {article_id}")
-    elif len(text_for_analysis.strip()) < 100:
+    if len(text_for_analysis.strip()) < 100:
         logger.info(f"📷 Short post — skipping sentinel + counter-analyst for {article_id}")
     else:
         _analysis_executor.submit(_run_analysis_background, article_id, text_for_analysis)
-        logger.info(f"🔬 Analysis queued in background for {article_id}")
+        if is_priority:
+            logger.info(f"🔬 Priority post — sentinel + counter-analyst queued in background for {article_id}")
+        else:
+            logger.info(f"🔬 Analysis queued in background for {article_id}")
 
     # Red/Blue/Purple deferred — fires on first article view via analyzer.py
 
@@ -1487,7 +1571,7 @@ def main():
 
             # --- RSS CYCLE ---
             processed_hashes = r.smembers('processed_hashes')
-            all_sources = load_json_file(SOURCES_FILE, [])
+            all_sources = load_jsonl_file(SOURCES_FILE, [])
             all_directives = [d for topic in load_json_file(DIRECTIVES_FILE, [])
                               for key, value in topic.items() if isinstance(value, list) for d in value]
 

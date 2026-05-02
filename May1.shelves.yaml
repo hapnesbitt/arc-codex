@@ -1,0 +1,75 @@
+shelves:
+  christianity:
+    name: Christianity
+    gutenberg_bookshelf_id: 119
+    description: Theology, scripture, and Christian thought from the public domain
+      canon.
+  childrens_reading:
+    name: Children & Young Adult Reading
+    gutenberg_bookshelf_id: 636
+    description: Stories, poems, and adventures for younger readers.
+  american_history:
+    name: American History
+    gutenberg_bookshelf_id: 656
+    description: Primary sources and accounts of the American experiment.
+  philosophy_ethics:
+    name: Philosophy & Ethics
+    gutenberg_bookshelf_id: 691
+    description: Kant, Hegel, Aristotle, Plato — the canonical hard reading.
+  politics:
+    name: Politics
+    gutenberg_bookshelf_id: 694
+    description: Locke, Mill, Hobbes, the Federalist Papers — political philosophy
+      from the public domain.
+  law_criminology:
+    name: Law & Criminology
+    gutenberg_bookshelf_id: 689
+    description: Blackstone and the foundational legal texts of the English-speaking
+      world.
+  classics:
+    name: Classics of Literature
+    gutenberg_bookshelf_id: 649
+    description: The canonical works — broad in difficulty, deep in influence.
+  sci_fi_fantasy:
+    name: Science-Fiction & Fantasy
+    gutenberg_bookshelf_id: 638
+    description: Wells, Verne, Stoker, Lovecraft — the imaginative tradition before
+      genre had a name.
+  crime_mystery:
+    name: Crime, Thrillers & Mystery
+    gutenberg_bookshelf_id: 640
+    description: Doyle, Christie, Chesterton — the puzzles and shadows of the canonical
+      detectives.
+  plays:
+    name: Plays, Films & Dramas
+    gutenberg_bookshelf_id: 642
+    description: Shakespeare, Shaw, Wilde, Ibsen — the human voice on the public stage.
+  poetry:
+    name: Poetry
+    gutenberg_bookshelf_id: 637
+    description: Whitman, Dickinson, Frost, Yeats — verse from the public domain canon.
+  mythology:
+    name: Mythology, Legends & Folklore
+    gutenberg_bookshelf_id: 646
+    description: Bulfinch, Hamilton, Frazer — the stories that came before the stories.
+  bahai_faith:
+    name: Bahá'í Faith
+    gutenberg_bookshelf_id: 114
+    description: Writings and teachings from the Bahá'í tradition.
+  buddhism:
+    name: Buddhism
+    gutenberg_bookshelf_id: 116
+    description: Sutras, commentaries, and reflections from the Buddhist canon.
+  hinduism:
+    name: Hinduism
+    gutenberg_bookshelf_id: 125
+    description: The Vedas, Upanishads, and the broader Hindu literary tradition.
+  judaism:
+    name: Judaism
+    gutenberg_bookshelf_id: 128
+    description: Texts and commentaries from the Jewish tradition.
+  islam:
+    name: Islam
+    gutenberg_bookshelf_id: 126
+    description: The Qur'an, hadith collections, and works of Islamic scholarship.
+books_per_shelf: 200

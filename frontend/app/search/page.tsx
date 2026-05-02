@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, ArrowLeft, Clock, Newspaper, Zap, Shield, TrendingUp, Radio, Database, CalendarDays, Terminal, Globe, Tag, X } from 'lucide-react';
 import PageWrapper from '@/components/layout/PageWrapper';
+import LANG_LIST from '@/lib/languages.json';
 
 // ── Reduced motion ────────────────────────────────────────────────────────────
 const reducedMotion = typeof window !== 'undefined'
@@ -72,10 +73,15 @@ const getDirectiveConfig = (directive: string) => {
   return { icon: <Zap className="h-3 w-3" />, color: 'text-amber-400', border: 'border-amber-500/30', badgeBg: 'bg-amber-500/10', accentBar: '#f59e0b', glow: 'shadow-[0_0_20px_rgba(245,158,11,0.1)] hover:shadow-[0_0_35px_rgba(245,158,11,0.2)]' };
 };
 
-const getChimeraColor = (score: number) => {
-  if (score >= 0.7) return { bar: 'bg-red-500',     text: 'text-red-400',     label: 'HIGH' };
-  if (score >= 0.4) return { bar: 'bg-amber-500',   text: 'text-amber-400',   label: 'MED'  };
-  return               { bar: 'bg-emerald-500', text: 'text-emerald-400', label: 'LOW'  };
+const getChimeraColors = (score: number) => {
+  // score is 0..1 from search; convert to 0-100 difficulty
+  const pct = Math.round(score);
+  if (pct < 30)  return { bar: 'bg-emerald-200', text: 'text-emerald-300', label: 'Elementary' };
+  if (pct < 50)  return { bar: 'bg-emerald-400', text: 'text-emerald-300', label: 'High School' };
+  if (pct < 60)  return { bar: 'bg-emerald-500', text: 'text-emerald-200', label: 'College' };
+  if (pct < 70)  return { bar: 'bg-emerald-600', text: 'text-emerald-200', label: 'Graduate' };
+  if (pct < 80)  return { bar: 'bg-emerald-700', text: 'text-emerald-100', label: 'Academic' };
+  return         { bar: 'bg-emerald-900', text: 'text-emerald-100', label: 'Specialist' };
 };
 
 // ── Directive topics (from directives.json) ──────────────────────────────────
@@ -89,11 +95,9 @@ const DIRECTIVE_TOPICS: { topic: string; directives: string[] }[] = [
   { topic: 'General',             directives: ['General News, Culture & Lifestyle'] },
 ];
 
-const KNOWN_LANGUAGES = [
-  'German', 'Swedish', 'Spanish', 'Vietnamese', 'Italian',
-  'Norwegian', 'Thai', 'Finnish', 'Hindi', 'Korean',
-  'Arabic', 'Indonesian', 'Russian',
-];
+// Full ISO-639 language list, alphabetized for the filter dropdown.
+// Shared with backend (backend/languages.json is a copy of this file).
+const KNOWN_LANGUAGES = LANG_LIST.map(l => l.name).sort();
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 function ResultSkeleton() {
@@ -113,88 +117,66 @@ function ResultSkeleton() {
 }
 
 // ── Result Card ───────────────────────────────────────────────────────────────
-function ResultCard({ result, index }: { result: SearchResult; index: number }) {
+function ResultCard({ result }: { result: SearchResult; index: number }) {
   const chimera = result.chimera_score || 0;
-  const chimeraColors = getChimeraColor(chimera);
-  const chimeraPercent = Math.round(chimera * 100);
-  const dir = getDirectiveConfig(result.directive);
+  const chimeraColors = getChimeraColors(chimera);
+  const chimeraPercent = Math.round(chimera);
 
   return (
-    <motion.div
-      initial={reducedMotion ? {} : { opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={reducedMotion ? {} : { opacity: 0, y: -10 }}
-      transition={{ duration: 0.25, delay: index * 0.04 }}
+    <Link
+      href={`/article/${result.id}`}
+      className="group block px-6 py-6 border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
     >
-      <Link
-        href={`/article/${result.id}`}
-        className={`group relative block bg-slate-900/30 border ${dir.border} rounded-2xl p-5 backdrop-blur-sm transition-all duration-300 hover:scale-[1.005] ${dir.glow} outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950`}
-      >
-        {/* Left accent bar */}
-        <div
-          className="absolute left-0 top-4 bottom-4 w-0.5 rounded-full opacity-20 group-hover:opacity-80 transition-opacity duration-300"
-          style={{ background: dir.accentBar }}
-          aria-hidden="true"
-        />
+      <div className="flex gap-6">
+        <div className="flex-1 min-w-0 space-y-3">
+          <h2 className="font-serif text-xl font-semibold text-slate-50 leading-snug tracking-tight line-clamp-2 group-hover:text-slate-100 transition-colors">
+            {result.title}
+          </h2>
 
-        <div className="flex gap-4">
-          <div className="flex-1 min-w-0 space-y-2.5">
-            <h2 className="text-base font-bold text-slate-50 group-hover:text-amber-300 transition-colors leading-snug line-clamp-2 tracking-tight">
-              {result.title}
-            </h2>
-
-            {result.snippet && (
-              <p
-                className="text-sm text-slate-400 leading-relaxed line-clamp-2 arc-snippet"
-                dangerouslySetInnerHTML={{ __html: result.snippet }}
-              />
-            )}
-
-            <div className="flex items-center gap-3 text-xs flex-wrap">
-              {result.source && (
-                <span className="flex items-center gap-1.5 text-slate-400">
-                  <Newspaper className="h-3 w-3" aria-hidden="true" />
-                  {result.source}
-                </span>
-              )}
-              {result.timestamp && (
-                <time dateTime={result.timestamp} className="flex items-center gap-1.5 text-slate-500">
-                  <Clock className="h-3 w-3" aria-hidden="true" />
-                  {formatRelativeTime(result.timestamp)}
-                </time>
-              )}
-              {result.directive && (
-                <span className={`flex items-center gap-1 px-2 py-0.5 ${dir.badgeBg} border ${dir.border} rounded-full uppercase tracking-wider font-mono font-medium text-[10px] ${dir.color}`}>
-                  {dir.icon}
-                  {result.directive.replace(/_/g, ' ')}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Tone bar */}
-          {chimera > 0 && (
-            <div
-              className="flex-shrink-0 flex flex-col items-center justify-center gap-1.5 w-12"
-              title="Tone: emotional charge of the article. High = more emotionally loaded."
-              aria-label={`Tone score ${chimeraPercent}, ${chimeraColors.label}`}
-            >
-              <span className="text-[9px] font-bold tracking-widest text-slate-500 uppercase font-mono" aria-hidden="true">Tone</span>
-              <span className={`text-xs font-bold tabular-nums font-mono ${chimeraColors.text}`} aria-hidden="true">{chimeraPercent}</span>
-              <div className="w-1.5 h-12 bg-slate-700/60 rounded-full overflow-hidden rotate-180" aria-hidden="true">
-                <motion.div
-                  className={`w-full ${chimeraColors.bar} rounded-full`}
-                  initial={{ height: 0 }}
-                  animate={{ height: `${chimeraPercent}%` }}
-                  transition={{ duration: 0.6, delay: index * 0.04 + 0.2, ease: 'easeOut' }}
-                />
-              </div>
-              <span className={`text-[9px] font-bold tracking-widest font-mono ${chimeraColors.text} opacity-70`} aria-hidden="true">{chimeraColors.label}</span>
-            </div>
+          {result.snippet && (
+            <p
+              className="font-serif text-base text-slate-300 leading-relaxed line-clamp-2 arc-snippet"
+              dangerouslySetInnerHTML={{ __html: result.snippet }}
+            />
           )}
+
+          <div className="flex items-center gap-4 flex-wrap font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500">
+            {result.source && (
+              <span>{result.source}</span>
+            )}
+            {result.timestamp && (
+              <time dateTime={result.timestamp}>
+                {formatRelativeTime(result.timestamp)}
+              </time>
+            )}
+            {result.directive && (
+              <span className="text-slate-400">
+                {result.directive.replace(/_/g, ' ')}
+              </span>
+            )}
+          </div>
         </div>
-      </Link>
-    </motion.div>
+
+        {/* Chimera Difficulty column */}
+        {chimera > 0 && (
+          <div
+            className="flex-shrink-0 flex flex-col items-center justify-center gap-1.5 w-14"
+            title="Chimera Difficulty Score — synthesizes Flesch-Kincaid, Coleman-Liau, SMOG, and Dale-Chall readability metrics"
+            aria-label={`Chimera score ${chimeraPercent}, ${chimeraColors.label}`}
+          >
+            <span className="font-sans text-[9px] font-semibold tracking-[0.2em] text-slate-500 uppercase" aria-hidden="true">Chimera</span>
+            <span className={`text-xs font-bold tabular-nums font-mono ${chimeraColors.text}`} aria-hidden="true">{chimeraPercent}</span>
+            <div className="w-1 h-12 bg-slate-800 overflow-hidden flex flex-col-reverse" aria-hidden="true">
+              <div
+                className={`w-full ${chimeraColors.bar}`}
+                style={{ height: `${chimeraPercent}%` }}
+              />
+            </div>
+            <span className={`font-sans text-[9px] font-semibold tracking-[0.15em] text-center leading-tight ${chimeraColors.text}`} aria-hidden="true">{chimeraColors.label}</span>
+          </div>
+        )}
+      </div>
+    </Link>
   );
 }
 
@@ -241,7 +223,7 @@ function SearchPageContent() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<'recent' | 'relevant' | 'score_desc' | 'score_asc'>('relevant');
+  const [sortBy, setSortBy] = useState<'recent' | 'oldest' | 'score_desc' | 'score_asc'>('recent');
   const [stats, setStats] = useState<{ article_count: number; newest: string | null } | null>(null);
   const [langFilter, setLangFilter]           = useState<string>('');
   const [directiveFilter, setDirectiveFilter] = useState<string>('');
@@ -272,7 +254,7 @@ function SearchPageContent() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  const performSearch = useCallback(async (searchQuery: string, sort: typeof sortBy = 'relevant', lang = langFilter, directive = directiveFilter) => {
+  const performSearch = useCallback(async (searchQuery: string, sort: typeof sortBy = 'recent', lang = langFilter, directive = directiveFilter) => {
     if (!searchQuery.trim() && !lang && !directive) return;
     setLoading(true);
     setError(null);
@@ -292,7 +274,7 @@ function SearchPageContent() {
       }
       setResults(data.results || []);
       setTotal(data.total || 0);
-      setTimeout(() => resultsRef.current?.focus(), 100);
+      setTimeout(() => resultsRef.current?.focus({ preventScroll: true }), 100);
     } catch (err) {
       console.error('Search error:', err);
       setError('Network error. Please check your connection.');
@@ -319,7 +301,7 @@ function SearchPageContent() {
 
   const handleSortChange = (sort: typeof sortBy) => {
     setSortBy(sort);
-    if (query || langFilter || directiveFilter) performSearch(query, sort);
+    if (query || langFilter || directiveFilter) performSearch(query, sort, langFilter, directiveFilter);
   };
 
   const handleLangSelect = (lang: string) => {
@@ -350,12 +332,11 @@ function SearchPageContent() {
     <PageWrapper>
       <style>{`
         .arc-snippet em {
-          color: rgb(251 191 36);
+          color: rgb(241 245 249);
           font-style: normal;
           font-weight: 600;
-          background: rgb(251 191 36 / 0.1);
-          padding: 0 2px;
-          border-radius: 2px;
+          background: transparent;
+          border-bottom: 1px solid rgb(100 116 139 / 0.6);
         }
       `}</style>
 
@@ -385,8 +366,8 @@ function SearchPageContent() {
           <h1 className="text-4xl sm:text-5xl font-black tracking-tight text-slate-50">
             Intelligence Search
           </h1>
-          <p className="text-lg text-amber-300/80 italic max-w-xl mx-auto">
-            Full-spectrum archive query — {stats ? <span className="font-mono not-italic text-amber-400">{stats.article_count.toLocaleString()}</span> : '—'} articles indexed
+          <p className="text-lg text-slate-400 italic max-w-xl mx-auto font-serif">
+            Full-spectrum archive query — {stats ? <span className="font-mono not-italic text-slate-200 font-semibold">{stats.article_count.toLocaleString()}</span> : '—'} articles indexed
           </p>
           <div className="w-20 h-1 bg-gradient-to-r from-amber-400 to-orange-500 rounded-full animate-pulse" aria-hidden="true" />
         </motion.header>
@@ -551,42 +532,45 @@ function SearchPageContent() {
         </motion.div>
 
         {/* ── Results header + sort ── */}
-        <AnimatePresence>
-          {searched && !loading && !error && total > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: -5 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex items-center justify-between"
-            >
-              <p className="text-sm text-slate-400" aria-live="polite" aria-atomic="true">
-                <span className="text-amber-400 font-black tabular-nums font-mono">{total.toLocaleString()}</span>
+        {/* Sort buttons render unconditionally — users can pick a default
+             before issuing a query. The result-count line sits next to them
+             only after a search has actually returned hits. */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-3">
+          <p
+            className="font-serif text-sm text-slate-400 min-h-[1.25rem]"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {searched && !loading && !error && total > 0 && (
+              <>
+                <span className="text-slate-300 font-mono font-semibold tabular-nums">{total.toLocaleString()}</span>
                 {' '}result{total !== 1 ? 's' : ''} for{' '}
                 <span className="text-slate-300 font-mono">&ldquo;{query}&rdquo;</span>
-              </p>
-              <div role="group" aria-label="Sort results" className="flex items-center gap-1 bg-slate-900/60 rounded-lg p-0.5 border border-slate-700/40">
-                {([
-                  { key: 'relevant',   label: 'Relevant' },
-                  { key: 'recent',     label: 'Recent'   },
-                  { key: 'score_desc', label: 'Tone ↑'   },
-                  { key: 'score_asc',  label: 'Tone ↓'   },
-                ] as const).map(({ key, label }) => (
-                  <button
-                    key={key}
-                    onClick={() => handleSortChange(key)}
-                    aria-pressed={sortBy === key}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 ${
-                      sortBy === key
-                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                        : 'text-slate-500 hover:text-slate-300'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+              </>
+            )}
+          </p>
+          <div role="group" aria-label="Sort results" className="flex items-center gap-1">
+            {([
+              { key: 'recent',     label: 'Newest'  },
+              { key: 'oldest',     label: 'Oldest'  },
+              { key: 'score_desc', label: 'Hardest' },
+              { key: 'score_asc',  label: 'Easiest' },
+            ] as const).map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => handleSortChange(key)}
+                aria-pressed={sortBy === key}
+                className={`px-3 py-1.5 font-sans text-xs uppercase tracking-[0.2em] border rounded-sm transition-colors outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 ${
+                  sortBy === key
+                    ? 'bg-slate-800/40 text-slate-100 border-slate-700'
+                    : 'text-slate-500 border-slate-800 hover:text-slate-300 hover:border-slate-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* ── Error ── */}
         <AnimatePresence>
@@ -596,9 +580,10 @@ function SearchPageContent() {
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="bg-red-950/40 border border-red-700/40 rounded-2xl p-4 text-red-300 text-sm font-mono backdrop-blur-sm"
+              className="flex items-start gap-2 py-3"
             >
-              {error}
+              <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-rose-500 shrink-0" aria-hidden="true" />
+              <span className="font-serif text-sm text-slate-300 italic leading-relaxed">{error}</span>
             </motion.div>
           )}
         </AnimatePresence>
@@ -619,7 +604,7 @@ function SearchPageContent() {
         <div
           ref={resultsRef}
           tabIndex={-1}
-          className="space-y-3 outline-none"
+          className="outline-none border-t border-slate-800/60"
           aria-live="polite"
           aria-busy={loading}
         >

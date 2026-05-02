@@ -26,3 +26,9 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
     scrape_interval: 5m
+
+  - job_name: 'node'
+    static_configs:
+      - targets: ['localhost:9100']
+    scrape_interval: 15s
+    scrape_timeout:  10s

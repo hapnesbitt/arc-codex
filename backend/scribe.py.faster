@@ -855,6 +855,19 @@ def load_json_file(filepath, default_content):
         return default_content
 
 
+def load_jsonl_file(filepath, default_content):
+    try:
+        sources = []
+        with open(filepath, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    sources.append(json.loads(line))
+        return sources
+    except (FileNotFoundError, json.JSONDecodeError):
+        return default_content
+
+
 def save_json_file(filepath, data):
     with FILE_LOCK:
         with open(filepath, 'w', encoding='utf-8') as f:
@@ -1043,7 +1056,7 @@ def main():
 
         try:
             processed_hashes = r.smembers('processed_hashes')
-            all_sources = load_json_file(SOURCES_FILE, [])
+            all_sources = load_jsonl_file(SOURCES_FILE, [])
             all_directives = [d for topic in load_json_file(DIRECTIVES_FILE, [])
                               for key, value in topic.items() if isinstance(value, list) for d in value]
 

@@ -10,7 +10,7 @@ import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BookOpen, Send, Search, Activity, Home, LogIn,
-  X, Globe, Check, AlertCircle, Trash2, Shield, Library,
+  X, Globe, Check, AlertCircle, Trash2, Shield, Library, Film, Rss, BookText,
 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import styles from './LayoutTheme.module.css';
@@ -320,11 +320,17 @@ const MobileAuthButton = () => {
 
 const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => {
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const isAuthed = !!session?.user;
+
   const links = [
     ...(isMobile ? [{ href: "/",      icon: <Home     size={20}             aria-hidden="true" />, label: "Home",    color: "text-white"     }] : []),
     {               href: "/search",  icon: <Search   size={isMobile?20:22} aria-hidden="true" />, label: "Search",  color: "text-amber-400" },
     {               href: "/publish", icon: <Send     size={isMobile?20:22} aria-hidden="true" />, label: "Publish", color: "text-blue-400"  },
+    ...(isAuthed ? [{ href: "https://vid.arc-codex.com", icon: <Film size={isMobile?20:22} aria-hidden="true" />, label: "Video", color: "text-violet-400" }] : []),
     {               href: "/wiki",    icon: <Library  size={isMobile?20:22} aria-hidden="true" />, label: "Wiki",    color: "text-slate-400" },
+    {               href: "/library", icon: <BookText size={isMobile?20:22} aria-hidden="true" />, label: "Library", color: "text-slate-400" },
+    {               href: "/sources", icon: <Rss      size={isMobile?20:22} aria-hidden="true" />, label: "Sources", color: "text-slate-400" },
     {               href: "/about",   icon: <BookOpen size={isMobile?20:22} aria-hidden="true" />, label: "More",    color: "text-amber-400" },
   ];
 
@@ -352,17 +358,9 @@ const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => {
       >
         {links.map((link, idx) => {
           const isActive = pathname === link.href;
-          return (
-            <Link
-              key={idx}
-              href={link.href}
-              className="group relative flex flex-col items-center flex-1 outline-none"
-              aria-current={isActive ? "page" : undefined}
-              onClick={isActive ? (e: React.MouseEvent) => {
-                e.preventDefault();
-                document.getElementById('main-content')?.scrollTo({ top: 0, behavior: 'smooth' });
-              } : undefined}
-            >
+          const isExternal = link.href.startsWith('http');
+          const inner = (
+            <>
               <motion.div
                 whileHover={{ y: isMobile ? -5 : -2 }}
                 className={cn(
@@ -379,6 +377,30 @@ const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => {
               <span className={cn("mt-2 text-[8px] uppercase font-bold tracking-widest", isActive ? "text-white" : "text-slate-500")}>
                 {link.label}
               </span>
+            </>
+          );
+
+          return isExternal ? (
+            <a
+              key={idx}
+              href={link.href}
+              className="group relative flex flex-col items-center flex-1 outline-none"
+              aria-label={link.label}
+            >
+              {inner}
+            </a>
+          ) : (
+            <Link
+              key={idx}
+              href={link.href}
+              className="group relative flex flex-col items-center flex-1 outline-none"
+              aria-current={isActive ? "page" : undefined}
+              onClick={isActive ? (e: React.MouseEvent) => {
+                e.preventDefault();
+                document.getElementById('main-content')?.scrollTo({ top: 0, behavior: 'smooth' });
+              } : undefined}
+            >
+              {inner}
             </Link>
           );
         })}

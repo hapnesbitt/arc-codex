@@ -1,18 +1,9 @@
 // Filename: /frontend/components/IntelligenceCard.tsx
-// Version 7.0 - Accessibility pass
-// Changes from v6.0:
-// - Card root changed from motion.div to <article> (correct semantic element)
-// - AnalysisSection: aria-expanded + aria-controls on toggle button
-// - AccordionText: aria-expanded on Read More button
-// - ChimeraScoreGauge: aria-hidden on SVG, visually-hidden score label for AT
-// - Article image: alt="" (decorative — title already in adjacent h2)
-// - ShareMenu: aria-expanded, aria-haspopup, focus returns to trigger on close
-// - Sentinel confidence bar: role=progressbar with aria-valuenow/min/max/label
-// - Sentinel severity/human dots: aria-hidden, severity surfaced as sr-only text
-// - All decorative icons: aria-hidden="true"
-// - Copy button: aria-label updates on copied state
-// - Video links: aria-label includes "Play video:"
-// - Comments compact link: icon aria-hidden
+// Version 7.2 - Chimera Difficulty Score
+// Changes from v7.1:
+// - MRIGauge replaced with ChimeraGauge (readability difficulty, 0-100)
+// - All-green color scale — difficulty only, no warning language
+// - Reading label: Kindergarten → Quantum Electrodynamics
 
 'use client';
 
@@ -20,7 +11,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-    Link as LinkIcon,
+    Link2 as LinkIcon,
     Copy,
     Check,
     ChevronDown,
@@ -74,8 +65,9 @@ interface AccordionTextProps {
     characterLimit?: number;
 }
 
-interface ChimeraScoreGaugeProps {
-    score: number;
+interface ChimeraGaugeProps {
+    score: number;        // 0-100 integer
+    readingLabel: string; // e.g. "College"
 }
 
 interface AnalysisSectionProps {
@@ -144,7 +136,7 @@ const inlineFormat = (text: string): string =>
         .replace(/\*(.*?)\*/g, '<em>$1</em>')
         .replace(/(https?:\/\/[^\s<]+)/g, (url) => {
             const clean = url.replace(/[.,;:!?)]+$/, '');
-            return `<a href="${clean}" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300 underline break-all">${clean}</a>`;
+            return `<a href="${clean}" target="_blank" rel="noopener noreferrer" class="text-slate-200 underline decoration-slate-600 hover:decoration-slate-300 underline-offset-2 break-all">${clean}</a>`;
         });
 
 // --- Helper: Detect if text contains markdown STRUCTURE ---
@@ -193,8 +185,8 @@ const markdownToHtml = (text: string): string => {
             const level = headingMatch[1].length;
             const content = inlineFormat(escapeHtml(headingMatch[2]));
             const styles: Record<number, string> = {
-                1: 'text-2xl font-bold text-amber-200 mt-6 mb-3',
-                2: 'text-xl font-bold text-amber-300 mt-5 mb-3',
+                1: 'text-2xl font-bold text-slate-100 mt-6 mb-3',
+                2: 'text-xl font-bold text-slate-200 mt-5 mb-3',
                 3: 'text-lg font-semibold text-slate-100 mt-4 mb-2',
                 4: 'text-base font-semibold text-slate-200 mt-4 mb-2',
                 5: 'text-sm font-semibold text-slate-200 mt-3 mb-1',
@@ -207,7 +199,7 @@ const markdownToHtml = (text: string): string => {
         if (trimmed.startsWith('> ')) {
             if (inList) { html.push('</ul>'); inList = false; }
             const content = inlineFormat(escapeHtml(trimmed.slice(2)));
-            html.push(`<blockquote class="border-l-2 border-amber-400/50 pl-4 italic text-slate-400 my-3">${content}</blockquote>`);
+            html.push(`<blockquote class="border-l-2 border-slate-600 pl-4 italic text-slate-400 my-3">${content}</blockquote>`);
             continue;
         }
 
@@ -247,7 +239,7 @@ const AccordionText: React.FC<AccordionTextProps> = ({ text, characterLimit = 40
     if (!needsTruncation) {
         return (
             <div
-                className="prose prose-invert max-w-none text-slate-300 leading-relaxed"
+                className="prose prose-invert max-w-none font-serif text-slate-200 leading-relaxed"
                 dangerouslySetInnerHTML={{ __html: fullHtml }}
             />
         );
@@ -256,7 +248,7 @@ const AccordionText: React.FC<AccordionTextProps> = ({ text, characterLimit = 40
     const toggleExpansion = (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        setIsExpanded(!isExpanded);
+        setIsExpanded(prev => !prev);
     };
 
     const displayHtml = isExpanded
@@ -265,17 +257,17 @@ const AccordionText: React.FC<AccordionTextProps> = ({ text, characterLimit = 40
 
     return (
         <div>
-            <div
-                className="prose prose-invert max-w-none text-slate-300 leading-relaxed"
-                dangerouslySetInnerHTML={{ __html: displayHtml }}
-            />
             <button
                 onClick={toggleExpansion}
                 aria-expanded={isExpanded}
-                className="text-amber-400 hover:text-amber-300 font-semibold mt-3 transition-colors text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50 rounded"
+                className="font-sans text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-slate-100 mb-4 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
             >
-                {isExpanded ? "Show Less" : "Read More"}
+                {isExpanded ? "— Read less" : "— Read more"}
             </button>
+            <div
+                className="prose prose-invert max-w-none font-serif text-slate-200 leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: displayHtml }}
+            />
         </div>
     );
 };
@@ -298,10 +290,10 @@ const VideoList: React.FC<{ text: string }> = ({ text }) => {
                             key={index}
                             href={`/videos/${encodeURIComponent(videoPath)}`}
                             aria-label={`Play video: ${videoName}`}
-                            className="flex items-center gap-3 p-3 rounded-lg bg-slate-800/50 border border-slate-700/50 hover:border-amber-400/50 hover:bg-slate-800/80 transition-all duration-300 group"
+                            className="flex items-center gap-3 p-3 rounded-sm border border-slate-800 hover:border-slate-600 transition-colors duration-200 group"
                         >
-                            <PlayCircle className="h-5 w-5 text-amber-400 flex-shrink-0 group-hover:text-amber-300 group-hover:scale-110 transition-all" aria-hidden="true" />
-                            <span className="text-slate-200 group-hover:text-amber-300 transition-colors font-medium" aria-hidden="true">
+                            <PlayCircle className="h-5 w-5 text-slate-400 flex-shrink-0 group-hover:text-slate-100 transition-colors" aria-hidden="true" />
+                            <span className="font-serif text-slate-200 group-hover:text-slate-50 transition-colors" aria-hidden="true">
                                 {videoName}
                             </span>
                         </a>
@@ -323,47 +315,66 @@ const VideoList: React.FC<{ text: string }> = ({ text }) => {
     );
 };
 
-// --- Holographic Score Gauge ---
-// aria-hidden on the SVG — the score value is surfaced as a visually-hidden
-// text label so AT users get "Tone score: 74" not SVG path noise.
-const ChimeraScoreGauge: React.FC<ChimeraScoreGaugeProps> = ({ score }) => {
+// --- Chimera Difficulty Score Gauge ---
+// All-green scale: difficulty only, no warning language.
+// aria-hidden on SVG; score + label surfaced via sr-only span.
+const ChimeraGauge: React.FC<ChimeraGaugeProps> = ({ score, readingLabel }) => {
     const circumference = 2 * Math.PI * 20;
-    const strokeDashoffset = circumference - (score * circumference);
-    const scoreColor = score >= 0.75 ? '#6ee7b7' : score >= 0.4 ? '#fcd34d' : '#fda4af';
-    const scorePercent = Math.round(score * 100);
+    const strokeDashoffset = circumference - ((score / 100) * circumference);
+    const scoreColor =
+        score <= 30 ? '#86efac'
+        : score <= 45 ? '#22c55e'
+        : score <= 55 ? '#10b981'
+        : score <= 70 ? '#15803d'
+        : '#14532d';
 
     return (
-        <div className="relative h-16 w-16 flex items-center justify-center">
-            {/* Visually hidden label for screen readers */}
-            <span className="sr-only">Tone score: {scorePercent}</span>
-            <svg
-                className="absolute inset-0"
-                viewBox="0 0 48 48"
-                style={{ transform: 'rotate(-90deg)' }}
-                aria-hidden="true"
-            >
-                <circle
-                    cx="24" cy="24" r="20"
-                    stroke="#e2e8f0" strokeOpacity="0.1"
-                    strokeWidth="3" fill="transparent"
-                />
-                <motion.circle
-                    cx="24" cy="24" r="20"
-                    stroke={scoreColor} strokeWidth="3"
-                    fill="transparent" strokeLinecap="round"
-                    strokeDasharray={circumference}
-                    initial={{ strokeDashoffset: circumference }}
-                    animate={{ strokeDashoffset }}
-                    transition={{ duration: 1.5, ease: [0.43, 0.13, 0.23, 0.96] }}
-                />
-            </svg>
-            {/* Visual number — aria-hidden since sr-only label above covers it */}
-            <div
-                className="absolute font-mono text-base font-bold"
-                style={{ color: scoreColor, textShadow: `0 0 6px ${scoreColor}` }}
-                aria-hidden="true"
-            >
-                {scorePercent}
+        <div className="flex flex-col items-center gap-1">
+            {/* Circular gauge — score number centred inside */}
+            <div className="relative h-16 w-16 flex items-center justify-center flex-shrink-0">
+                <svg
+                    className="absolute inset-0"
+                    viewBox="0 0 48 48"
+                    style={{ transform: 'rotate(-90deg)' }}
+                    aria-hidden="true"
+                >
+                    <circle
+                        cx="24" cy="24" r="20"
+                        stroke="#e2e8f0" strokeOpacity="0.1"
+                        strokeWidth="3" fill="transparent"
+                    />
+                    <motion.circle
+                        cx="24" cy="24" r="20"
+                        stroke={scoreColor} strokeWidth="3"
+                        fill="transparent" strokeLinecap="round"
+                        strokeDasharray={circumference}
+                        initial={{ strokeDashoffset: circumference }}
+                        animate={{ strokeDashoffset }}
+                        transition={{ duration: 1.5, ease: [0.43, 0.13, 0.23, 0.96] }}
+                    />
+                </svg>
+                <div
+                    className="relative font-mono text-base font-bold"
+                    style={{ color: scoreColor }}
+                >
+                    {score}
+                </div>
+            </div>
+
+            {/* Persistent, selectable text below the gauge */}
+            <div className="text-center max-w-[9rem]">
+                <div
+                    className="font-mono text-xs font-semibold leading-tight"
+                    style={{ color: scoreColor }}
+                >
+                    {readingLabel}
+                </div>
+                <div className="text-slate-400 leading-tight" style={{ fontSize: '0.6rem' }}>
+                    Chimera Difficulty Score
+                </div>
+                <div className="text-slate-500 leading-tight mt-0.5" style={{ fontSize: '0.55rem' }}>
+                    a synthesis of Flesch-Kincaid, Coleman-Liau, SMOG, and Dale-Chall readability metrics
+                </div>
             </div>
         </div>
     );
@@ -381,23 +392,23 @@ const AnalysisSection: React.FC<AnalysisSectionProps> = ({
 }) => {
     const contentId = `${sectionId}-content`;
     return (
-        <div className="border-t border-slate-700/50">
+        <div className="border-t border-slate-800">
             <button
                 onClick={onToggle}
                 aria-expanded={isExpanded}
                 aria-controls={contentId}
-                className="w-full flex justify-between items-center p-5 text-left hover:bg-slate-800/50 transition-colors group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400/40"
+                className="w-full flex justify-between items-center px-8 py-5 text-left hover:bg-slate-800/30 transition-colors group focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-emerald-400/40"
             >
                 <div className="flex items-center gap-3">
-                    <div className="transition-transform group-hover:scale-110" aria-hidden="true">
+                    <div aria-hidden="true">
                         {icon}
                     </div>
-                    <h3 className="font-semibold text-slate-200 text-base tracking-wide">
+                    <h3 className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-slate-300">
                         {title}
                     </h3>
                 </div>
                 <ChevronDown
-                    className={`h-5 w-5 text-slate-400 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
+                    className={`h-4 w-4 text-slate-500 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
                     aria-hidden="true"
                 />
             </button>
@@ -411,7 +422,7 @@ const AnalysisSection: React.FC<AnalysisSectionProps> = ({
                         transition={{ duration: 0.3, ease: 'easeInOut' }}
                         className="overflow-hidden"
                     >
-                        <div className="px-5 pb-5 pt-0">
+                        <div className="px-8 pb-6 pt-0">
                             {children}
                         </div>
                     </motion.div>
@@ -482,7 +493,7 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
                 aria-label="Research this article"
                 aria-expanded={isOpen}
                 aria-haspopup="menu"
-                className="inline-flex items-center justify-center rounded-md h-10 w-10 text-slate-400 hover:text-amber-400 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
+                className="inline-flex items-center justify-center rounded-sm h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
             </button>
@@ -491,11 +502,11 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
                     <motion.div
                         role="menu"
                         aria-label="Research options"
-                        initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                        initial={{ opacity: 0, scale: 0.98, y: -2 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: -4 }}
-                        transition={{ duration: 0.15 }}
-                        className="absolute right-0 top-full mt-2 z-50 w-36 rounded-xl border border-slate-700/80 bg-slate-900/95 backdrop-blur-xl shadow-2xl shadow-black/40 overflow-hidden"
+                        exit={{ opacity: 0, scale: 0.98, y: -2 }}
+                        transition={{ duration: 0.12 }}
+                        className="absolute right-0 top-full mt-2 z-50 w-36 rounded-sm border border-slate-800 bg-slate-950 overflow-hidden"
                     >
                         <button
                             role="menuitem"
@@ -663,7 +674,7 @@ ${body}`);
                 aria-label="Share article"
                 aria-expanded={isOpen}
                 aria-haspopup="menu"
-                className="text-slate-400 hover:text-blue-400 hover:bg-white/10"
+                className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
             >
                 <Share2 className="h-5 w-5" aria-hidden="true" />
             </Button>
@@ -673,11 +684,11 @@ ${body}`);
                     <motion.div
                         role="menu"
                         aria-label="Share options"
-                        initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                        initial={{ opacity: 0, scale: 0.98, y: -2 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: -4 }}
-                        transition={{ duration: 0.15 }}
-                        className="absolute right-0 top-full mt-2 z-50 w-48 rounded-xl border border-slate-700/80 bg-slate-900/95 backdrop-blur-xl shadow-2xl shadow-black/40 overflow-hidden"
+                        exit={{ opacity: 0, scale: 0.98, y: -2 }}
+                        transition={{ duration: 0.12 }}
+                        className="absolute right-0 top-full mt-2 z-50 w-48 rounded-sm border border-slate-800 bg-slate-950 overflow-hidden"
                     >
                         <button
                             role="menuitem"
@@ -728,7 +739,7 @@ ${body}`);
                             onClick={handleEmail}
                             className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors focus-visible:outline-none focus-visible:bg-slate-800/80"
                         >
-                            <Mail className="h-4 w-4 text-amber-400" aria-hidden="true" />
+                            <Mail className="h-4 w-4 text-slate-400" aria-hidden="true" />
                             <span>Email</span>
                         </button>
                     </motion.div>
@@ -851,11 +862,14 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
         setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
     };
 
-    // Primary: dossier.chimera_score (set by pre_analyze for all articles).
-    // Fallback: nlp_chimera_score top-level Redis field (also written by pre_analyze).
-    const score = dossier?.chimera_score
-        || parseFloat((card as any).nlp_chimera_score || '0')
-        || 0;
+    // Chimera Difficulty Score (0-100 int): dossier.chimera_score → nlp_chimera_score Redis field.
+    const chimeraScore: number =
+        dossier?.chimera_score != null ? dossier.chimera_score
+        : parseInt((card as any).nlp_chimera_score || '0', 10) || 0;
+    const readingLabel: string =
+        dossier?.reading_label
+        ?? (card as any).nlp_reading_label
+        ?? '';
     const talkingPoints = dossier?.talking_points;
     const deepAnalysisSummary = dossier?.deep_analysis_summary;
 
@@ -888,11 +902,11 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
     const sentinelColor = useMemo(() => {
         if (!sentinelData) return null;
         const conf = sentinelData.synthetic_confidence;
-        if (conf <= 0.6) return { bg: 'bg-emerald-500/15', border: 'border-emerald-500/30', text: 'text-emerald-400', label: 'Human' };
-        if (conf <= 0.7) return { bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', text: 'text-emerald-300', label: 'Likely Human' };
-        if (conf <= 0.8) return { bg: 'bg-amber-500/15', border: 'border-amber-500/30', text: 'text-amber-400', label: 'Uncertain' };
-        if (conf <= 0.9) return { bg: 'bg-orange-500/15', border: 'border-orange-500/30', text: 'text-orange-400', label: 'Likely Synthetic' };
-        return { bg: 'bg-red-500/15', border: 'border-red-500/30', text: 'text-red-400', label: 'Synthetic' };
+        if (conf <= 0.6) return { label: 'Human' };
+        if (conf <= 0.7) return { label: 'Likely Human' };
+        if (conf <= 0.8) return { label: 'Uncertain' };
+        if (conf <= 0.9) return { label: 'Likely Synthetic' };
+        return { label: 'Synthetic' };
     }, [sentinelData]);
 
     if (!card) return null;
@@ -905,16 +919,12 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
         // <article> is the correct semantic element for a self-contained piece of content.
         // aria-labelledby points to the h2 title so AT announces "Article: [title]"
         // when navigating by landmarks.
-        <motion.article
+        <article
             aria-labelledby={`card-title-${uid}`}
-            initial={{ opacity: 0, y: 50, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 0.5, ease: "easeOut" }}
             className="w-full max-w-2xl mx-auto"
         >
-            <div className="group relative w-full h-full rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-900/40 backdrop-blur-lg shadow-2xl shadow-black/30">
-                {/* Hover border effect — decorative */}
-                <div className="absolute inset-0 border-2 rounded-2xl border-transparent group-hover:border-amber-300/50 transition-colors duration-300 pointer-events-none z-10" aria-hidden="true" />
+            <div className="group relative w-full h-full overflow-hidden border-b border-slate-800/60 bg-slate-900/30">
+                {/* Static border-only frame — no glow, no animated outline */}
 
                 {/* Article Image — alt="" because title h2 adjacent covers it */}
                 {card.imageUrl && (
@@ -925,19 +935,19 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                         tabIndex={-1}
                         aria-hidden="true"
                     >
-                        <div className="w-full h-80 bg-slate-950 overflow-hidden">
+                        <div className="w-full h-80 bg-slate-950 overflow-hidden border-b border-slate-800/60">
                             <img
-                                src={card.imageUrl}
+                                src={card.imageUrl!.startsWith('/uploads/') ? `${process.env.NEXT_PUBLIC_BACKEND_URL ?? ''}${card.imageUrl}` : card.imageUrl}
                                 alt=""
                                 onError={(e) => { (e.target as HTMLImageElement).src = '/uploads/arc-codex-default.jpg'; }}
-				className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                className="w-full h-full object-cover"
                             />
                         </div>
                     </a>
                 )}
 
                 {/* Main Content */}
-                <div className="p-6">
+                <div className="p-8">
                     <header className="flex flex-col-reverse items-end gap-4 sm:flex-row sm:justify-between sm:items-start mb-6">
                         <div className="flex-1">
                             <a
@@ -947,13 +957,13 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             >
                                 <h2
                                     id={`card-title-${uid}`}
-                                    className="font-serif text-2xl font-bold text-slate-50 mb-3 cursor-pointer group-hover:text-amber-300 transition-colors hover:text-amber-300 leading-tight"
+                                    className="font-serif text-3xl font-semibold text-slate-50 mb-3 cursor-pointer transition-colors hover:text-slate-100 leading-tight tracking-tight"
                                 >
                                     {t('title', card.title)}
                                 </h2>
                             </a>
 
-                            <div className="mt-2 print:hidden">
+                            <div className="mt-3 print:hidden">
                                 <TranslateButton
                                     articleId={card.id}
                                     cachedLangs={(card as any).cached_langs ?? []}
@@ -968,17 +978,9 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                         {/* Right column: Chimera gauge + action buttons */}
                         <div className="flex flex-col items-end gap-2">
 
-                        {/* Chimera Score Gauge */}
-                        {score > 0 && (
-                            <a
-                                href="https://grafana.arc-codex.com/d/arc-intelligence-v2"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                title={`Chimera score: ${Math.round(score * 100)} — view in Grafana`}
-                                className="block"
-                            >
-                                <ChimeraScoreGauge score={score} />
-                            </a>
+                        {/* Chimera Difficulty Score Gauge */}
+                        {chimeraScore > 0 && (
+                            <ChimeraGauge score={chimeraScore} readingLabel={readingLabel} />
                         )}
 
                         {/* Action Buttons */}
@@ -992,20 +994,19 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                     <Lock className="h-4 w-4" aria-hidden="true" />
                                 </span>
                             )}
-                            <a
-                                href={card.sourceUrl || '#'}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                aria-label="Visit original source"
-                                className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
+                            <Link
+                                href={`/article/${card.id}`}
+                                aria-label="Arc Codex permalink"
+                                title="Permalink — Arc Codex's copy with full A.R.C. analysis"
+                                className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
                             >
                                 <LinkIcon className="h-5 w-5" aria-hidden="true" />
-                            </a>
+                            </Link>
                             <Button
                                 variant="ghost"
                                 size="icon"
                                 onClick={handleCopy}
-                                className="text-slate-400 hover:text-white hover:bg-white/10"
+                                className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
                                 aria-label={hasCopied ? "Link copied" : "Copy article link"}
                             >
                                 {hasCopied
@@ -1032,7 +1033,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 rel="noopener noreferrer"
                                 aria-label="Full take — open wiki directive page"
                                 title="Full Take"
-                                className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-purple-400 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
+                                className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
                             >
                                 <Flashlight className="h-5 w-5" aria-hidden="true" />
                             </a>
@@ -1040,7 +1041,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 variant="ghost"
                                 size="icon"
                                 onClick={(e: React.MouseEvent) => { e.stopPropagation(); window.print(); }}
-                                className="text-slate-400 hover:text-amber-400 hover:bg-white/10"
+                                className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
                                 aria-label="Print article"
                             >
                                 <Printer className="h-5 w-5" aria-hidden="true" />
@@ -1073,11 +1074,11 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             <AnalysisSection
                                 sectionId={`${uid}-talking`}
                                 title="Talking Points"
-                                icon={<MessageSquare className="h-5 w-5 text-amber-400" aria-hidden="true" />}
+                                icon={<MessageSquare className="h-4 w-4 text-slate-500" aria-hidden="true" />}
                                 isExpanded={expandedSections.talkingPoints}
                                 onToggle={() => toggleSection('talkingPoints')}
                             >
-                                <ul className="list-disc pl-5 space-y-2 text-slate-300 font-serif">
+                                <ul className="list-disc pl-5 space-y-3 text-slate-200 font-serif">
                                     {talkingPoints.map((point, index) => (
                                         <li key={index} className="leading-relaxed">{point}</li>
                                     ))}
@@ -1089,11 +1090,11 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             <AnalysisSection
                                 sectionId={`${uid}-deep`}
                                 title="Deep Analysis"
-                                icon={<BrainCircuit className="h-5 w-5 text-amber-400" aria-hidden="true" />}
+                                icon={<BrainCircuit className="h-4 w-4 text-slate-500" aria-hidden="true" />}
                                 isExpanded={expandedSections.deepAnalysis}
                                 onToggle={() => toggleSection('deepAnalysis')}
                             >
-                                <p className="text-slate-300 font-serif leading-relaxed">{deepAnalysisSummary}</p>
+                                <p className="text-slate-200 font-serif leading-relaxed">{deepAnalysisSummary}</p>
                             </AnalysisSection>
                         )}
 
@@ -1101,7 +1102,12 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             <AnalysisSection
                                 sectionId={`${uid}-red`}
                                 title="Facts Only"
-                                icon={<Crosshair className="h-5 w-5 text-red-400" aria-hidden="true" />}
+                                icon={
+                                    <span className="inline-flex items-center gap-2" aria-hidden="true">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                                        <Crosshair className="h-4 w-4 text-slate-500" />
+                                    </span>
+                                }
                                 isExpanded={expandedSections.redTeam}
                                 onToggle={() => toggleSection('redTeam')}
                             >
@@ -1113,7 +1119,12 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             <AnalysisSection
                                 sectionId={`${uid}-blue`}
                                 title="Executive Summary"
-                                icon={<Shield className="h-5 w-5 text-blue-400" aria-hidden="true" />}
+                                icon={
+                                    <span className="inline-flex items-center gap-2" aria-hidden="true">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />
+                                        <Shield className="h-4 w-4 text-slate-500" />
+                                    </span>
+                                }
                                 isExpanded={expandedSections.blueTeam}
                                 onToggle={() => toggleSection('blueTeam')}
                             >
@@ -1125,7 +1136,12 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             <AnalysisSection
                                 sectionId={`${uid}-purple`}
                                 title="Full Take"
-                                icon={<Combine className="h-5 w-5 text-purple-400" aria-hidden="true" />}
+                                icon={
+                                    <span className="inline-flex items-center gap-2" aria-hidden="true">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+                                        <Combine className="h-4 w-4 text-slate-500" />
+                                    </span>
+                                }
                                 isExpanded={expandedSections.purpleTeam}
                                 onToggle={() => toggleSection('purpleTeam')}
                             >
@@ -1137,67 +1153,65 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             <AnalysisSection
                                 sectionId={`${uid}-sentinel`}
                                 title={`Sentinel — ${sentinelColor.label}`}
-                                icon={<ScanLine className={`h-5 w-5 ${sentinelColor.text}`} aria-hidden="true" />}
+                                icon={<ScanLine className="h-4 w-4 text-slate-500" aria-hidden="true" />}
                                 isExpanded={expandedSections.sentinel}
                                 onToggle={() => toggleSection('sentinel')}
                             >
-                                <div className="space-y-4">
+                                <div className="space-y-5">
                                     {/* Confidence bar — role=progressbar with accessible value */}
                                     <div className="flex items-center gap-3">
-                                        <span className="text-xs text-slate-500 w-24 shrink-0" id={`${uid}-conf-label`}>
+                                        <span className="font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500 w-24 shrink-0" id={`${uid}-conf-label`}>
                                             Confidence
                                         </span>
-                                        <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                                        <div className="flex-1 h-px bg-slate-800 overflow-hidden">
                                             <div
                                                 role="progressbar"
                                                 aria-labelledby={`${uid}-conf-label`}
                                                 aria-valuenow={Math.round(sentinelData.synthetic_confidence * 100)}
                                                 aria-valuemin={0}
                                                 aria-valuemax={100}
-                                                className={`h-full rounded-full transition-all duration-500 ${
-                                                    sentinelData.synthetic_confidence <= 0.4 ? 'bg-emerald-500' :
-                                                    sentinelData.synthetic_confidence <= 0.6 ? 'bg-amber-500' : 'bg-red-500'
-                                                }`}
+                                                className="h-full bg-slate-300 transition-all duration-500"
                                                 style={{ width: `${Math.round(sentinelData.synthetic_confidence * 100)}%` }}
                                             />
                                         </div>
-                                        <span className={`text-sm font-mono font-bold ${sentinelColor.text}`} aria-hidden="true">
+                                        <span className="font-mono text-xs font-semibold text-slate-300" aria-hidden="true">
                                             {Math.round(sentinelData.synthetic_confidence * 100)}%
                                         </span>
                                     </div>
 
-                                    <p className="text-slate-300 leading-relaxed">{sentinelData.summary}</p>
+                                    <p className="font-serif text-slate-200 leading-relaxed">{sentinelData.summary}</p>
 
                                     {sentinelData.indicators && sentinelData.indicators.length > 0 && (
                                         <div className="space-y-2">
-                                            <span className="text-xs text-slate-500 uppercase tracking-wider">Signals Detected</span>
-                                            {sentinelData.indicators.map((ind, i) => (
-                                                <div key={i} className="flex items-start gap-2 text-sm">
-                                                    {/* Colored dot is decorative — severity surfaced as sr-only text */}
-                                                    <span
-                                                        className={`mt-0.5 h-2 w-2 rounded-full shrink-0 ${
-                                                            ind.severity === 'high' ? 'bg-red-400' :
-                                                            ind.severity === 'medium' ? 'bg-amber-400' : 'bg-slate-500'
-                                                        }`}
-                                                        aria-hidden="true"
-                                                    />
-                                                    <span className="text-slate-400">
-                                                        <span className="sr-only">{ind.severity} severity: </span>
-                                                        <span className="text-slate-500 capitalize" aria-hidden="true">{ind.dimension}:</span>
-                                                        {' '}{ind.signal}
-                                                    </span>
-                                                </div>
-                                            ))}
+                                            <span className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">Signals Detected</span>
+                                            {sentinelData.indicators.map((ind, i) => {
+                                                const sev = ind.severity?.toLowerCase();
+                                                const dotShade =
+                                                    sev === 'high' ? 'bg-slate-200'
+                                                    : sev === 'medium' ? 'bg-slate-400'
+                                                    : 'bg-slate-600';
+                                                return (
+                                                    <div key={i} className="flex items-start gap-2 text-sm">
+                                                        <span className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${dotShade}`} aria-hidden="true" />
+                                                        <span className="text-slate-300">
+                                                            <span className="sr-only">{ind.severity} severity: </span>
+                                                            <span className="font-sans text-[10px] uppercase tracking-widest text-slate-500 mr-2" aria-hidden="true">[{ind.severity}]</span>
+                                                            <span className="font-sans text-slate-500 capitalize" aria-hidden="true">{ind.dimension}:</span>
+                                                            {' '}<span className="font-serif">{ind.signal}</span>
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     )}
 
                                     {sentinelData.human_signals && sentinelData.human_signals.length > 0 && (
                                         <div className="space-y-2">
-                                            <span className="text-xs text-slate-500 uppercase tracking-wider">Human Indicators</span>
+                                            <span className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">Human Indicators</span>
                                             {sentinelData.human_signals.map((signal, i) => (
                                                 <div key={i} className="flex items-start gap-2 text-sm">
-                                                    <span className="mt-0.5 h-2 w-2 rounded-full shrink-0 bg-emerald-400" aria-hidden="true" />
-                                                    <span className="text-slate-400">{signal}</span>
+                                                    <span className="mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 bg-emerald-500" aria-hidden="true" />
+                                                    <span className="font-serif text-slate-300">{signal}</span>
                                                 </div>
                                             ))}
                                         </div>
@@ -1210,12 +1224,12 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
 
                 {/* Comments */}
                 {!isCompact ? (
-                    <div className="px-6 pb-6 pt-4">
+                    <div className="px-8 pb-8 pt-6 border-t border-slate-800">
                         <CommentSection comments={comments} articleId={card.id} />
                     </div>
                 ) : comments.length > 0 ? (
-                    <a href={`/article/${card.id}`} className="block px-6 pb-2 group">
-                        <div className="flex items-center gap-2 text-slate-400 text-sm group-hover:text-amber-300 transition-colors cursor-pointer">
+                    <a href={`/article/${card.id}`} className="block px-8 pb-3 group">
+                        <div className="flex items-center gap-2 font-sans text-xs uppercase tracking-[0.2em] text-slate-500 group-hover:text-slate-200 transition-colors cursor-pointer">
                             <MessageSquare className="h-4 w-4" aria-hidden="true" />
                             <span>{comments.length} Comment{comments.length !== 1 ? 's' : ''}</span>
                         </div>
@@ -1223,21 +1237,21 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                 ) : null}
 
                 {/* Footer */}
-                <div className="border-t border-slate-700/50" aria-hidden="true" />
-                <footer className="flex justify-between items-center text-xs text-slate-500 p-4">
+                <div className="border-t border-slate-800" aria-hidden="true" />
+                <footer className="flex justify-between items-center px-8 py-5 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
                     <time dateTime={card.timestamp}>{formattedDate}</time>
                     {card.directive ? (
                         <Link
-                            href={`/?directive=${encodeURIComponent(card.directive)}`}
-                            className="font-semibold uppercase tracking-wider text-slate-500 hover:text-amber-400 transition-colors duration-200"
-                            aria-label={`Filter by ${card.directive}`}
+                            href={card.directive ? `/wiki/${toSlug(card.directive)}` : '/wiki'}
+                            className="font-semibold text-slate-500 hover:text-slate-200 transition-colors duration-200"
+                            aria-label={`View ${card.directive} in wiki`}
                         >
                             {card.directive}
                         </Link>
                     ) : null}
                 </footer>
             </div>
-        </motion.article>
+        </article>
     );
 };
 

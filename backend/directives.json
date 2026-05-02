@@ -1,5 +1,242 @@
 [
   {
+    "topic": "Publisher's Desk",
+    "directives": [
+      {
+        "name": "Manual",
+        "keywords": [],
+        "negative_keywords": [],
+        "priority": 99,
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
+      }
+    ]
+  },
+  {
+    "topic": "Philosophy & Humanities",
+    "directives": [
+      {
+        "name": "Philosophy and Existential Thought",
+        "keywords": [
+          "philosophy",
+          "existentialism",
+          "phenomenology",
+          "ethics",
+          "epistemology",
+          "ontology",
+          "hermeneutics",
+          "dialectic",
+          "metaphysics",
+          "consciousness",
+          "Nietzsche",
+          "Hegel",
+          "Kant",
+          "Heidegger",
+          "Sartre",
+          "Camus",
+          "Kierkegaard",
+          "Wittgenstein",
+          "Plato",
+          "Aristotle",
+          "Socrates",
+          "Descartes",
+          "Spinoza",
+          "Locke",
+          "Hume",
+          "Schopenhauer",
+          "Foucault",
+          "Derrida",
+          "Deleuze",
+          "phenomenal",
+          "noumenal",
+          "categorical imperative",
+          "free will",
+          "determinism",
+          "solipsism",
+          "empiricism",
+          "rationalism",
+          "stoicism",
+          "utilitarianism",
+          "moral philosophy",
+          "political philosophy",
+          "philosophy of mind",
+          "philosophy of language"
+        ],
+        "negative_keywords": [],
+        "priority": 88,
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
+      },
+      {
+        "name": "Psychology and Human Behavior",
+        "keywords": [
+          "Freud",
+          "Jung",
+          "Fromm",
+          "Adler",
+          "Maslow",
+          "Skinner",
+          "Pavlov",
+          "cognitive psychology",
+          "behavioral psychology",
+          "depth psychology",
+          "psychoanalysis",
+          "archetypes",
+          "unconscious",
+          "collective unconscious",
+          "attachment theory",
+          "developmental psychology",
+          "social psychology",
+          "cognitive bias",
+          "heuristics",
+          "behavioral economics",
+          "neuropsychology",
+          "personality theory",
+          "trauma",
+          "resilience",
+          "self-actualization",
+          "identity formation"
+        ],
+        "negative_keywords": [],
+        "priority": 87,
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
+      },
+      {
+        "name": "History and Biography",
+        "keywords": [
+          "historian",
+          "biography",
+          "autobiography",
+          "memoir",
+          "historical",
+          "ancient history",
+          "medieval",
+          "renaissance",
+          "enlightenment",
+          "industrial revolution",
+          "world war",
+          "cold war",
+          "empire",
+          "colonialism",
+          "revolution",
+          "monarchy",
+          "republic",
+          "dynasty",
+          "archaeology",
+          "antiquity",
+          "civilization",
+          "legacy",
+          "archives",
+          "oral history",
+          "historiography",
+          "primary sources"
+        ],
+        "negative_keywords": [],
+        "priority": 86,
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
+      }
+    ]
+  },
+  {
+    "topic": "Academic & Research",
+    "directives": [
+      {
+        "name": "Peer-Reviewed Science and Research",
+        "keywords": [
+          "peer-reviewed",
+          "journal",
+          "study",
+          "research",
+          "findings",
+          "methodology",
+          "hypothesis",
+          "clinical trial",
+          "meta-analysis",
+          "systematic review",
+          "randomized controlled",
+          "Nature",
+          "Science",
+          "Cell",
+          "Lancet",
+          "NEJM",
+          "JAMA",
+          "PNAS",
+          "arXiv",
+          "preprint",
+          "abstract",
+          "conclusion",
+          "replication",
+          "statistical significance",
+          "p-value",
+          "confidence interval",
+          "sample size",
+          "cohort",
+          "longitudinal",
+          "double-blind",
+          "placebo",
+          "control group"
+        ],
+        "negative_keywords": [],
+        "priority": 85,
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
+      },
+      {
+        "name": "Mathematics and Formal Sciences",
+        "keywords": [
+          "theorem",
+          "proof",
+          "conjecture",
+          "algorithm",
+          "computation",
+          "topology",
+          "algebra",
+          "calculus",
+          "differential equations",
+          "number theory",
+          "combinatorics",
+          "graph theory",
+          "complexity theory",
+          "cryptography",
+          "formal verification",
+          "logic",
+          "set theory",
+          "category theory",
+          "Riemann",
+          "Fermat",
+          "Gödel",
+          "Turing",
+          "P vs NP",
+          "Millennium Prize"
+        ],
+        "negative_keywords": [],
+        "priority": 84,
+        "analysis_plan": [
+          "blue",
+          "red",
+          "purple"
+        ]
+      }
+    ]
+  },
+  {
     "topic": "System Directives",
     "directives": [
       {

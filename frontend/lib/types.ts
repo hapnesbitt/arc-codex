@@ -4,6 +4,7 @@
 
 export interface Dossier {
   chimera_score?: number;
+  reading_label?: string;
   sentiment?: number;
   subjectivity?: number;
   objectivity_score?: number;
@@ -30,6 +31,7 @@ export interface Article {
   purple_team_analysis?: string;
   sentinel_analysis?: string;
   dossier?: Dossier | string;
+  reading_label?: string;
 }
 
 export interface Comment {

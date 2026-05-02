@@ -1,0 +1,114 @@
+shelves:
+  christianity:
+    name: Christianity
+    gutenberg_bookshelf_id: 119
+    description: Theology, scripture, and Christian thought from the public domain canon.
+  childrens_reading:
+    name: Children & Young Adult Reading
+    gutenberg_bookshelf_id: 636
+    description: Stories, poems, and adventures for younger readers.
+  american_history:
+    name: American History
+    gutenberg_bookshelf_id: 656
+    description: Primary sources and accounts of the American experiment.
+  philosophy_ethics:
+    name: Philosophy & Ethics
+    gutenberg_bookshelf_id: 691
+    description: Kant, Hegel, Aristotle, Plato — the canonical hard reading.
+  politics:
+    name: Politics
+    gutenberg_bookshelf_id: 694
+    description: Locke, Mill, Hobbes, the Federalist Papers — political philosophy from the public domain.
+  law_criminology:
+    name: Law & Criminology
+    gutenberg_bookshelf_id: 689
+    description: Blackstone and the foundational legal texts of the English-speaking world.
+  classics:
+    name: Classics of Literature
+    gutenberg_bookshelf_id: 649
+    description: The canonical works — broad in difficulty, deep in influence.
+  sci_fi_fantasy:
+    name: Science-Fiction & Fantasy
+    gutenberg_bookshelf_id: 638
+    description: Wells, Verne, Stoker, Lovecraft — the imaginative tradition before genre had a name.
+  crime_mystery:
+    name: Crime, Thrillers & Mystery
+    gutenberg_bookshelf_id: 640
+    description: Doyle, Christie, Chesterton — the puzzles and shadows of the canonical detectives.
+  plays:
+    name: Plays, Films & Dramas
+    gutenberg_bookshelf_id: 642
+    description: Shakespeare, Shaw, Wilde, Ibsen — the human voice on the public stage.
+  poetry:
+    name: Poetry
+    gutenberg_bookshelf_id: 637
+    description: Whitman, Dickinson, Frost, Yeats — verse from the public domain canon.
+  mythology:
+    name: Mythology, Legends & Folklore
+    gutenberg_bookshelf_id: 646
+    description: Bulfinch, Hamilton, Frazer — the stories that came before the stories.
+  bahai_faith:
+    name: Bahá'í Faith
+    gutenberg_bookshelf_id: 114
+    description: Writings and teachings from the Bahá'í tradition.
+  buddhism:
+    name: Buddhism
+    gutenberg_bookshelf_id: 116
+    description: Sutras, commentaries, and reflections from the Buddhist canon.
+  hinduism:
+    name: Hinduism
+    gutenberg_bookshelf_id: 125
+    description: The Vedas, Upanishads, and the broader Hindu literary tradition.
+  judaism:
+    name: Judaism
+    gutenberg_bookshelf_id: 128
+    description: Texts and commentaries from the Jewish tradition.
+  islam:
+    name: Islam
+    gutenberg_bookshelf_id: 126
+    description: The Qur'an, hadith collections, and works of Islamic scholarship.
+  cooking_drinking:
+    name: Cooking & Drinking
+    gutenberg_bookshelf_id: 678
+    description: Mrs. Beeton's Book of Household Management, The Joy of Cooking's ancestors, and regional cookbooks.
+  how_to:
+    name: How To...
+    gutenberg_bookshelf_id: 679
+    description: The Victorian/Edwardian self-improvement library — practical wisdom that's still surprisingly applicable.
+  travel_writing:
+    name: Travel Writing
+    gutenberg_bookshelf_id: 648
+    description: Mark Twain's Innocents Abroad, Stevenson, Burton — first-person voices from a more curious age.
+  nature_gardening:
+    name: Nature/Gardening/Animals
+    gutenberg_bookshelf_id: 683
+    description: Thoreau's Walden, Burroughs, Muir — the original nature writing.
+  biographies:
+    name: Biographies
+    gutenberg_bookshelf_id: 643
+    description: The genre that built the modern reading public — Boswell's Johnson, Plutarch's Lives, and Frederick Douglass.
+  essays_speeches:
+    name: Essays, Letters & Speeches
+    gutenberg_bookshelf_id: 647
+    description: Emerson, Thoreau, Lincoln, Frederick Douglass, Cicero — the prose tradition.
+  british_history:
+    name: British History
+    gutenberg_bookshelf_id: 657
+    description: Primary sources and historical accounts of Great Britain.
+  european_history:
+    name: European History
+    gutenberg_bookshelf_id: 658
+    description: Historical narratives spanning the European continent.
+  ancient_history:
+    name: Ancient History
+    gutenberg_bookshelf_id: 659
+    description: Herodotus, Thucydides, Plutarch — primary sources from antiquity.
+  biology:
+    name: Biology
+    gutenberg_bookshelf_id: 669
+    description: Darwin's Origin, Huxley — popular-level Victorian/Edwardian science writing.
+  physics:
+    name: Physics
+    gutenberg_bookshelf_id: 667
+    description: Popular Victorian physics — mostly outdated but historically interesting.
+books_per_shelf: 200

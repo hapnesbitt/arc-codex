@@ -1,6 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Home, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, Home, ShieldAlert, Play } from 'lucide-react';
 import IntelligenceCard from '@/components/IntelligenceCard';
 import CopyAllButton from '@/components/CopyAllButton';
 import type { Article, Comment, Dossier } from '@/lib/types';
@@ -189,7 +189,18 @@ export default async function ArticlePage(props: PageProps) {
           </Link>
           
           <div className="flex items-center gap-3">
-             <CopyAllButton article={article} comments={comments} />
+            {article.sourceUrl?.includes('vid.arc-codex.com') && (
+              <a
+                href={article.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-300 hover:bg-blue-500/20 hover:border-blue-400/50 transition-all duration-300 text-[10px] font-black uppercase tracking-widest"
+              >
+                <Play className="h-3.5 w-3.5" aria-hidden="true" />
+                Watch on LightBox
+              </a>
+            )}
+            <CopyAllButton article={article} comments={comments} />
           </div>
         </nav>
 

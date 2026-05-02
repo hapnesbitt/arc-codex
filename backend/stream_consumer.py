@@ -71,6 +71,7 @@ def apply_analysis(r, article_id: str, mission: str, analysis: str):
         f"✅ Applied '{mission}' analysis to article {article_id[:12]}... "
         f"in {total_ms:.0f}ms (Redis: {redis_ms:.0f}ms)"
     )
+
     return True
 
 

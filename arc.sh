@@ -49,7 +49,7 @@ SERVICES=(
     "bluesky_poster|$BACKEND_DIR|python3 bluesky_poster.py|true|"
     "mastodon_poster|$BACKEND_DIR|python3 mastodon_poster.py|true|"
     "facebook_poster|$BACKEND_DIR|python3 facebook_poster.py|true|"
-    #"character_builder|$BACKEND_DIR|python3 character_builder.py|true|"
+    "character_builder|$BACKEND_DIR|python3 character_builder.py|true|"
     "frontend|$ITC_ROOT|docker|false|3000"   # docker sentinel — managed via docker compose
     "watchdog|$ITC_ROOT|./watchdog.sh|false|"
     "corpus_exporter|$BACKEND_DIR|python3 corpus_exporter.py|true|9101"

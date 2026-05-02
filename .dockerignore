@@ -1,0 +1,28 @@
+# Dependencies
+frontend/node_modules
+backend/venv
+
+# Build output
+frontend/.next
+
+# Logs and runtime
+logs/
+pids/
+*.log
+*.log.gz
+
+# Backups
+backups/
+
+# Git
+.git
+.gitignore
+
+# Dev
+.claude
+*.swp
+*.swo
+
+# Upload completed/failed (large, not needed for build)
+backend/upload/completed
+backend/upload/failed

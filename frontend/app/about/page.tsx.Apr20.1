@@ -1,0 +1,98 @@
+// Filename: /frontend/app/about/page.tsx
+// Arc Codex Gateway — The Salient Triad
+// v3.0 Apr 20 2026 — Refined for Epistemic Responsibility
+
+'use client';
+
+import React from 'react';
+import { motion } from 'framer-motion';
+import { Shield, Cpu, Terminal, Zap, Mail, ChevronRight } from 'lucide-react';
+import PageWrapper from '@/components/layout/PageWrapper';
+
+const GATEWAY_PILLARS = [
+  {
+    href: '/about/sales', // This becomes the /vision/ link in context
+    title: "Vision & Doctrine",
+    description: "The Vigil of the Refined Mind. An exploration of Epistemic Responsibility.",
+    icon: Zap,
+    color: "text-blue-600"
+  },
+  {
+    href: '/about/support',
+    title: "The Art of Discernment",
+    description: "User guidelines for navigating the 48 A.R.C. patterns and the multi-agent pipeline.",
+    icon: Shield,
+    color: "text-amber-600"
+  },
+  {
+    href: '/about/developer',
+    title: "Infrastructure of Meaning",
+    description: "The Z230 Blueprint. Technical specifications for the Scribe and the A.R.C. stack.",
+    icon: Terminal,
+    color: "text-emerald-600"
+  },
+  {
+    href: 'mailto:ross@arc-codex.com',
+    title: "Stewardship",
+    description: "Professional consulting and direct inquiry regarding cognitive resilience.",
+    icon: Mail,
+    color: "text-purple-600"
+  }
+];
+
+export default function AboutGateway() {
+  return (
+    <PageWrapper>
+      <div className="min-h-screen bg-[#fdfbf7] text-slate-900 font-ubuntu">
+        <main className="max-w-6xl mx-auto px-6 py-24 md:py-40">
+          
+          {/* HEADER: THE GATEWAY */}
+          <header className="max-w-2xl mb-24 space-y-6">
+            <h1 className="text-5xl md:text-7xl font-bold tracking-tighter italic">
+              Access the <br /> 
+              <span className="text-slate-400">Codex.</span>
+            </h1>
+            <p className="text-sm font-mono uppercase tracking-[0.4em] text-slate-500 border-t border-slate-200 pt-6">
+              Civility • Integrity • Availability
+            </p>
+          </header>
+
+          {/* THE PILLARS */}
+          <div className="grid md:grid-cols-2 gap-px bg-slate-200 border border-slate-200 overflow-hidden">
+            {GATEWAY_PILLARS.map((pillar) => (
+              <motion.a
+                key={pillar.title}
+                href={pillar.href}
+                whileHover={{ backgroundColor: '#fff' }}
+                className="bg-[#fdfbf7] p-12 flex flex-col justify-between group transition-colors duration-500 min-h-[320px]"
+              >
+                <div className="space-y-6">
+                  <pillar.icon className={`h-8 w-8 ${pillar.color} opacity-60 group-hover:opacity-100 transition-opacity`} />
+                  <h2 className="text-3xl font-bold tracking-tight italic">{pillar.title}</h2>
+                  <p className="text-slate-500 leading-relaxed text-lg max-w-sm">
+                    {pillar.description}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.3em] text-slate-400 group-hover:text-slate-900 transition-colors">
+                  Enter Section <ChevronRight className="h-3 w-3" />
+                </div>
+              </motion.a>
+            ))}
+          </div>
+
+          {/* THE TRIAD FOOTER */}
+          <footer className="mt-32 text-center space-y-4">
+             <div className="h-px w-16 bg-slate-300 mx-auto" />
+             <p className="text-[10px] font-mono uppercase tracking-[0.6em] text-slate-400">
+               A.R.C. Framework v7.14 // Connection Secure
+             </p>
+             <p className="text-[9px] font-mono text-slate-300 uppercase tracking-widest">
+               Fort Collins, CO // 40.5853° N, 105.0844° W
+             </p>
+          </footer>
+
+        </main>
+      </div>
+    </PageWrapper>
+  );
+}

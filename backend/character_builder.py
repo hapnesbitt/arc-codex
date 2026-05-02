@@ -143,14 +143,22 @@ def build_dossier_text(article_id: str) -> str:
         return ""
 
 # ── Ollama call ────────────────────────────────────────────────────────────────
-def call_ollama(system_prompt: str, dossier: str) -> str | None:
-    """Call Ollama with character instruction + dossier. Returns comment text."""
+def call_ollama(system_prompt: str, dossier: str, model: str | None = None) -> str | None:
+    """Call Ollama with character instruction + dossier. Returns comment text.
+
+    When `model` is None, the global OLLAMA_MODEL is used (legacy behavior).
+    Per-character overrides come in via characters.yaml `model:` field —
+    e.g. medgemma1.5:4b for the school nurse, devstral-2:123b-cloud for
+    Torchy Blane.
+    """
+    actual_model = model or OLLAMA_MODEL
+    log.info("Calling Ollama model=%s for character", actual_model)
     prompt = f"{dossier}\n\n---\n\nBased on the above, write your comment now."
     try:
         resp = requests.post(
             f"{OLLAMA_HOST}/api/generate",
             json={
-                "model":  OLLAMA_MODEL,
+                "model":  actual_model,
                 "prompt": prompt,
                 "system": system_prompt,
                 "stream": False,
@@ -162,7 +170,7 @@ def call_ollama(system_prompt: str, dossier: str) -> str | None:
         text = resp.json().get("response", "").strip()
         return text if len(text) > 20 else None
     except Exception as e:
-        log.error("Ollama call failed: %s", e)
+        log.error("Ollama call failed (model=%s): %s", actual_model, e)
         return None
 
 # ── Comment posting ────────────────────────────────────────────────────────────
@@ -193,6 +201,30 @@ def post_comment(article_id: str, author: str, body: str) -> bool:
     except Exception as e:
         log.error("Failed to post comment for %s: %s", article_id, e)
         return False
+
+# ── Topic triggers ─────────────────────────────────────────────────────────────
+def should_character_speak(character: dict, article_data: dict) -> bool:
+    """Return True if character has no triggers (always speaks when on shift),
+    or if any trigger matches the article."""
+    triggers = character.get("triggers")
+    if not triggers:
+        return True  # No triggers = always eligible
+
+    # Directive match (exact, case-sensitive — directives are canonical strings)
+    article_directive = (article_data.get("directive") or "").strip()
+    trigger_directives = triggers.get("directives") or []
+    if trigger_directives and article_directive in trigger_directives:
+        return True
+
+    # Domain match — substring, case-insensitive against article.category
+    article_category = (article_data.get("category") or "").strip().lower()
+    trigger_domains = triggers.get("domains") or []
+    for d in trigger_domains:
+        if d.lower() in article_category:
+            return True
+
+    return False
+
 
 # ── Shift logic ────────────────────────────────────────────────────────────────
 def get_active_characters(cfg: dict) -> list[str]:
@@ -284,6 +316,16 @@ def main():
 
                     log.info("Character %s processing article %s", handle, article_id)
 
+                    # Topic-trigger gate — directive/category fields are set by
+                    # scribe at publish time, so they're available without
+                    # waiting on analysis. Skip off-topic articles cheaply.
+                    article_data = r.hgetall(f"article:{article_id}")
+                    if not should_character_speak(character, article_data):
+                        log.info("Character %s skipping %s — triggers do not match",
+                                 handle, article_id)
+                        # already marked posted above, just continue
+                        continue
+
                     # Wait for full analysis if character is eager
                     if character.get("eager", True):
                         if not wait_for_analysis(article_id):
@@ -296,7 +338,11 @@ def main():
                         log.warning("Empty dossier for %s — skipping", article_id)
                         continue
 
-                    comment_text = call_ollama(character["instruction"], dossier)
+                    comment_text = call_ollama(
+                        character["instruction"],
+                        dossier,
+                        model=character.get("model"),  # None -> OLLAMA_MODEL
+                    )
                     if not comment_text:
                         log.error("No comment generated for %s by %s", article_id, handle)
                         continue

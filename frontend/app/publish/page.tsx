@@ -19,13 +19,13 @@ import { useSession } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import {
   Send, Loader, CheckCircle, RefreshCw, Upload,
   Sparkles, FileText, Link2, Wand2,
   Rocket, Globe, Crown, Shield, PenLine, ImagePlus, X as XIcon,
+  ChevronDown, ChevronUp,
 } from 'lucide-react';
 import UploadArea from '@/components/UploadArea';
 import StatusMessage from '@/components/StatusMessage';
@@ -57,7 +57,6 @@ interface DraftData {
 interface SectionProps {
   title: string;
   children: React.ReactNode;
-  gradient?: string;
   icon: React.ReactNode;
   className?: string;
   sectionId?: string;
@@ -67,10 +66,6 @@ interface SelectorConfig {
   id: string;
   label: string;
   icon: React.ReactNode;
-  borderColor: string;
-  bgColor: string;
-  textColor: string;
-  shadowColor: string;
   ariaDescription: string;
 }
 
@@ -79,60 +74,49 @@ const CONTENT_TYPES: SelectorConfig[] = [
   {
     id: 'url',
     label: 'Share URL',
-    icon: <Link2 className="h-5 w-5" aria-hidden="true" />,
-    borderColor: 'border-blue-400',
-    bgColor: 'bg-blue-400/10',
-    textColor: 'text-blue-300',
-    shadowColor: 'shadow-[0_0_20px_rgba(59,130,246,0.3)]',
+    icon: <Link2 className="h-4 w-4" aria-hidden="true" />,
     ariaDescription: 'Submit a web URL for A.R.C. analysis',
   },
   {
     id: 'text',
     label: 'Write Text',
-    icon: <FileText className="h-5 w-5" aria-hidden="true" />,
-    borderColor: 'border-amber-400',
-    bgColor: 'bg-amber-400/10',
-    textColor: 'text-amber-300',
-    shadowColor: 'shadow-[0_0_20px_rgba(251,191,36,0.3)]',
+    icon: <FileText className="h-4 w-4" aria-hidden="true" />,
     ariaDescription: 'Write or paste article text directly',
   },
   {
     id: 'file',
     label: 'Upload File',
-    icon: <Upload className="h-5 w-5" aria-hidden="true" />,
-    borderColor: 'border-green-400',
-    bgColor: 'bg-green-400/10',
-    textColor: 'text-green-300',
-    shadowColor: 'shadow-[0_0_20px_rgba(34,197,94,0.3)]',
+    icon: <Upload className="h-4 w-4" aria-hidden="true" />,
     ariaDescription: 'Upload a document file for analysis',
   },
   {
     id: 'prompt',
     label: 'Write Prompt',
-    icon: <PenLine className="h-5 w-5" aria-hidden="true" />,
-    borderColor: 'border-purple-400',
-    bgColor: 'bg-purple-400/10',
-    textColor: 'text-purple-300',
-    shadowColor: 'shadow-[0_0_20px_rgba(168,85,247,0.3)]',
+    icon: <PenLine className="h-4 w-4" aria-hidden="true" />,
     ariaDescription: 'Describe what you want Arc Codex to write for you',
   },
 ];
 
 // --- REUSABLE SECTION COMPONENT ---
-const Section: React.FC<SectionProps> = ({ title, children, gradient, icon, className = "", sectionId }) => {
+// Librarian aesthetic: section flows as a horizontal band on the page, separated
+// by a single thin border. No card chrome — title sits as a small uppercase
+// label above generous body whitespace.
+const Section: React.FC<SectionProps> = ({ title, children, icon, className = "", sectionId }) => {
   const headingId = sectionId ? `${sectionId}-heading` : undefined;
   return (
     <section
       aria-labelledby={headingId}
-      className={`p-8 rounded-2xl bg-slate-900/30 border ${gradient ?? 'border-amber-400/50'} backdrop-blur-2xl shadow-[0_0_20px_rgba(251,191,36,0.3)] transition-colors duration-300 ${className}`}
+      className={`py-10 border-b border-slate-800/60 ${className}`}
     >
-      <div className="flex items-center gap-4 mb-6">
-        <div className="relative" aria-hidden="true">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="text-slate-500" aria-hidden="true">
           {icon}
         </div>
-        <h2 id={headingId} className="text-2xl font-bold text-slate-50 font-sans tracking-tight">{title}</h2>
+        <h2 id={headingId} className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-slate-300">
+          {title}
+        </h2>
       </div>
-      <div className="prose prose-invert prose-lg max-w-none text-slate-200 font-serif leading-relaxed space-y-5">
+      <div className="max-w-none text-slate-200 font-serif leading-relaxed space-y-6">
         {children}
       </div>
     </section>
@@ -154,14 +138,14 @@ const SelectorButton: React.FC<{
     onClick={onClick}
     ref={buttonRef}
     tabIndex={isActive ? 0 : -1}
-    className={`p-4 rounded-xl border-2 transition-colors duration-200 flex items-center gap-3 font-serif
-      outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950
+    className={`px-4 py-3 border transition-colors duration-200 flex items-center gap-3 rounded-sm font-sans text-xs uppercase tracking-[0.18em]
+      outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40
       ${isActive
-        ? `${config.borderColor} ${config.bgColor} ${config.textColor} ${config.shadowColor}`
-        : 'border-slate-600/50 hover:border-slate-500 text-slate-400 hover:text-slate-300'
+        ? 'border-emerald-500/60 text-slate-100 bg-slate-800/40'
+        : 'border-slate-800 hover:border-slate-700 text-slate-500 hover:text-slate-300'
       }`}
   >
-    {config.icon}
+    <span className="text-slate-500" aria-hidden="true">{config.icon}</span>
     {config.label}
   </button>
 );
@@ -202,7 +186,7 @@ const RadioGroup: React.FC<{
     <div
       role="radiogroup"
       aria-label="Content submission type"
-      className="flex flex-wrap gap-4 justify-center"
+      className="flex flex-wrap gap-3"
       onKeyDown={handleKeyDown}
     >
       {CONTENT_TYPES.map((config, i) => (
@@ -225,7 +209,7 @@ export default function PublishPage() {
   const isAuthed = !!session?.user;
   const [title, setTitle]               = useState('');
   const [content, setContent]           = useState('');
-  const [contentType, setContentType]   = useState<ContentType>('text');
+  const [contentType, setContentType]   = useState<ContentType>('url');
   const [file, setFile]                 = useState<File | null>(null);
   const [status, setStatus]             = useState<Status>('idle');
   const [message, setMessage]           = useState('');
@@ -236,7 +220,10 @@ export default function PublishPage() {
   const [imageFile, setImageFile]           = useState<File | null>(null);
   const [imagePreview, setImagePreview]     = useState<string | null>(null);
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
+  const [imageOpen, setImageOpen] = useState(false);
   const [urlFetchFailed, setUrlFetchFailed] = useState(false);
+  const [description, setDescription]       = useState('');
+  const [mounted, setMounted]               = useState(false);
   const submitBtnRef     = useRef<HTMLButtonElement>(null);
   const imageInputRef    = useRef<HTMLInputElement>(null);
   const fileInputRef     = useRef<HTMLInputElement>(null);
@@ -348,6 +335,20 @@ export default function PublishPage() {
     return () => { if (pollTimerRef.current) clearTimeout(pollTimerRef.current); };
   }, []);
 
+  useEffect(() => { setMounted(true); }, []);
+
+  // Pre-fill from ?url and ?title query params (e.g. deep-link from LightBox)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlParam  = params.get('url');
+    const titleParam = params.get('title');
+    if (urlParam) {
+      setContent(urlParam);
+      setContentType('url');
+    }
+    if (titleParam) setTitle(titleParam);
+  }, []);
+
   const isProbablyUrl = useCallback((s: string): boolean => {
     try {
       const u = new URL(s);
@@ -372,7 +373,7 @@ export default function PublishPage() {
       setMessage('Content is required.');
       return;
     }
-    if (contentType === 'url' && (!content.trim() || !isProbablyUrl(content.trim())) && !imageFile && !uploadedImageUrl) {
+    if (contentType === 'url' && !description.trim() && (!content.trim() || !isProbablyUrl(content.trim())) && !imageFile && !uploadedImageUrl) {
       setStatus('error');
       setMessage('Please provide a valid URL (starting with http:// or https://)');
       return;
@@ -395,7 +396,7 @@ export default function PublishPage() {
 
     // Validation passed — open confirmation modal
     setShowConfirmModal(true);
-  }, [title, content, contentType, file, isProbablyUrl]);
+  }, [title, content, contentType, file, description, isProbablyUrl, imageFile, uploadedImageUrl]);
 
   // Step 2: user confirmed — actually publish
   const handleConfirmedPublish = useCallback(async (visibility: 'public' | 'private' = 'public') => {
@@ -453,11 +454,17 @@ export default function PublishPage() {
       setUrlFetchFailed(false);
       setMessage('Submitting to Arc Codex...');
       try {
-        // If image attached but no valid URL, submit as text
-        const effectiveContentType = (contentType === 'url' && !isProbablyUrl(content.trim()))
+        const trimmedDescription = description.trim();
+        // If description provided, send as text submission (URL stored separately as sourceUrl)
+        // If image attached but no valid URL, also fall back to text
+        const effectiveContentType = (contentType === 'url' && (trimmedDescription || !isProbablyUrl(content.trim())))
           ? 'text' : contentType;
-        const effectiveContent = effectiveContentType === 'text' && !content.trim()
-          ? (title.trim() || 'Photo submission') : content.trim();
+        // For description-backed submissions use description as content; fall back to title/placeholder for image-only
+        const effectiveContent = trimmedDescription
+          ? trimmedDescription
+          : effectiveContentType === 'text' && !content.trim()
+            ? (title.trim() || 'Photo submission')
+            : content.trim();
         const resp = await fetch('/api/submit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -467,13 +474,15 @@ export default function PublishPage() {
             title: title.trim(),
             image_url: resolvedImageUrl || undefined,
             visibility,
+            // When description is the body, carry the original URL as source_url
+            ...(trimmedDescription && contentType === 'url' && content.trim() ? { source_url: content.trim() } : {}),
           }),
         });
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.error || 'Unknown error from server.');
 
-        if (effectiveContentType === 'url' && data.job_id) {
-          // URL submissions: show optimistic message and poll for fetch result
+        if (effectiveContentType === 'url' && data.job_id && !trimmedDescription) {
+          // URL submissions without a description: show optimistic message and poll for fetch result
           setStatus('loading');
           setMessage('Submitted! Verifying article fetch…');
           pollJobStatus(data.job_id, effectiveContent);
@@ -568,7 +577,7 @@ export default function PublishPage() {
       setStatus('error');
       setMessage(err instanceof Error ? err.message : 'Something went wrong.');
     }
-  }, [title, content, contentType, file, clearDraft, router, isProbablyUrl, imageFile, uploadedImageUrl, pollJobStatus]);
+  }, [title, content, contentType, file, description, clearDraft, router, isProbablyUrl, imageFile, uploadedImageUrl, pollJobStatus]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -587,16 +596,23 @@ export default function PublishPage() {
   }, [clearDraft, handleRequestSubmit, status]);
 
   const handleFileChange = useCallback((selectedFile: File | null) => {
-    if (selectedFile && ALLOWED_FILE_TYPES.includes(selectedFile.type)) {
-      setFile(selectedFile);
-      setContent(selectedFile.name);
-      setMessage('File ready.');
-      setStatus('idle');
-    } else {
+    if (!selectedFile) return;
+    if (!ALLOWED_FILE_TYPES.includes(selectedFile.type)) {
       setMessage('Please upload a supported file type (.txt, .md, .pdf, .docx, .odt)');
       setStatus('error');
       setFile(null);
+      return;
     }
+    if (selectedFile.size > 35 * 1024 * 1024) {
+      setMessage('File must be under 35 MB.');
+      setStatus('error');
+      setFile(null);
+      return;
+    }
+    setFile(selectedFile);
+    setContent(selectedFile.name);
+    setMessage('File ready.');
+    setStatus('idle');
   }, []);
 
   const handleRestoreDraft = useCallback(() => {
@@ -653,30 +669,27 @@ export default function PublishPage() {
   // --- CONTENT TYPE RENDERERS ---
   const renderTextInput = () => (
     <Section
-      title="Write Your Story"
-      icon={<Sparkles className="w-8 h-8 text-purple-400" />}
-      gradient="border-purple-400/50"
+      title="Body"
+      icon={<Sparkles className="w-4 h-4" />}
       sectionId="content-text"
     >
-      <div className="space-y-4">
+      <div className="space-y-3">
         <label htmlFor="content-textarea" className="sr-only">Article content</label>
         <Textarea
           id="content-textarea"
           value={content}
           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setContent(e.target.value)}
           rows={16}
-          placeholder="Start writing..."
+          placeholder="Start writing…"
           aria-describedby="text-stats"
-          className="bg-slate-800/20 border-slate-600/50 text-slate-100 font-serif text-base leading-relaxed focus:border-purple-400/50 focus:ring-purple-400/25 resize-none transition-colors"
+          className="bg-transparent border border-slate-800 rounded-sm px-4 py-3 text-slate-100 font-serif text-base leading-relaxed focus:border-emerald-500 focus:ring-0 focus-visible:ring-0 placeholder:text-slate-600 resize-none transition-colors"
           disabled={status === 'loading' || status === 'success'}
         />
-        <div id="text-stats" className="flex justify-between items-center">
-          <div className="text-sm text-slate-400 font-serif">
-            {content.trim() === '' ? 0 : content.trim().split(/\s+/).filter(w => w.length > 0).length} words · {content.length} characters
+        <div id="text-stats" className="flex justify-between items-center font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500">
+          <div>
+            {content.trim() === '' ? 0 : content.trim().split(/\s+/).filter(w => w.length > 0).length} Words · {content.length} Chars
           </div>
-          <Badge variant="outline" className="border-purple-400/30 text-purple-300 font-mono text-xs">
-            Ctrl+Enter to submit
-          </Badge>
+          <span>⌃⏎ to submit</span>
         </div>
       </div>
     </Section>
@@ -684,13 +697,12 @@ export default function PublishPage() {
 
   const renderUrlInput = () => (
     <Section
-      title="Share from the Web"
-      icon={<Globe className="w-8 h-8 text-blue-400" />}
-      gradient="border-blue-400/50"
+      title="From the Web"
+      icon={<Globe className="w-4 h-4" />}
       sectionId="content-url"
     >
       <div className="space-y-4">
-        <label htmlFor="content-url-input" className="sr-only">Article URL</label>
+        <label htmlFor="content-url-input" className="font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500 block">URL</label>
         <Input
           id="content-url-input"
           value={content}
@@ -698,29 +710,51 @@ export default function PublishPage() {
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setContent(e.target.value)}
           placeholder="https://example.com/article"
           aria-describedby="url-hint"
-          className="bg-slate-800/20 border-slate-600/50 text-slate-100 text-lg h-14 focus:border-blue-400/50 focus:ring-blue-400/25 font-mono transition-colors"
+          className="bg-transparent border-0 border-b border-slate-700 rounded-none px-0 text-slate-100 text-base h-auto py-3 focus:border-emerald-500 focus:ring-0 focus-visible:ring-0 focus:outline-none font-sans placeholder:text-slate-600 transition-colors"
           disabled={status === 'loading' || status === 'success'}
         />
-        <div id="url-hint" className="flex justify-between items-center h-8">
-          <span className="text-sm text-slate-400 font-serif italic">
-            Paste any article or YouTube URL — A.R.C. will fetch and analyze it
+        <div id="url-hint" className="flex justify-between items-center font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500">
+          <span className="italic normal-case tracking-normal font-serif text-sm text-slate-400">
+            Paste any article or YouTube URL — A.R.C. will fetch and analyze it.
           </span>
           {content && isProbablyUrl(content) && (
-            <Badge variant="outline" className="bg-green-600/20 text-green-300 border-green-500/30 font-serif">
-              <CheckCircle className="h-3 w-3 mr-1" aria-hidden="true" />
-              Valid URL
-            </Badge>
+            <span className="inline-flex items-center gap-1.5 text-emerald-400" aria-label="URL is valid">
+              <CheckCircle className="h-3 w-3" aria-hidden="true" />
+              Valid
+            </span>
           )}
         </div>
+
+        {mounted && (
+          <div className="space-y-3 pt-4">
+            <label htmlFor="url-description" className="font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500 block">
+              Description / Transcript <span className="text-slate-600 normal-case tracking-normal">(optional)</span>
+            </label>
+            <Textarea
+              id="url-description"
+              value={description}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDescription(e.target.value)}
+              rows={6}
+              placeholder="Describe the content, paste a transcript, or summarize what you want A.R.C. to analyze"
+              aria-describedby="url-description-hint"
+              className="bg-transparent border border-slate-800 rounded-sm px-4 py-3 text-slate-100 font-serif text-base leading-relaxed focus:border-emerald-500 focus:ring-0 focus-visible:ring-0 placeholder:text-slate-600 resize-none transition-colors"
+              disabled={status === 'loading' || status === 'success'}
+              maxLength={10000}
+            />
+            <div id="url-description-hint" className="flex justify-between items-center font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500">
+              <span className="italic normal-case tracking-normal font-serif text-sm text-slate-400">If provided, A.R.C. analyzes this text directly — no URL fetch needed.</span>
+              <span>{description.length} / 10000</span>
+            </div>
+          </div>
+        )}
       </div>
     </Section>
   );
 
   const renderFileUpload = () => (
     <Section
-      title="Upload Your Document"
-      icon={<Upload className="w-8 h-8 text-green-400" />}
-      gradient="border-green-400/50"
+      title="Document"
+      icon={<Upload className="w-4 h-4" />}
       sectionId="content-file"
     >
       <UploadArea
@@ -733,13 +767,12 @@ export default function PublishPage() {
 
   const renderPromptInput = () => (
     <Section
-      title="Describe What You Want"
-      icon={<Wand2 className="w-8 h-8 text-purple-400" />}
-      gradient="border-purple-400/50"
+      title="Prompt"
+      icon={<Wand2 className="w-4 h-4" />}
       sectionId="content-prompt"
     >
       <div className="space-y-4">
-        <p className="text-sm text-slate-400 font-serif italic">
+        <p className="font-serif text-base text-slate-400 italic leading-relaxed">
           Arc Codex will write a full article based on your prompt, then publish it with A.R.C. analysis.
         </p>
         <label htmlFor="prompt-textarea" className="sr-only">Writing prompt</label>
@@ -748,26 +781,27 @@ export default function PublishPage() {
           value={content}
           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setContent(e.target.value)}
           rows={6}
-          placeholder="Write a long article explaining how someone should decide whether a cat or dog would be better for them..."
+          placeholder="Write a long article explaining how someone should decide whether a cat or dog would be better for them…"
           aria-describedby="prompt-stats"
-          className="bg-slate-800/20 border-slate-600/50 text-slate-100 font-serif text-base leading-relaxed focus:border-purple-400/50 focus:ring-purple-400/25 resize-none transition-colors"
+          className="bg-transparent border border-slate-800 rounded-sm px-4 py-3 text-slate-100 font-serif text-base leading-relaxed focus:border-emerald-500 focus:ring-0 focus-visible:ring-0 placeholder:text-slate-600 resize-none transition-colors"
           disabled={status === 'loading' || status === 'success'}
           maxLength={2000}
         />
-        <div id="prompt-stats" className="flex justify-between items-center">
-          <div className="text-sm text-slate-400 font-serif">
-            {content.length}/2000 characters
+        <div id="prompt-stats" className="flex justify-between items-center font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500">
+          <div className="flex items-center gap-2">
+            <span>{content.length} / 2000</span>
             {content.length > 0 && content.length < 10 && (
-              <span className="text-amber-400 ml-2">— be more descriptive</span>
+              <span className="inline-flex items-center gap-1.5 text-slate-300 italic normal-case tracking-normal font-serif text-sm">
+                <span className="h-1.5 w-1.5 rounded-full bg-rose-500" aria-hidden="true" />
+                be more descriptive
+              </span>
             )}
           </div>
-          <Badge variant="outline" className="border-purple-400/30 text-purple-300 font-mono text-xs">
-            Ctrl+Enter to submit
-          </Badge>
+          <span>⌃⏎ to submit</span>
         </div>
-        <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-400/20 text-sm text-purple-300 font-serif">
-          💡 Title is optional in prompt mode — Arc Codex will derive one from the generated article.
-        </div>
+        <p className="font-serif text-sm text-slate-400 italic leading-relaxed pt-2 border-t border-slate-800/60">
+          Title is optional in prompt mode — Arc Codex will derive one from the generated article.
+        </p>
       </div>
     </Section>
   );
@@ -777,7 +811,7 @@ export default function PublishPage() {
       {/* Skip link */}
       <a
         href="#publish-form"
-        className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:top-4 focus-visible:left-4 focus-visible:z-[300] focus-visible:px-4 focus-visible:py-2 focus-visible:bg-amber-500 focus-visible:text-black focus-visible:font-bold focus-visible:rounded-lg focus-visible:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+        className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:top-4 focus-visible:left-4 focus-visible:z-[300] focus-visible:px-4 focus-visible:py-2 focus-visible:bg-emerald-600 focus-visible:text-slate-50 focus-visible:font-semibold focus-visible:rounded-sm focus-visible:text-xs focus-visible:uppercase focus-visible:tracking-[0.2em] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-300"
       >
         Skip to publish form
       </a>
@@ -791,36 +825,34 @@ export default function PublishPage() {
         className="sr-only"
       />
 
-      <main aria-label="Publish content to Arc Codex" className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-12">
+      <main aria-label="Publish content to Arc Codex" className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
-        {/* Hero Header */}
-        <header className="flex flex-col items-center text-center space-y-6 py-10">
-          <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-500/50 via-purple-500/40 to-blue-500/50 backdrop-blur-2xl border border-amber-400/60 shadow-[0_0_40px_rgba(251,191,36,0.5)]" aria-hidden="true">
-            <Wand2 className="h-12 w-12 text-amber-300" />
+        {/* Header — text-first, library plate styling */}
+        <header className="text-center py-12 border-b border-slate-800/60 space-y-4">
+          <div className="font-sans text-[10px] uppercase tracking-[0.4em] text-slate-500" aria-hidden="true">
+            Compose · A.R.C. Cognitive Framework
           </div>
-          <h1 className="text-4xl sm:text-5xl md:text-6xl font-black font-sans tracking-tight text-slate-50 drop-shadow-[0_0_10px_rgba(251,191,36,0.8)]">
-            Create & Share
+          <h1 className="font-serif text-5xl sm:text-6xl font-semibold tracking-tight text-slate-50 leading-none">
+            Create &amp; Share
           </h1>
-          <p className="text-xl md:text-2xl text-amber-300/90 font-serif italic drop-shadow-sm leading-relaxed">
-            Transform your ideas with A.R.C. cognitive analysis
+          <p className="font-serif text-lg text-slate-400 italic leading-relaxed max-w-xl mx-auto">
+            Transform your ideas with A.R.C. cognitive analysis.
           </p>
-          <div className="flex items-center gap-3 text-sm text-slate-400">
-            <Shield className="h-4 w-4 text-green-400" aria-hidden="true" />
-            <span className="font-serif">PII Protection Enabled · Names & Locations Redacted</span>
+          <div className="flex items-center justify-center gap-2 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500 pt-2">
+            <Shield className="h-3 w-3" aria-hidden="true" />
+            <span>PII Protection · Names &amp; Locations Redacted</span>
           </div>
-          <div className="w-24 h-1 bg-gradient-to-r from-amber-400 to-purple-500 rounded-full" aria-hidden="true" />
         </header>
 
-        <form id="publish-form" onSubmit={handleRequestSubmit} aria-label="Publish content" className="space-y-12">
+        <form id="publish-form" onSubmit={handleRequestSubmit} aria-label="Publish content">
 
           {/* Title Section */}
           <Section
-            title="Title Your Creation"
-            icon={<Crown className="w-8 h-8 text-amber-400" />}
-            gradient="border-amber-400/50"
+            title="Title"
+            icon={<Crown className="w-4 h-4" />}
             sectionId="title-section"
           >
-            <div className="space-y-4">
+            <div className="space-y-3">
               <label htmlFor="title" className="sr-only">
                 Article title{contentType === 'prompt' ? ' (optional)' : ''}
               </label>
@@ -832,35 +864,29 @@ export default function PublishPage() {
                 placeholder={
                   contentType === 'prompt'
                     ? 'Optional — Arc Codex will generate one if left blank'
-                    : 'Give your article a title...'
+                    : 'Give your article a title…'
                 }
                 aria-describedby="title-hint title-counter"
                 aria-required={contentType !== 'prompt'}
-                className="bg-slate-800/30 border-slate-600/50 text-slate-100 text-lg h-14 focus:border-amber-400/50 focus:ring-amber-400/25 font-serif transition-colors"
+                className="bg-transparent border-0 border-b border-slate-700 rounded-none px-0 text-slate-100 text-2xl py-3 h-auto focus:border-emerald-500 focus:ring-0 focus-visible:ring-0 focus:outline-none font-serif placeholder:text-slate-600 transition-colors"
                 disabled={status === 'loading' || status === 'success'}
                 maxLength={200}
               />
-              <div className="flex justify-between items-center">
-                <span id="title-hint" className="text-sm text-slate-400 font-serif italic">
+              <div className="flex justify-between items-center font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                <span id="title-hint" className="italic normal-case tracking-normal font-serif text-sm">
                   {contentType === 'prompt' ? 'Optional in prompt mode' : 'Clear and descriptive works best'}
                 </span>
-                <Badge
-                  id="title-counter"
-                  variant="outline"
-                  className="border-amber-400/30 text-amber-300 font-mono text-xs"
-                  aria-label={`${title.length} of 200 characters used`}
-                >
-                  {title.length}/200
-                </Badge>
+                <span id="title-counter" aria-label={`${title.length} of 200 characters used`}>
+                  {title.length} / 200
+                </span>
               </div>
             </div>
           </Section>
 
           {/* Content Type Selector */}
           <Section
-            title="Choose Your Medium"
-            icon={<Link2 className="w-8 h-8 text-blue-400" />}
-            gradient="border-blue-400/50"
+            title="Medium"
+            icon={<Link2 className="w-4 h-4" />}
             sectionId="medium-section"
           >
             <RadioGroup value={contentType} onChange={setContentType} />
@@ -874,73 +900,118 @@ export default function PublishPage() {
             {contentType === 'prompt' && renderPromptInput()}
           </div>
 
-          {/* Image Selection */}
-          <Section
-            title="Cover Image"
-            icon={<ImagePlus className="w-8 h-8 text-pink-400" />}
-            gradient="border-pink-400/50"
-            sectionId="image-section"
+          {/* Cover Image Accordion */}
+          <section
+            aria-labelledby="image-section-heading"
+            className="py-10 border-b border-slate-800/60"
           >
-            <p className="text-sm text-slate-400 font-serif italic">
-              Optional — if not set, Arc Codex will use the article&apos;s OG image automatically.
-            </p>
-            <div className="flex flex-col gap-4">
-              {/* Hidden file input — accepts images + camera on mobile */}
-              <input
-                ref={imageInputRef}
-                type="file"
-		accept="image/*,image/heic,image/heif"
-                className="hidden"
-                aria-label="Select cover image"
-                onChange={handleImageChange}
-                disabled={status === 'loading' || status === 'success'}
-              />
-
-              {imagePreview ? (
-                <div className="relative group w-full max-w-md mx-auto">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
+            <button
+              type="button"
+              id="image-section-heading"
+              onClick={() => setImageOpen(v => !v)}
+              aria-expanded={mounted ? imageOpen : false}
+              aria-controls="image-accordion-body"
+              className="w-full flex items-center justify-between gap-4 outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+            >
+              <div className="flex items-center gap-3">
+                <div className="text-slate-500" aria-hidden="true">
+                  <ImagePlus className="w-4 h-4" />
+                </div>
+                <h2 className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-slate-300">
+                  Cover Image <span className="text-slate-500 font-normal">— optional</span>
+                </h2>
+              </div>
+              <div className="flex items-center gap-3">
+                {!imageOpen && imagePreview && (
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={imagePreview}
-                    alt="Cover image preview"
-                    className="w-full h-48 object-cover rounded-xl border border-pink-400/30"
+                    alt=""
+                    aria-hidden="true"
+                    className="w-16 h-9 object-cover border border-slate-800 shrink-0"
                   />
-                  <button
-                    type="button"
-                    onClick={clearImage}
-                    aria-label="Remove image"
-                    className="absolute top-2 right-2 p-1.5 rounded-full bg-slate-900/80 border border-slate-600 text-slate-300 hover:text-white hover:border-red-400 transition-colors focus-visible:ring-2 focus-visible:ring-red-400"
-                  >
-                    <XIcon className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                  <div className="mt-2 text-sm text-slate-400 font-serif text-center">
-                    {imageFile?.name} · {imageFile ? (imageFile.size / 1024).toFixed(0) : 0}KB
+                )}
+                {imageOpen
+                  ? <ChevronUp className="w-4 h-4 text-slate-500 shrink-0" aria-hidden="true" />
+                  : <ChevronDown className="w-4 h-4 text-slate-500 shrink-0" aria-hidden="true" />
+                }
+              </div>
+            </button>
+
+            <div
+              id="image-accordion-body"
+              role="region"
+              aria-labelledby="image-section-heading"
+              className={`grid transition-[grid-template-rows] duration-200 ${mounted && imageOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+            >
+              <div className="overflow-hidden">
+                <div className="pt-6 space-y-4">
+                  <p className="font-serif text-sm text-slate-400 italic leading-relaxed">
+                    Optional — if not set, Arc Codex will use the article&apos;s OG image automatically.
+                  </p>
+                  <div className="flex flex-col gap-4">
+                    {/* Hidden file input — accepts images + camera on mobile */}
+                    <input
+                      ref={imageInputRef}
+                      type="file"
+                      accept="image/*,image/heic,image/heif"
+                      className="hidden"
+                      aria-label="Select cover image"
+                      onChange={handleImageChange}
+                      disabled={status === 'loading' || status === 'success'}
+                    />
+
+                    {imagePreview ? (
+                      <div className="relative group w-full max-w-md mx-auto">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={imagePreview}
+                          alt="Cover image preview"
+                          className="w-full h-48 object-cover border border-slate-800"
+                        />
+                        <button
+                          type="button"
+                          onClick={clearImage}
+                          aria-label="Remove image"
+                          className="absolute top-2 right-2 p-1.5 rounded-sm bg-slate-950/80 border border-slate-700 text-slate-300 hover:text-slate-100 hover:border-slate-500 transition-colors focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                        >
+                          <XIcon className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                        <div className="mt-3 font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500 text-center">
+                          {imageFile?.name} · {imageFile ? (imageFile.size / 1024).toFixed(0) : 0} KB
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => imageInputRef.current?.click()}
+                        disabled={status === 'loading' || status === 'success'}
+                        className="w-full max-w-md mx-auto h-32 border border-dashed border-slate-800 hover:border-slate-600 text-slate-500 hover:text-slate-300 flex flex-col items-center justify-center gap-2 transition-colors rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                        aria-label="Browse for cover image or take photo"
+                      >
+                        <ImagePlus className="h-6 w-6" aria-hidden="true" />
+                        <span className="font-sans text-xs uppercase tracking-[0.2em]">Browse or take photo</span>
+                        <span className="font-sans text-[10px] uppercase tracking-[0.18em] text-slate-600">JPG · PNG · WebP · max 10MB</span>
+                      </button>
+                    )}
                   </div>
                 </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => imageInputRef.current?.click()}
-                  disabled={status === 'loading' || status === 'success'}
-                  className="w-full max-w-md mx-auto h-32 rounded-xl border-2 border-dashed border-pink-400/30 hover:border-pink-400/60 text-slate-400 hover:text-pink-300 flex flex-col items-center justify-center gap-2 transition-colors focus-visible:ring-2 focus-visible:ring-pink-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                  aria-label="Browse for cover image or take photo"
-                >
-                  <ImagePlus className="h-8 w-8" aria-hidden="true" />
-                  <span className="font-serif text-sm">Browse or take photo</span>
-                  <span className="font-serif text-xs opacity-60">JPG, PNG, WebP · max 10MB</span>
-                </button>
-              )}
+              </div>
             </div>
-          </Section>
+          </section>
 
           {/* Status Message */}
           <StatusMessage status={status} message={message} />
 
           {/* URL fetch failure recovery */}
           {urlFetchFailed && (
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 p-4 rounded-xl border border-amber-500/30 bg-amber-600/10">
-              <span className="text-sm text-amber-300 font-serif flex-1">
-                Tip: paste the article text directly using the <strong>Write Text</strong> mode below.
-              </span>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 py-6 border-b border-slate-800/60">
+              <div className="flex items-start gap-2 flex-1">
+                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-rose-500 shrink-0" aria-hidden="true" />
+                <span className="font-serif text-sm text-slate-300 italic leading-relaxed">
+                  Tip: paste the article text directly using <span className="not-italic font-semibold text-slate-100">Write Text</span> mode below.
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={() => {
@@ -950,7 +1021,7 @@ export default function PublishPage() {
                   setContentType('text');
                   setContent('');
                 }}
-                className="shrink-0 px-4 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-sm font-semibold transition-colors outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                className="shrink-0 px-4 py-2 rounded-sm border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-slate-100 font-sans text-xs uppercase tracking-[0.2em] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
               >
                 Switch to Write Text
               </button>
@@ -959,16 +1030,15 @@ export default function PublishPage() {
 
           {/* Publish Controls */}
           <Section
-            title="Publish Controls"
-            icon={<Rocket className="w-8 h-8 text-amber-400" />}
-            gradient="border-amber-400/50"
+            title="Publish"
+            icon={<Rocket className="w-4 h-4" />}
             sectionId="publish-controls"
           >
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
               <div className="flex flex-wrap items-center gap-4">
-                <div className="text-sm text-slate-400 font-serif">
+                <div className="font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500">
                   {autosavedAt ? (
-                    <>Autosaved: <time dateTime={autosavedAt}>{new Date(autosavedAt).toLocaleTimeString()}</time></>
+                    <>Autosaved · <time dateTime={autosavedAt}>{new Date(autosavedAt).toLocaleTimeString()}</time></>
                   ) : (
                     'Not yet saved'
                   )}
@@ -979,22 +1049,22 @@ export default function PublishPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-slate-400 hover:text-slate-200 font-serif focus-visible:ring-2 focus-visible:ring-amber-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                      className="font-sans text-xs uppercase tracking-[0.2em] text-slate-500 hover:text-slate-200 hover:bg-slate-800/40 rounded-sm focus-visible:ring-1 focus-visible:ring-emerald-400/40"
                     >
                       Clear All
                     </Button>
                   </AlertDialogTrigger>
-                  <AlertDialogContent className="bg-slate-900/95 border-slate-700 backdrop-blur-xl">
+                  <AlertDialogContent className="bg-slate-950 border border-slate-800 rounded-sm">
                     <AlertDialogHeader className="space-y-2">
-                      <AlertDialogTitle className="text-slate-50 font-sans">
+                      <AlertDialogTitle className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-slate-300">
                         Clear everything?
                       </AlertDialogTitle>
-                      <AlertDialogDescription className="text-slate-400 font-serif">
+                      <AlertDialogDescription className="font-serif text-slate-300 leading-relaxed">
                         This will permanently delete your current draft and reset the form.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="flex gap-2">
-                      <AlertDialogCancel className="font-serif">Keep it</AlertDialogCancel>
+                      <AlertDialogCancel className="font-sans text-xs uppercase tracking-[0.2em] rounded-sm">Keep it</AlertDialogCancel>
                       <AlertDialogAction
                         onClick={() => {
                           clearDraft();
@@ -1002,7 +1072,7 @@ export default function PublishPage() {
                           setMessage('Fresh start.');
                           setStatus('idle');
                         }}
-                        className="bg-red-600 hover:bg-red-700 font-serif"
+                        className="bg-slate-800 hover:bg-slate-700 text-slate-100 font-sans text-xs uppercase tracking-[0.2em] rounded-sm"
                       >
                         Clear All
                       </AlertDialogAction>
@@ -1018,14 +1088,14 @@ export default function PublishPage() {
                         size="sm"
                         onClick={handleRestoreDraft}
                         aria-label="Restore last saved draft"
-                        className="text-slate-400 hover:text-slate-200 font-serif focus-visible:ring-2 focus-visible:ring-amber-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        className="font-sans text-xs uppercase tracking-[0.2em] text-slate-500 hover:text-slate-200 hover:bg-slate-800/40 rounded-sm focus-visible:ring-1 focus-visible:ring-emerald-400/40"
                       >
-                        <RefreshCw className="h-4 w-4 mr-2" aria-hidden="true" />
+                        <RefreshCw className="h-3.5 w-3.5 mr-2" aria-hidden="true" />
                         Restore
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent className="bg-slate-800 border-slate-700">
-                      <p className="font-serif">Restore your last saved draft</p>
+                    <TooltipContent className="bg-slate-900 border border-slate-800 rounded-sm">
+                      <p className="font-serif text-sm">Restore your last saved draft</p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
@@ -1039,21 +1109,21 @@ export default function PublishPage() {
                   ref={submitBtnRef}
                   disabled={status === 'loading' || status === 'success'}
                   aria-label={submitLabel}
-                  className="relative overflow-hidden bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-900 font-bold text-lg px-8 py-6 h-auto shadow-xl shadow-amber-500/25 border border-amber-400/50 font-serif transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  className="bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-slate-50 font-sans text-xs uppercase tracking-[0.25em] font-semibold px-8 py-5 h-auto rounded-sm transition-colors duration-200 focus-visible:ring-1 focus-visible:ring-emerald-300"
                 >
                   <div className="flex items-center gap-3">
                     {status === 'loading' ? (
-                      <Loader className="animate-spin h-5 w-5" aria-hidden="true" />
+                      <Loader className="animate-spin h-4 w-4" aria-hidden="true" />
                     ) : status === 'success' ? (
-                      <CheckCircle className="h-5 w-5" aria-hidden="true" />
+                      <CheckCircle className="h-4 w-4" aria-hidden="true" />
                     ) : (
-                      <Rocket className="h-5 w-5" aria-hidden="true" />
+                      <Rocket className="h-4 w-4" aria-hidden="true" />
                     )}
                     <span>
                       {status === 'loading'
-                        ? (contentType === 'prompt' ? 'Queuing...' : 'Submitting...')
+                        ? (contentType === 'prompt' ? 'Queuing…' : 'Submitting…')
                         : status === 'success'
-                        ? 'Submitted!'
+                        ? 'Submitted'
                         : <><span className="sm:hidden">Publish</span><span className="hidden sm:inline">Publish to Arc Codex</span></>
                       }
                     </span>
@@ -1065,10 +1135,8 @@ export default function PublishPage() {
         </form>
 
         {/* Footer */}
-        <footer className="text-center text-sm text-slate-400 pt-8 pb-4 border-t border-slate-700/50">
-          <p className="font-serif">
-            © {new Date().getFullYear()} Arc Codex. Protected by A.R.C. Cognitive Framework.
-          </p>
+        <footer className="text-center pt-10 pb-6 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
+          <p>© {new Date().getFullYear()} Arc Codex · Protected by A.R.C. Cognitive Framework</p>
         </footer>
       </main>
 
@@ -1080,9 +1148,9 @@ export default function PublishPage() {
           onClick={() => handleRequestSubmit()}
           disabled={status === 'loading' || status === 'success'}
           aria-label={submitLabel}
-          className="h-16 w-16 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 shadow-2xl shadow-amber-500/50 border border-amber-400/50 transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          className="h-14 w-14 rounded-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 text-slate-50 transition-colors duration-200 focus-visible:ring-1 focus-visible:ring-emerald-300"
         >
-          <Send className="h-6 w-6" aria-hidden="true" />
+          <Send className="h-5 w-5" aria-hidden="true" />
         </Button>
       </div>
 
@@ -1091,17 +1159,18 @@ export default function PublishPage() {
         <div
           ref={confirmModalRef}
           tabIndex={-1}
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/90 p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="confirm-modal-title"
         >
-          <div className="w-full max-w-md rounded-2xl bg-slate-900/95 border border-amber-400/40 backdrop-blur-xl shadow-[0_0_40px_rgba(251,191,36,0.3)] p-8 space-y-6">
-            <div className="space-y-2">
-              <h2 id="confirm-modal-title" className="text-2xl font-bold text-slate-50 font-sans tracking-tight">
+          <div className="w-full max-w-md rounded-sm bg-slate-950 border border-slate-800 p-8 space-y-6">
+            <div className="space-y-3 pb-4 border-b border-slate-800/60">
+              <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">Confirm</div>
+              <h2 id="confirm-modal-title" className="font-serif text-2xl font-semibold text-slate-50 tracking-tight">
                 Share Story
               </h2>
-              <p className="text-slate-400 font-serif text-sm">
+              <p className="font-serif text-sm text-slate-400 italic leading-relaxed">
                 Choose how you want to publish this content.
               </p>
             </div>
@@ -1111,10 +1180,10 @@ export default function PublishPage() {
               <button
                 type="button"
                 onClick={() => handleConfirmedPublish('public')}
-                className="w-full p-4 rounded-xl border-2 border-amber-400 bg-amber-400/10 text-amber-300 font-serif text-left transition-colors hover:bg-amber-400/20 focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:outline-none"
+                className="w-full p-4 rounded-sm border border-emerald-500/60 bg-emerald-600/10 text-slate-100 text-left transition-colors hover:bg-emerald-600/20 focus-visible:ring-1 focus-visible:ring-emerald-400/60 focus-visible:outline-none"
               >
-                <div className="font-bold text-base">Make Public</div>
-                <div className="text-sm opacity-75 mt-0.5">Published to the Arc Codex feed with full A.R.C. analysis</div>
+                <div className="font-sans text-xs uppercase tracking-[0.2em] font-semibold text-emerald-300">Make Public</div>
+                <div className="font-serif text-sm text-slate-400 mt-1">Published to the Arc Codex feed with full A.R.C. analysis.</div>
               </button>
 
               {/* Keep Private — disabled when not signed in */}
@@ -1124,27 +1193,27 @@ export default function PublishPage() {
                 disabled={!isAuthed}
                 aria-disabled={!isAuthed}
                 title={!isAuthed ? 'Sign in to publish privately' : undefined}
-                className={`w-full p-4 rounded-xl border-2 font-serif text-left transition-colors focus-visible:ring-2 focus-visible:outline-none
+                className={`w-full p-4 rounded-sm border text-left transition-colors focus-visible:ring-1 focus-visible:outline-none
                   ${isAuthed
-                    ? 'border-slate-500/60 bg-slate-800/30 text-slate-300 hover:border-slate-400/60 hover:bg-slate-800/50 focus-visible:ring-slate-400'
-                    : 'border-slate-700/30 bg-slate-800/10 text-slate-600 cursor-not-allowed'
+                    ? 'border-slate-700 hover:border-slate-500 hover:bg-slate-800/40 focus-visible:ring-emerald-400/40'
+                    : 'border-slate-800 cursor-not-allowed'
                   }`}
               >
-                <div className="font-bold text-base flex items-center gap-2">
+                <div className={`font-sans text-xs uppercase tracking-[0.2em] font-semibold flex items-center gap-2 ${isAuthed ? 'text-slate-300' : 'text-slate-600'}`}>
                   Keep Private
-                  <span className="text-xs">🔒</span>
+                  <span aria-hidden="true">🔒</span>
                   {!isAuthed && (
-                    <span className="text-xs font-normal text-slate-500 ml-1">— sign in required</span>
+                    <span className="font-sans text-[10px] tracking-[0.2em] font-normal text-slate-600 ml-1">— sign in required</span>
                   )}
                 </div>
-                <div className="text-sm opacity-75 mt-0.5">Saved privately — visible only to you when logged in</div>
+                <div className={`font-serif text-sm mt-1 ${isAuthed ? 'text-slate-400' : 'text-slate-600'}`}>Saved privately — visible only to you when logged in.</div>
               </button>
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-slate-700/50">
-              <p className="text-xs text-slate-500 font-serif">
+            <div className="flex items-center justify-between pt-4 border-t border-slate-800/60 gap-4">
+              <p className="font-serif text-xs text-slate-500 italic leading-relaxed">
                 Don&apos;t share personal information or third-party content without permission.{' '}
-                <a href="/about/terms" className="text-amber-400/70 hover:text-amber-400 underline underline-offset-2">
+                <a href="/about/terms" className="text-slate-300 underline decoration-slate-600 hover:decoration-slate-300 underline-offset-2 not-italic">
                   Usage Policy
                 </a>
               </p>
@@ -1153,7 +1222,7 @@ export default function PublishPage() {
                 variant="ghost"
                 size="sm"
                 onClick={() => setShowConfirmModal(false)}
-                className="text-slate-400 hover:text-slate-200 font-serif ml-4 shrink-0 focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                className="font-sans text-xs uppercase tracking-[0.2em] text-slate-500 hover:text-slate-200 hover:bg-slate-800/40 rounded-sm shrink-0 focus-visible:ring-1 focus-visible:ring-emerald-400/40"
               >
                 Cancel
               </Button>
@@ -1162,13 +1231,13 @@ export default function PublishPage() {
         </div>
       )}
 
-      {/* Confetti */}
+      {/* Confetti — emerald, the one accent for success */}
       {showConfetti && (
         <div className="fixed inset-0 pointer-events-none z-50" aria-hidden="true">
           {Array.from({ length: 50 }).map((_, i) => (
             <div
               key={i}
-              className="absolute w-3 h-3 bg-gradient-to-r from-amber-400 to-orange-400 rounded-full animate-confetti"
+              className="absolute w-2 h-2 bg-emerald-500 rounded-full animate-confetti"
               style={{
                 left: `${Math.random() * 100}%`,
                 top: `${Math.random() * 100}%`,
@@ -1182,20 +1251,23 @@ export default function PublishPage() {
       {/* Loading overlay */}
       {status === 'loading' && (
         <div
-          className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-40 flex items-center justify-center transition-opacity duration-300"
+          className="fixed inset-0 bg-slate-950/95 z-40 flex items-center justify-center transition-opacity duration-300"
           role="status"
           aria-live="polite"
           aria-label="Processing your content"
         >
-          <div className="text-center p-8 rounded-2xl bg-slate-900/50 border border-amber-400/50 backdrop-blur-xl shadow-[0_0_40px_rgba(251,191,36,0.5)]">
-            <div className="w-24 h-24 border-4 border-amber-500/30 border-t-amber-500 rounded-full mx-auto mb-6 animate-spin" aria-hidden="true" />
-            <h3 className="text-2xl font-bold text-amber-300 mb-2 font-sans tracking-tight">
-              {contentType === 'prompt' ? 'Sending to Arc Codex...' : 'Processing Your Content'}
+          <div className="text-center px-8 max-w-lg">
+            <div className="w-16 h-16 border border-slate-800 border-t-emerald-500 rounded-full mx-auto mb-8 animate-spin" aria-hidden="true" />
+            <div className="font-sans text-[10px] uppercase tracking-[0.4em] text-slate-500 mb-3">
+              {contentType === 'prompt' ? 'Sending to Arc Codex' : 'Processing'}
+            </div>
+            <h3 className="font-serif text-2xl font-semibold text-slate-100 tracking-tight mb-3">
+              {contentType === 'prompt' ? 'Your article is being generated' : 'A.R.C. is analyzing your content'}
             </h3>
-            <p className="text-slate-400 font-serif italic">
+            <p className="font-serif text-sm text-slate-400 italic leading-relaxed">
               {contentType === 'prompt'
-                ? 'Your article will be generated and appear in the feed shortly.'
-                : 'A.R.C. is analyzing with 48 cognitive patterns...'}
+                ? 'It will appear in the feed shortly.'
+                : 'Forty-eight cognitive patterns are at work.'}
             </p>
           </div>
         </div>

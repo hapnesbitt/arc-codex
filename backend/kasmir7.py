@@ -1476,6 +1476,7 @@ def generate_sitemap(r):
         """Generates sitemap.xml by pulling slugs or hex IDs directly from Redis."""
         import xml.etree.ElementTree as ET
         import requests
+        from datetime import datetime
         print(colored("\n[!] Scanning Redis for published intelligence...", "yellow"))
 
         output_path = "/home/www/arc_stack/frontend/public/sitemap.xml"
@@ -1511,12 +1512,55 @@ def generate_sitemap(r):
                 ET.SubElement(url_node, "priority").text = "0.8"
                 count += 1
 
+            # --- Library section (top-100 index, shelves, individual works) ---
+            today = datetime.now().strftime("%Y-%m-%d")
+
+            def _lastmod(fetched_at):
+                if not fetched_at:
+                    return today
+                fa = fetched_at.decode('utf-8') if isinstance(fetched_at, bytes) else fetched_at
+                return fa[:10] if len(fa) >= 10 else today
+
+            lib_count = 0
+
+            # Static library landing pages
+            for path in ("/library", "/library/shelves"):
+                url_node = ET.SubElement(root, "url")
+                ET.SubElement(url_node, "loc").text = f"https://arc-codex.com{path}"
+                ET.SubElement(url_node, "lastmod").text = today
+                ET.SubElement(url_node, "priority").text = "0.6"
+                lib_count += 1
+
+            # Per-shelf pages
+            shelf_slugs = r.smembers("library:shelves") or set()
+            for slug in sorted(shelf_slugs):
+                slug_str = slug.decode('utf-8') if isinstance(slug, bytes) else slug
+                meta = r.hgetall(f"library:shelf:{slug_str}:meta") or {}
+                fetched_at = meta.get(b'fetched_at') or meta.get('fetched_at')
+                url_node = ET.SubElement(root, "url")
+                ET.SubElement(url_node, "loc").text = f"https://arc-codex.com/library/shelf/{slug_str}"
+                ET.SubElement(url_node, "lastmod").text = _lastmod(fetched_at)
+                ET.SubElement(url_node, "priority").text = "0.6"
+                lib_count += 1
+
+            # Individual work pages
+            work_ids = r.zrange("library:works", 0, -1) or []
+            for gid in work_ids:
+                gid_str = gid.decode('utf-8') if isinstance(gid, bytes) else gid
+                work = r.hgetall(f"library:work:{gid_str}") or {}
+                fetched_at = work.get(b'fetched_at') or work.get('fetched_at')
+                url_node = ET.SubElement(root, "url")
+                ET.SubElement(url_node, "loc").text = f"https://arc-codex.com/library/{gid_str}"
+                ET.SubElement(url_node, "lastmod").text = _lastmod(fetched_at)
+                ET.SubElement(url_node, "priority").text = "0.4"
+                lib_count += 1
+
             tree = ET.ElementTree(root)
             with open(output_path, "wb") as f:
                 f.write(b'<?xml version="1.0" encoding="UTF-8"?>\n')
                 tree.write(f, encoding='utf-8', xml_declaration=False)
 
-            print(colored(f"[✓] Success: {count} articles synced to {output_path}", "green"))
+            print(colored(f"[✓] Success: {count} articles + {lib_count} library URLs synced to {output_path}", "green"))
 
             # Search Engine Pings
             print(colored("[!] Notifying search engines of sitemap update...", "cyan"))

@@ -48,6 +48,11 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 app.secret_key = os.getenv('SECRET_KEY', os.urandom(32))
+# Shared session cookie — must match LightBox (vid.arc-codex.com) config
+app.config['SESSION_COOKIE_DOMAIN'] = '.arc-codex.com'
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.logger.setLevel(logging.INFO)
 
 # --- CONFIGURATION & INITIALIZATION ---
@@ -480,13 +485,13 @@ def search_articles():
 
         # Sort options:
         #   recent     = newest first
-        #   relevant   = best Solr match first
-        #   score_desc = highest chimera/tone score first
-        #   score_asc  = lowest chimera/tone score first
+        #   oldest     = oldest first
+        #   score_desc = hardest (highest Chimera difficulty) first
+        #   score_asc  = easiest (lowest Chimera difficulty) first
         sort_param = request.args.get('sort', 'recent')
         sort_order = {
             'recent':     'timestamp desc, score desc',
-            'relevant':   'score desc, timestamp desc',
+            'oldest':     'timestamp asc, score desc',
             'score_desc': 'chimera_score desc, timestamp desc',
             'score_asc':  'chimera_score asc, timestamp desc',
         }.get(sort_param, 'timestamp desc, score desc')
@@ -787,26 +792,38 @@ def react_to_comment(comment_id):
 
 _pre_analyze_sem = threading.Semaphore(2)
 
+
+def compute_chimera(fk_grade: float, coleman_liau: float, smog: float, dale_chall: float) -> int:
+    avg_grade = (fk_grade + coleman_liau + smog + dale_chall) / 4.0
+    return round(min(avg_grade / 20.0, 1.0) * 100)
+
+
+def chimera_reading_label(score: int) -> str:
+    if score <= 10:  return 'Kindergarten'
+    if score <= 20:  return 'Elementary'
+    if score <= 30:  return 'Middle School'
+    if score <= 40:  return 'High School'
+    if score <= 50:  return 'College'
+    if score <= 60:  return 'Graduate'
+    if score <= 70:  return 'Academic'
+    if score <= 80:  return 'Expert'
+    if score <= 90:  return 'Specialist'
+    return 'Quantum Electrodynamics'
+
+
 @app.route('/api/pre_analyze', methods=['POST'])
 def pre_analyze():
     """
-    Pre-analysis endpoint - Fast quality assessment with FAIR scoring.
+    Pre-analysis endpoint — NLP scoring pass.
 
-    CHIMERA SCORE v2.0 (FAIR):
-    - Based purely on objectivity (0-100 scale)
-    - No penalty for technical writing complexity
-    - Readability grade still measured for transparency
-    - Reading level classification provided as metadata
+    Chimera Difficulty Score: average of FK, Coleman-Liau, SMOG, Dale-Chall
+    grade metrics scaled 0-100 with a named reading label.
 
-    v3.0 additions (instrumentation pass):
-    - Full VADER breakdown (pos/neg/neu/compound)
-    - Entity counts by NER type
-    - Lemma extraction (top 50 by frequency, stopwords excluded)
-    - Noun chunk count
-    - Sentence count + avg sentence length
-    - Coleman-Liau, SMOG, Dale-Chall readability scores
-    - Word count, syllable count
-    - All metrics written into article:{id} hash if article_id provided
+    Also computes VADER sentiment, TextBlob subjectivity, entity counts,
+    readability suite, and word/sentence structure. All returned in the
+    JSON response — including pre-formatted ``nlp_*`` keys that scribe
+    carries through into publish_payload, so the data lands in the
+    article hash only when the article actually publishes (no orphans).
     """
     if not all([NLP_PROCESSOR, SENTIMENT_ANALYZER]):
         app.logger.error("🔥 NLP Engine unavailable for pre_analyze")
@@ -819,7 +836,6 @@ def pre_analyze():
     try:
         data = request.get_json()
         input_text  = data.get('inputText', '')
-        article_id  = data.get('article_id', '')   # optional — scribe passes this
 
         if not input_text:
             return jsonify({"chimera_score": 0.0, "sentiment": 0.0, "entities_found": []})
@@ -839,7 +855,6 @@ def pre_analyze():
         blob           = TextBlob(input_text_snippet)
         subjectivity   = blob.sentiment.subjectivity
         objectivity_score = (1 - subjectivity) * 100
-        chimera_score  = round(objectivity_score / 100, 4)
 
         # --- Readability suite ---
         readability_grade   = textstat.flesch_kincaid_grade(input_text_snippet)
@@ -865,18 +880,23 @@ def pre_analyze():
                 entities_found.append(ent.label_)
 
 
+        # Chimera Difficulty Score: average of four grade-level readability metrics
+        chimera_score  = compute_chimera(readability_grade, coleman_liau, smog_index, dale_chall)
+        reading_label  = chimera_reading_label(chimera_score)
+
         analyze_duration = (time.perf_counter() - analyze_start) * 1000
 
         app.logger.info(
             f"✅ Pre-analysis v3.0 in {analyze_duration:.0f}ms "
-            f"(chimera={chimera_score}, obj={objectivity_score:.0f}, "
+            f"(chimera={chimera_score}, label={reading_label}, obj={objectivity_score:.0f}, "
             f"grade={readability_grade:.1f}, words={word_count}, "
             f"entities={sum(entity_counts.values())})"
         )
 
         result = {
-            # --- Core scores (unchanged) ---
+            # --- Core scores ---
             "chimera_score":        chimera_score,
+            "reading_label":        reading_label,
             "sentiment":            sentiment,
             "subjectivity":         round(subjectivity, 4),
             "objectivity_score":    round(objectivity_score, 2),
@@ -884,12 +904,12 @@ def pre_analyze():
             "reading_level":        reading_level,
             "entities_found":       list(set(entities_found)),
 
-            # --- New: VADER breakdown ---
+            # --- VADER breakdown ---
             "vader_pos":            vader_pos,
             "vader_neg":            vader_neg,
             "vader_neu":            vader_neu,
 
-            # --- New: entity counts by type ---
+            # --- Entity counts by type ---
             "entity_person_count":  entity_counts["PERSON"],
             "entity_org_count":     entity_counts["ORG"],
             "entity_gpe_count":     entity_counts["GPE"],
@@ -898,53 +918,50 @@ def pre_analyze():
             "entity_money_count":   entity_counts["MONEY"],
             "entity_event_count":   entity_counts["EVENT"],
 
-            # --- New: text structure ---
+            # --- Text structure ---
             "word_count":           word_count,
             "sentence_count":       sentence_count,
             "avg_sentence_len":     avg_sentence_len,
             "syllable_count":       syllable_count,
 
-            # --- New: readability suite ---
+            # --- Readability suite ---
             "coleman_liau":         coleman_liau,
             "smog_index":           smog_index,
             "dale_chall":           dale_chall,
+
+            # --- nlp_* fields, ready to be merged verbatim into the article
+            #     hash at publish time. Same keys corpus_exporter.py reads.
+            #     Stored as strings so the Redis hash mapping is type-stable.
+            "nlp_chimera_score":    str(chimera_score),
+            "nlp_reading_label":    reading_label,
+            "nlp_sentiment":        str(sentiment),
+            "nlp_vader_pos":        str(vader_pos),
+            "nlp_vader_neg":        str(vader_neg),
+            "nlp_vader_neu":        str(vader_neu),
+            "nlp_subjectivity":     str(round(subjectivity, 4)),
+            "nlp_objectivity":      str(round(objectivity_score, 2)),
+            "nlp_word_count":       str(word_count),
+            "nlp_sentence_count":   str(sentence_count),
+            "nlp_avg_sentence_len": str(avg_sentence_len),
+            "nlp_syllable_count":   str(syllable_count),
+            "nlp_fk_grade":         str(round(readability_grade, 1)),
+            "nlp_reading_level":    reading_level,
+            "nlp_coleman_liau":     str(coleman_liau),
+            "nlp_smog":             str(smog_index),
+            "nlp_dale_chall":       str(dale_chall),
+            "nlp_entity_person":    str(entity_counts["PERSON"]),
+            "nlp_entity_org":       str(entity_counts["ORG"]),
+            "nlp_entity_gpe":       str(entity_counts["GPE"]),
+            "nlp_entity_loc":       str(entity_counts["LOC"]),
+            "nlp_entity_date":      str(entity_counts["DATE"]),
+            "nlp_entity_money":     str(entity_counts["MONEY"]),
+            "nlp_entity_event":     str(entity_counts["EVENT"]),
         }
 
-        # --- Write extended fields to Redis article hash if article_id provided ---
-        # Scribe passes article_id so these metrics land in the hash immediately.
-        # corpus_exporter.py reads them from there.
-        if article_id and r:
-            try:
-                redis_fields = {
-                    "nlp_chimera_score":     str(chimera_score),
-                    "nlp_sentiment":         str(sentiment),
-                    "nlp_vader_pos":         str(vader_pos),
-                    "nlp_vader_neg":         str(vader_neg),
-                    "nlp_vader_neu":         str(vader_neu),
-                    "nlp_subjectivity":      str(round(subjectivity, 4)),
-                    "nlp_objectivity":       str(round(objectivity_score, 2)),
-                    "nlp_word_count":        str(word_count),
-                    "nlp_sentence_count":    str(sentence_count),
-                    "nlp_avg_sentence_len":  str(avg_sentence_len),
-                    "nlp_syllable_count":    str(syllable_count),
-                    "nlp_fk_grade":          str(round(readability_grade, 1)),
-                    "nlp_reading_level":     reading_level,
-                    "nlp_coleman_liau":      str(coleman_liau),
-                    "nlp_smog":              str(smog_index),
-                    "nlp_dale_chall":        str(dale_chall),
-                    "nlp_entity_person":     str(entity_counts["PERSON"]),
-                    "nlp_entity_org":        str(entity_counts["ORG"]),
-                    "nlp_entity_gpe":        str(entity_counts["GPE"]),
-                    "nlp_entity_loc":        str(entity_counts["LOC"]),
-                    "nlp_entity_date":       str(entity_counts["DATE"]),
-                    "nlp_entity_money":      str(entity_counts["MONEY"]),
-                    "nlp_entity_event":      str(entity_counts["EVENT"]),
-                }
-                r.hset(f"article:{article_id}", mapping=redis_fields)
-                app.logger.debug(f"📊 NLP fields written to article:{article_id}")
-            except Exception as redis_err:
-                app.logger.warning(f"⚠️  NLP Redis write failed (non-fatal): {redis_err}")
-
+        # NLP fields are returned in the JSON above; scribe carries them into
+        # publish_payload so they land in the article hash only on quality-pass
+        # publish. Pre-publish Redis writes here would orphan ~1.5k hashes/day
+        # for articles that never make it past scribe's gates.
         return jsonify(result)
 
     except Exception as e:
@@ -1125,6 +1142,7 @@ def submit():
     content_type = data.get('content_type', '').strip()
     content      = (data.get('content') or '').strip()
     title        = (data.get('title') or '').strip()
+    source_url   = (data.get('source_url') or '').strip()
 
     if content_type not in ('url', 'text'):
         return jsonify({'error': 'content_type must be "url" or "text"'}), 400
@@ -1144,7 +1162,7 @@ def submit():
 
     payload = {
         'origin': content_type,
-        'url':    content if content_type == 'url'  else '',
+        'url':    content if content_type == 'url'  else source_url,
         'text':   content if content_type == 'text' else '',
         'title':  title,
         'image_url': (data.get('image_url') or '').strip() or None,
@@ -1366,10 +1384,17 @@ def upload_image():
     from PIL import Image, ImageOps
     import io
     try:
+        TARGET_W, TARGET_H = 1200, 630
         img = Image.open(io.BytesIO(raw))
-        img = ImageOps.exif_transpose(img)  # honour iPhone/Android EXIF orientation before anything else
+        img = ImageOps.exif_transpose(img)
         img = img.convert('RGB')
-        img.thumbnail((1200, 630), Image.LANCZOS)
+        src_w, src_h = img.size
+        scale = max(TARGET_W / src_w, TARGET_H / src_h)
+        new_w, new_h = round(src_w * scale), round(src_h * scale)
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+        left = (new_w - TARGET_W) // 2
+        top = (new_h - TARGET_H) // 2
+        img = img.crop((left, top, left + TARGET_W, top + TARGET_H))
         out = io.BytesIO()
         img.save(out, format='JPEG', quality=85, optimize=True)
         raw = out.getvalue()
@@ -1626,6 +1651,25 @@ def wiki_directive(directive_name):
     return jsonify(results)
 
 
+@app.route('/api/sources', methods=['GET'])
+def get_sources():
+    """Return all RSS sources as a JSON array. Public, cached 1 hour."""
+    sources_file = os.path.join(os.path.dirname(__file__), 'sources.json')
+    try:
+        sources = []
+        with open(sources_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    sources.append(json.loads(line))
+        resp = jsonify(sources)
+        resp.headers['Cache-Control'] = 'public, max-age=3600'
+        return resp
+    except Exception as e:
+        app.logger.error(f"🔥 /api/sources error: {e}", exc_info=True)
+        return jsonify([]), 500
+
+
 @app.route('/api/sitemap', methods=['GET'])
 def get_sitemap_ids():
     """Return all public article IDs from the feed ZSET, newest first."""
@@ -1653,6 +1697,315 @@ def get_sitemap_ids():
     except Exception as e:
         app.logger.error(f"🔥 Sitemap error: {e}", exc_info=True)
         return jsonify([]), 500
+
+
+@app.route('/api/library', methods=['GET'])
+def get_library_index():
+    """Return the library index — Project Gutenberg top-100, public, no auth.
+    Sorted by download_count descending. Body excluded."""
+    if not r:
+        return jsonify([]), 503
+    try:
+        ids = r.zrevrange('library:works', 0, -1)
+        if not ids:
+            return jsonify([])
+
+        pipe = r.pipeline()
+        for gid in ids:
+            pipe.hmget(
+                f"library:work:{gid}",
+                'gutenberg_id', 'title', 'author', 'language',
+                'download_count', 'year_published', 'subjects',
+                'chimera_score', 'reading_label', 'chimera_skip_reason',
+            )
+        rows = pipe.execute()
+
+        results = []
+        for gid, row in zip(ids, rows):
+            (gutenberg_id, title, author, language, download_count,
+             year_published, subjects_raw,
+             chimera_score, reading_label, chimera_skip_reason) = row
+            if not title:
+                continue
+            try:
+                subjects = json.loads(subjects_raw) if subjects_raw else []
+            except (ValueError, TypeError):
+                subjects = []
+            try:
+                chimera_int = int(chimera_score) if chimera_score not in (None, '') else None
+            except (ValueError, TypeError):
+                chimera_int = None
+            results.append({
+                'gutenberg_id':        gutenberg_id or gid,
+                'title':               title or '',
+                'author':              author or 'Unknown',
+                'language':            language or '',
+                'download_count':      int(download_count) if download_count else 0,
+                'year_published':      year_published or '',
+                'subjects':            subjects,
+                'chimera_score':       chimera_int,
+                'reading_label':       reading_label or '',
+                'chimera_skip_reason': chimera_skip_reason or '',
+            })
+
+        resp = jsonify(results)
+        resp.headers['Cache-Control'] = 'public, max-age=3600'
+        return resp
+    except Exception as e:
+        app.logger.error(f"🔥 /api/library error: {e}", exc_info=True)
+        return jsonify([]), 500
+
+
+def _load_library_lang_codes():
+    """Load the canonical language list shared with the frontend.
+    Returns a dict of lowercased ISO code -> human-readable name.
+    Includes legacy aliases for previously cached translations."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'frontend', 'lib', 'languages.json')
+    code_to_name = {}
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            entries = json.load(f)
+        for entry in entries:
+            code = (entry.get('code') or '').strip()
+            name = (entry.get('name') or '').strip()
+            if code and name:
+                code_to_name[code.lower()] = name
+    except Exception as ex:
+        app.logger.warning(f"Failed to load languages.json for library reader: {ex}")
+    # Legacy aliases — keep cached translations from earlier reader versions reachable.
+    code_to_name.setdefault('pt-br', 'Brazilian Portuguese')
+    return code_to_name
+
+
+LIBRARY_LANG_CODE_TO_NAME = _load_library_lang_codes()
+LIBRARY_SUPPORTED_LANGS = set(LIBRARY_LANG_CODE_TO_NAME.keys()) | {'en'}
+
+
+@app.route('/api/library/<gutenberg_id>', methods=['GET'])
+def get_library_work(gutenberg_id):
+    """Return a single work, including its full text body.
+    Optional ?lang=<code> translates and caches the entire book."""
+    if not r:
+        return jsonify({"error": "Database offline"}), 503
+    if not re.match(r'^\d+$', gutenberg_id):
+        return jsonify({"error": "Invalid id"}), 400
+
+    lang = (request.args.get('lang', 'en') or 'en').strip().lower()
+    if lang not in LIBRARY_SUPPORTED_LANGS:
+        return jsonify({"error": "Unsupported language"}), 400
+
+    try:
+        meta = r.hgetall(f"library:work:{gutenberg_id}")
+        if not meta:
+            return jsonify({"error": "Not found"}), 404
+        body = r.get(f"library:work:{gutenberg_id}:text") or ""
+        try:
+            subjects = json.loads(meta.get('subjects', '[]'))
+        except (ValueError, TypeError):
+            subjects = []
+        try:
+            chimera_int = int(meta['chimera_score']) if meta.get('chimera_score') not in (None, '') else None
+        except (ValueError, TypeError):
+            chimera_int = None
+        try:
+            fk_grade_f = float(meta['fk_grade']) if meta.get('fk_grade') not in (None, '') else None
+        except (ValueError, TypeError):
+            fk_grade_f = None
+        try:
+            coleman_liau_f = float(meta['coleman_liau']) if meta.get('coleman_liau') not in (None, '') else None
+        except (ValueError, TypeError):
+            coleman_liau_f = None
+        try:
+            smog_f = float(meta['smog']) if meta.get('smog') not in (None, '') else None
+        except (ValueError, TypeError):
+            smog_f = None
+        try:
+            dale_chall_f = float(meta['dale_chall']) if meta.get('dale_chall') not in (None, '') else None
+        except (ValueError, TypeError):
+            dale_chall_f = None
+
+        text_out = body
+        is_translated = False
+        translation_error = None
+        work_lang = (meta.get('language', '') or '').strip().lower()
+
+        if lang != 'en' and body:
+            if work_lang and work_lang != 'en':
+                translation_error = "Translation only available for English-language works."
+            else:
+                tx_key = f"library:work:{gutenberg_id}:translation:{lang}"
+                cached = r.get(tx_key)
+                if cached is not None:
+                    text_out = cached
+                    is_translated = True
+                else:
+                    try:
+                        from translation import _call_translation_model
+                        lang_name = LIBRARY_LANG_CODE_TO_NAME.get(lang, lang)
+                        translated = _call_translation_model(body, lang_name, "English", timeout=900)
+                        if translated and translated.strip():
+                            text_out = translated
+                            is_translated = True
+                            try:
+                                r.set(tx_key, text_out)
+                            except Exception as ex:
+                                app.logger.warning(f"Failed to cache library translation {tx_key}: {ex}")
+                        else:
+                            translation_error = "Translation model returned empty result"
+                    except Exception as ex:
+                        app.logger.warning(
+                            f"Library translation failed for {gutenberg_id}/{lang}: {ex}"
+                        )
+                        translation_error = str(ex)
+
+        payload = {
+            'gutenberg_id':         meta.get('gutenberg_id', gutenberg_id),
+            'title':                meta.get('title', ''),
+            'author':               meta.get('author', 'Unknown'),
+            'language':             meta.get('language', ''),
+            'subjects':             subjects,
+            'year_published':       meta.get('year_published', ''),
+            'download_count':       int(meta['download_count']) if meta.get('download_count') else 0,
+            'encoding':             meta.get('encoding', ''),
+            'source_url':           meta.get('source_url', ''),
+            'fetched_at':           meta.get('fetched_at', ''),
+            'chimera_score':        chimera_int,
+            'reading_label':        meta.get('reading_label', ''),
+            'chimera_skip_reason':  meta.get('chimera_skip_reason', ''),
+            'fk_grade':             fk_grade_f,
+            'coleman_liau':         coleman_liau_f,
+            'smog':                 smog_f,
+            'dale_chall':           dale_chall_f,
+            'scored_at':            meta.get('scored_at', ''),
+            'text':                 text_out,
+            'is_translated':        is_translated,
+        }
+        if translation_error:
+            payload['translation_error'] = translation_error
+
+        resp = jsonify(payload)
+        resp.headers['Cache-Control'] = 'public, max-age=3600'
+        return resp
+    except Exception as e:
+        app.logger.error(f"🔥 /api/library/{gutenberg_id} error: {e}", exc_info=True)
+        return jsonify({"error": "Internal error"}), 500
+
+
+@app.route('/api/library/shelves', methods=['GET'])
+def get_library_shelves():
+    """Return the list of curated shelves with metadata. Public, no auth."""
+    if not r:
+        return jsonify([]), 503
+    try:
+        slugs = sorted(r.smembers('library:shelves') or [])
+        if not slugs:
+            return jsonify([])
+
+        pipe = r.pipeline()
+        for slug in slugs:
+            pipe.hgetall(f"library:shelf:{slug}:meta")
+        metas = pipe.execute()
+
+        results = []
+        for slug, meta in zip(slugs, metas):
+            if not meta:
+                continue
+            try:
+                book_count = int(meta.get('book_count', '0'))
+            except (ValueError, TypeError):
+                book_count = 0
+            results.append({
+                'slug':                   meta.get('slug', slug),
+                'name':                   meta.get('name', slug),
+                'description':            meta.get('description', ''),
+                'gutenberg_bookshelf_id': meta.get('gutenberg_bookshelf_id', ''),
+                'book_count':             book_count,
+            })
+
+        resp = jsonify(results)
+        resp.headers['Cache-Control'] = 'public, max-age=3600'
+        return resp
+    except Exception as e:
+        app.logger.error(f"🔥 /api/library/shelves error: {e}", exc_info=True)
+        return jsonify([]), 500
+
+
+@app.route('/api/library/shelf/<slug>', methods=['GET'])
+def get_library_shelf(slug):
+    """Return a single shelf's metadata + member works (no body text)."""
+    if not r:
+        return jsonify({"error": "Database offline"}), 503
+    if not re.match(r'^[a-z0-9_-]+$', slug):
+        return jsonify({"error": "Invalid slug"}), 400
+    try:
+        meta = r.hgetall(f"library:shelf:{slug}:meta")
+        if not meta:
+            return jsonify({"error": "Not found"}), 404
+
+        member_ids = list(r.smembers(f"library:shelf:{slug}") or [])
+
+        books = []
+        if member_ids:
+            pipe = r.pipeline()
+            for gid in member_ids:
+                pipe.hmget(
+                    f"library:work:{gid}",
+                    'gutenberg_id', 'title', 'author', 'language',
+                    'download_count', 'year_published', 'subjects',
+                    'chimera_score', 'reading_label', 'chimera_skip_reason',
+                )
+            rows = pipe.execute()
+
+            for gid, row in zip(member_ids, rows):
+                (gutenberg_id, title, author, language, download_count,
+                 year_published, subjects_raw,
+                 chimera_score, reading_label, chimera_skip_reason) = row
+                # Skip ids that aren't in our catalog (fetch failure, pruned).
+                if not title:
+                    continue
+                try:
+                    subjects = json.loads(subjects_raw) if subjects_raw else []
+                except (ValueError, TypeError):
+                    subjects = []
+                try:
+                    chimera_int = int(chimera_score) if chimera_score not in (None, '') else None
+                except (ValueError, TypeError):
+                    chimera_int = None
+                books.append({
+                    'gutenberg_id':        gutenberg_id or gid,
+                    'title':               title or '',
+                    'author':              author or 'Unknown',
+                    'language':            language or '',
+                    'download_count':      int(download_count) if download_count else 0,
+                    'year_published':      year_published or '',
+                    'subjects':            subjects,
+                    'chimera_score':       chimera_int,
+                    'reading_label':       reading_label or '',
+                    'chimera_skip_reason': chimera_skip_reason or '',
+                })
+
+        # Stable proxy for Gutenberg's own ranking: most-downloaded first.
+        books.sort(key=lambda b: (-b['download_count'], b['title'].lower()))
+
+        try:
+            book_count = int(meta.get('book_count', str(len(books))))
+        except (ValueError, TypeError):
+            book_count = len(books)
+
+        resp = jsonify({
+            'slug':                   meta.get('slug', slug),
+            'name':                   meta.get('name', slug),
+            'description':            meta.get('description', ''),
+            'gutenberg_bookshelf_id': meta.get('gutenberg_bookshelf_id', ''),
+            'fetched_at':             meta.get('fetched_at', ''),
+            'book_count':             book_count,
+            'books':                  books,
+        })
+        resp.headers['Cache-Control'] = 'public, max-age=3600'
+        return resp
+    except Exception as e:
+        app.logger.error(f"🔥 /api/library/shelf/{slug} error: {e}", exc_info=True)
+        return jsonify({"error": "Internal error"}), 500
 
 
 if __name__ == '__main__':

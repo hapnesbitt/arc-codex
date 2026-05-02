@@ -1,12 +1,17 @@
+// Filename: /frontend/app/wiki/page.tsx
+// Wiki — Library Index
+// Librarian aesthetic: alphabetized table of contents over directives.json.
+
 import React from 'react';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import { ChevronRight } from 'lucide-react';
 
 export const metadata: Metadata = {
-  title: 'Wiki — Arc Codex',
-  description: 'Arc Codex intelligence organized by topic: AI, finance, geopolitics, health, and more.',
+  title: 'Library — Arc Codex',
+  description: 'A formal classification of intelligence and discourse patterns.',
 };
 
 interface DirectiveEntry {
@@ -24,46 +29,68 @@ const toSlug = (name: string) =>
 export default function WikiPage() {
   const directivesPath = join(process.cwd(), 'public', 'directives.json');
   const rawGroups: TopicGroup[] = JSON.parse(readFileSync(directivesPath, 'utf-8'));
-  const groups = rawGroups.filter(g => g.topic !== 'System Directives');
+  const groups = rawGroups
+    .filter(g => g.topic !== 'System Directives')
+    .map(g => ({
+      ...g,
+      directives: [...g.directives].sort((a, b) => a.name.localeCompare(b.name)),
+    }))
+    .sort((a, b) => a.topic.localeCompare(b.topic));
 
   return (
-    <div className="min-h-screen bg-[#050505] text-slate-200">
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-        <header className="mb-10">
-          <nav aria-label="Breadcrumb" className="mb-4 text-sm text-slate-500">
-            <Link href="/" className="hover:text-amber-400 transition-colors">Home</Link>
-            <span className="mx-2">/</span>
-            <span className="text-slate-300">Wiki</span>
-          </nav>
-          <h1 className="font-serif text-3xl font-bold text-slate-50 mb-2">Arc Codex Wiki</h1>
-          <p className="text-slate-400 text-sm">Intelligence organized by topic</p>
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+
+        {/* Header */}
+        <header className="text-center py-12 border-b border-slate-800/60 space-y-4">
+          <div className="font-sans text-[10px] uppercase tracking-[0.4em] text-slate-500">
+            Library · Arc Codex
+          </div>
+          <h1 className="font-serif text-5xl sm:text-6xl font-semibold tracking-tight text-slate-50 leading-none">
+            Taxonomy
+          </h1>
+          <p className="font-serif text-lg text-slate-400 italic leading-relaxed max-w-xl mx-auto">
+            A formal classification of intelligence and discourse patterns — the complete index of A.R.C. directives, alphabetized by topic.
+          </p>
         </header>
 
-        <div className="space-y-10">
-          {groups.map(group => (
-            <section key={group.topic} aria-labelledby={`topic-${toSlug(group.topic)}`}>
-              <h2
-                id={`topic-${toSlug(group.topic)}`}
-                className="text-xs font-bold uppercase tracking-widest text-amber-400 mb-4 border-b border-slate-700/50 pb-2"
-              >
+        {/* Topic groups */}
+        {groups.map((group) => (
+          <section key={group.topic} className="py-10 border-b border-slate-800/60">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-slate-300">
                 {group.topic}
               </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {group.directives.map(directive => (
+              <span className="font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                {group.directives.length} {group.directives.length === 1 ? 'Directive' : 'Directives'}
+              </span>
+            </div>
+
+            <ul className="border-t border-slate-800/40">
+              {group.directives.map((directive) => (
+                <li key={directive.name} className="border-b border-slate-800/40">
                   <Link
-                    key={directive.name}
                     href={`/wiki/${toSlug(directive.name)}`}
-                    className="block p-4 rounded-xl border border-slate-700/60 bg-slate-900/40 hover:border-amber-400/50 hover:bg-slate-800/60 transition-all duration-200 group"
+                    className="flex items-center justify-between gap-4 py-4 px-2 -mx-2 hover:bg-slate-800/30 transition-colors group rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
                   >
-                    <span className="text-slate-200 font-medium group-hover:text-amber-300 transition-colors text-sm leading-snug">
+                    <h3 className="font-serif text-lg text-slate-100 group-hover:text-slate-50 transition-colors leading-snug">
                       {directive.name}
-                    </span>
+                    </h3>
+                    <ChevronRight
+                      className="h-4 w-4 text-slate-600 group-hover:text-slate-300 transition-colors shrink-0"
+                      aria-hidden="true"
+                    />
                   </Link>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+
+        {/* Footer */}
+        <footer className="text-center pt-10 pb-6 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
+          <p>A.R.C. Codex · Directive Registry · {new Date().getFullYear()}</p>
+        </footer>
       </main>
     </div>
   );

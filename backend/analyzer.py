@@ -164,17 +164,30 @@ def analyze_article(article_id: str) -> bool:
         logger.warning(f"🚫 Article {article_id} not found in Redis — skipping")
         return False
 
-    # Check if analysis already exists (avoid re-running)
-    existing_blue = r.hget(redis_key, 'blue_team_analysis')
-    if existing_blue and len(existing_blue) > 10:
-        logger.info(f"✅ Article {article_id} already analyzed — skipping")
+    # Check if all three analyses already exist (avoid re-running)
+    existing_blue = r.hget(redis_key, 'blue_team_analysis') or ''
+    existing_red = r.hget(redis_key, 'red_team_analysis') or ''
+    existing_purple = r.hget(redis_key, 'purple_team_analysis') or ''
+    if len(existing_blue) > 10 and len(existing_red) > 10 and len(existing_purple) > 10:
+        logger.info(f"✅ Article {article_id} already fully analyzed — skipping")
         return True
+    if existing_blue or existing_red or existing_purple:
+        logger.info(f"⚠️  Article {article_id} partially analyzed (blue={len(existing_blue)}, red={len(existing_red)}, purple={len(existing_purple)}) — re-running")
 
     # Get article text
     article_text = r.hget(redis_key, 'original_text') or ''
     if not article_text or len(article_text) < 100:
         logger.warning(f"⚠️  Article {article_id} has insufficient text ({len(article_text)} chars)")
         return False
+
+    # Truncate to a safe size for local model context windows.
+    # Stored original_text can be larger; we cap what goes to Ollama so the
+    # model doesn't run out of context and return a truncated response that
+    # only contains <BLUE> with missing </RED> and </PURPLE> closing tags.
+    OLLAMA_MAX_CHARS = 20_000
+    if len(article_text) > OLLAMA_MAX_CHARS:
+        logger.warning(f"⚠️  Article text ({len(article_text)} chars) truncated to {OLLAMA_MAX_CHARS} chars for Ollama")
+        article_text = article_text[:OLLAMA_MAX_CHARS]
 
     logger.info(f"🧠 Analyzing article {article_id} ({len(article_text)} chars)")
     analysis_start = time.perf_counter()
