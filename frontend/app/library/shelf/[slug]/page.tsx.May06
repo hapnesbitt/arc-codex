@@ -133,7 +133,7 @@ export default async function LibraryShelfDetailPage({
                         {work.author || 'Unknown'}
                       </p>
                       <div className="flex items-center gap-3 flex-wrap font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500">
-                        <span>{work.download_count.toLocaleString()} Gutenberg downloads</span>
+                        <span>{work.download_count.toLocaleString()} downloads</span>
                         {work.language && (
                           <>
                             <span aria-hidden="true">·</span>
@@ -186,8 +186,8 @@ export default async function LibraryShelfDetailPage({
             · Public Domain
           </p>
           <p>
-            <Link href="/library" className="hover:text-slate-200 transition-colors">
-              ← Back to Library
+            <Link href="/library/shelves" className="hover:text-slate-200 transition-colors">
+              ← All Shelves
             </Link>
           </p>
         </footer>

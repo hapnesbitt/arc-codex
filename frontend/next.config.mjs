@@ -23,5 +23,10 @@ const nextConfig = {
       },
     ],
   },
+  async redirects() {
+    return [
+      { source: '/library/shelves', destination: '/library', permanent: true },
+    ];
+  },
 };
 export default nextConfig;

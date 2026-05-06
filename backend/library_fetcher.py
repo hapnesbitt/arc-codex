@@ -521,6 +521,25 @@ def main() -> int:
 
     log.info("Top-100 done. fetched=%d skipped=%d failed=%d", fetched, skipped, failed)
 
+    # Surface the Top-100 list as a shelf so the /library landing page
+    # picks it up alongside the curated thematic shelves. Membership is
+    # rebuilt fresh each run so works that fall off the list drop out.
+    try:
+        top_key = "library:shelf:top100"
+        r.delete(top_key)
+        r.sadd(top_key, *[str(g) for g in ids])
+        r.hset(f"{top_key}:meta", mapping={
+            "slug":         "top100",
+            "name":         "Top 100 (Last 30 Days)",
+            "description":  "Most-downloaded works on Project Gutenberg over the past month.",
+            "fetched_at":   datetime.now(timezone.utc).isoformat(),
+            "book_count":   str(len(ids)),
+        })
+        r.sadd("library:shelves", "top100")
+        log.info("Shelf 'top100': %d works", len(ids))
+    except redis.RedisError as e:
+        log.error("Failed to write top100 shelf: %s", e)
+
     shelves_config = load_shelves_config()
     if shelves_config is not None:
         try:

@@ -1699,63 +1699,6 @@ def get_sitemap_ids():
         return jsonify([]), 500
 
 
-@app.route('/api/library', methods=['GET'])
-def get_library_index():
-    """Return the library index — Project Gutenberg top-100, public, no auth.
-    Sorted by download_count descending. Body excluded."""
-    if not r:
-        return jsonify([]), 503
-    try:
-        ids = r.zrevrange('library:works', 0, -1)
-        if not ids:
-            return jsonify([])
-
-        pipe = r.pipeline()
-        for gid in ids:
-            pipe.hmget(
-                f"library:work:{gid}",
-                'gutenberg_id', 'title', 'author', 'language',
-                'download_count', 'year_published', 'subjects',
-                'chimera_score', 'reading_label', 'chimera_skip_reason',
-            )
-        rows = pipe.execute()
-
-        results = []
-        for gid, row in zip(ids, rows):
-            (gutenberg_id, title, author, language, download_count,
-             year_published, subjects_raw,
-             chimera_score, reading_label, chimera_skip_reason) = row
-            if not title:
-                continue
-            try:
-                subjects = json.loads(subjects_raw) if subjects_raw else []
-            except (ValueError, TypeError):
-                subjects = []
-            try:
-                chimera_int = int(chimera_score) if chimera_score not in (None, '') else None
-            except (ValueError, TypeError):
-                chimera_int = None
-            results.append({
-                'gutenberg_id':        gutenberg_id or gid,
-                'title':               title or '',
-                'author':              author or 'Unknown',
-                'language':            language or '',
-                'download_count':      int(download_count) if download_count else 0,
-                'year_published':      year_published or '',
-                'subjects':            subjects,
-                'chimera_score':       chimera_int,
-                'reading_label':       reading_label or '',
-                'chimera_skip_reason': chimera_skip_reason or '',
-            })
-
-        resp = jsonify(results)
-        resp.headers['Cache-Control'] = 'public, max-age=3600'
-        return resp
-    except Exception as e:
-        app.logger.error(f"🔥 /api/library error: {e}", exc_info=True)
-        return jsonify([]), 500
-
-
 def _load_library_lang_codes():
     """Load the canonical language list shared with the frontend.
     Returns a dict of lowercased ISO code -> human-readable name.
