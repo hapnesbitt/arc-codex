@@ -111,4 +111,4 @@ shelves:
     name: Physics
     gutenberg_bookshelf_id: 667
     description: Popular Victorian physics — mostly outdated but historically interesting.
-books_per_shelf: 200
+books_per_shelf: 999
