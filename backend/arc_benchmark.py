@@ -28,7 +28,7 @@ v3.0 changes:
 v2.1 changes (preserved):
   - Auto-detects competing Ollama inference, stops scribe, waits for idle
   - Restarts scribe on exit via finally (even on crash or Ctrl+C)
-  - Translation-only models (TranslateGemma) auto-excluded from analysis
+  - Translation-only models auto-excluded from analysis
   - CJK length ratio scoring fixed (character-based, not word-based)
   - --skip-models flag to exclude known single-purpose models
 

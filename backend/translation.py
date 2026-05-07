@@ -10,18 +10,14 @@ Register in main.py:
     from translation import translation_bp
     app.register_blueprint(translation_bp)
 
-TranslateGemma-4B notes (Feb 28, 2026):
-  - Requires /api/chat endpoint, NOT /api/generate
-  - Requires ISO 639-1 language codes (te, es, fr) not English names
-  - Requires specific system preamble: "You are a professional English (en) to X (code) translator..."
-  - Low temperature (0.1-0.3) required — higher values cause script hallucination in Dravidian languages
-  - Falls back to call_ollama_with_fallback (devstral/gemma3 on M1) on any error
+Translation routes through call_ollama_with_fallback (cloud → gemma4:e2b on
+the M1). The previous specialty translation model was retired on 2026-05-06:
+it could not co-reside in the M1's 8GB RAM with the analysis model, so
+interleaved requests caused swap thrash and 120s timeouts.
 """
 
 import json
 import logging
-import os
-import requests as _requests
 from flask import Blueprint, jsonify, request
 import redis as redis_lib
 from dotenv import load_dotenv
@@ -33,18 +29,8 @@ logger = logging.getLogger(__name__)
 translation_bp = Blueprint("translation", __name__)
 
 # ---------------------------------------------------------------------------
-# Config — read from backend/.env
-# ---------------------------------------------------------------------------
-TRANSLATION_HOST  = os.environ.get("TRANSLATION_HOST", "http://192.168.1.185:11434")
-TRANSLATION_MODEL = os.environ.get("TRANSLATION_MODEL", "MedAIBase/TranslateGemma:4b")
-
-# Redis lock — signals to ollama_utils that M1 is busy with translation
-TRANSLATION_LOCK_KEY = "translation:active"
-TRANSLATION_LOCK_TTL = 300  # 5 min safety expiry in case of crash
-
-# ---------------------------------------------------------------------------
-# ISO 639-1 codes for TranslateGemma's 55 supported languages
-# TranslateGemma requires codes, not English names
+# ISO 639-1 language codes — name → ISO. Imported by main.py to derive
+# LIBRARY_SUPPORTED_LANGS for the public-domain reader.
 # ---------------------------------------------------------------------------
 LANGUAGE_CODES = {
     "afrikaans": "af", "amharic": "am", "arabic": "ar", "bengali": "bn",
@@ -82,8 +68,6 @@ TRANSLATION_LANGS_TTL   = 604_800   # 7 days — langs set TTL matches longest t
 
 # Fields to translate
 # All 5 fields translated — title, original_text, red/blue/purple team analysis.
-# TranslateGemma:4b handles title + original_text well; analysis fields fall back
-# to devstral/gemma3 on M1 if needed. Time cost acceptable.
 TRANSLATABLE_FIELDS_LOCAL = [
     "title",
     "original_text",
@@ -98,81 +82,21 @@ TRANSLATABLE_FIELDS_PRO = [
 TRANSLATABLE_FIELDS = TRANSLATABLE_FIELDS_PRO  # translate all 5 fields
 
 # ---------------------------------------------------------------------------
-# TranslateGemma-specific caller
-# Uses /api/chat with system preamble + ISO codes + low temperature
-# Falls back to call_ollama_with_fallback on any error
+# Translation caller — routes through call_ollama_with_fallback
+# (cloud → gemma4:e2b on M1). Translation and analysis share the same model
+# now, so Ollama's per-model request queue serializes them; no separate
+# coordination lock is required.
 # ---------------------------------------------------------------------------
 
 def _call_translation_model(text: str, language: str, source_lang: str = "English", timeout: int = 300) -> str:
-    """
-    Call TranslateGemma-4B via Ollama /api/chat.
-    Uses the model's required system preamble and ISO 639-1 language codes.
-    Falls back to call_ollama_with_fallback (devstral/gemma3 on M1) on error.
-    """
-    # Acquire translation lock — signals analysis pipeline to back off
-    _redis.setex(TRANSLATION_LOCK_KEY, TRANSLATION_LOCK_TTL, "1")
-    try:
-        return _call_translation_model_inner(text, language, source_lang, timeout)
-    finally:
-        _redis.delete(TRANSLATION_LOCK_KEY)
-
-
-def _call_translation_model_inner(text: str, language: str, source_lang: str = "English", timeout: int = 300) -> str:
-    """Inner implementation — called with lock held."""
-    lang_lower = language.lower().strip()
-    target_code = LANGUAGE_CODES.get(lang_lower, lang_lower[:2])
-
-    src_lower = source_lang.lower().strip()
-    src_code = LANGUAGE_CODES.get(src_lower, src_lower[:2])
-
-    system_prompt = (
-        f"You are a professional {source_lang} ({src_code}) to {language} ({target_code}) translator. "
-        f"Translate the full text completely and accurately — do not summarize, shorten, or omit any content. "
-        f"Output only the {language} translation. "
-        f"Do not include the original {source_lang} text. "
-        f"Do not respond in {source_lang}. "
-        f"Do not add explanations, commentary, or any text other than the translation itself."
-    )
-
-    user_content = (
-        f"Translate the following {source_lang} text to {language}. "
-        f"Output only the complete {language} translation, nothing else.\n\n{text}"
-    )
-
-    try:
-        resp = _requests.post(
-            f"{TRANSLATION_HOST}/api/chat",
-            json={
-                "model": TRANSLATION_MODEL,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content},
-                ],
-                "stream": False,
-                "options": {
-                    "temperature": 0.2,
-                    "top_p": 0.9,
-                },
-            },
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        result = resp.json()
-        translated = result.get("message", {}).get("content", "").strip()
-        if translated:
-            logger.info("TranslateGemma succeeded (model=%s, %s/%s→%s/%s)", TRANSLATION_MODEL, source_lang, src_code, language, target_code)
-            return translated
-        logger.warning("TranslateGemma returned empty response for lang=%s", language)
-    except Exception as e:
-        logger.warning("TranslateGemma failed (%s), falling back to main pipeline: %s", TRANSLATION_MODEL, e)
-
-    # Fallback — devstral or gemma3 on M1
-    fallback_prompt = (
+    """Translate ``text`` from ``source_lang`` to ``language``. Returns the
+    translation as a plain string."""
+    prompt = (
         f"Translate the following {source_lang} text to {language}. "
         f"Output ONLY the complete {language} translation. "
         f"Do not summarize. Do not respond in {source_lang}. Do not add any commentary.\n\n{text}"
     )
-    return call_ollama_with_fallback(fallback_prompt)[0]
+    return call_ollama_with_fallback(prompt, timeout=timeout)[0]
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +137,7 @@ def _get_article(article_id: str) -> dict | None:
 
 def _translate(fields: dict, language: str, source_lang: str = "English") -> dict | None:
     """
-    Translate each field individually using TranslateGemma.
+    Translate each field individually.
     Fields are translated one at a time (model works best on plain text, not JSON).
     Returns a dict of translated fields, or None on total failure.
     """
