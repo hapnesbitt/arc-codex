@@ -1721,7 +1721,28 @@ def _load_library_lang_codes():
 
 
 LIBRARY_LANG_CODE_TO_NAME = _load_library_lang_codes()
-LIBRARY_SUPPORTED_LANGS = set(LIBRARY_LANG_CODE_TO_NAME.keys()) | {'en'}
+# Build supported set from translation.py's LANGUAGE_CODES (name → ISO);
+# we need the inverse — the set of ISO codes the translator accepts.
+try:
+    from translation import LANGUAGE_CODES as _TG_LANG_CODES
+    LIBRARY_SUPPORTED_LANGS = {code.lower() for code in _TG_LANG_CODES.values()} | {'en'}
+except Exception:
+    # Fallback to a known-safe minimal set
+    LIBRARY_SUPPORTED_LANGS = {'en', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'ru', 'ja', 'zh'}
+# Translate only the first ~8K chars: longer inputs exceed the translator's context window.
+LIBRARY_TRANSLATION_PREVIEW_CHARS = 8000
+LIBRARY_TRANSLATION_BOUNDARY_LOOKBACK = 1000
+
+
+def _slice_for_translation(body: str) -> int:
+    """Return the cut index for the translation preview window — prefers the
+    last paragraph break within LOOKBACK chars of the cap, else hard cuts."""
+    cap = LIBRARY_TRANSLATION_PREVIEW_CHARS
+    if len(body) <= cap:
+        return len(body)
+    window_start = max(0, cap - LIBRARY_TRANSLATION_BOUNDARY_LOOKBACK)
+    boundary = body.rfind('\n\n', window_start, cap)
+    return boundary if boundary != -1 else cap
 
 
 @app.route('/api/library/<gutenberg_id>', methods=['GET'])
@@ -1769,28 +1790,47 @@ def get_library_work(gutenberg_id):
 
         text_out = body
         is_translated = False
+        is_preview = False
+        preview_chars = None
         translation_error = None
         work_lang = (meta.get('language', '') or '').strip().lower()
+        language_name = LIBRARY_LANG_CODE_TO_NAME.get(lang) if lang != 'en' else None
 
         if lang != 'en' and body:
             if work_lang and work_lang != 'en':
                 translation_error = "Translation only available for English-language works."
             else:
                 tx_key = f"library:work:{gutenberg_id}:translation:{lang}"
+                tx_meta_key = f"library:work:{gutenberg_id}:translation:{lang}:meta"
                 cached = r.get(tx_key)
                 if cached is not None:
                     text_out = cached
                     is_translated = True
+                    cached_meta = r.hgetall(tx_meta_key) or {}
+                    if cached_meta.get('is_preview') == '1':
+                        is_preview = True
+                        try:
+                            preview_chars = int(cached_meta.get('preview_chars') or 0) or None
+                        except (ValueError, TypeError):
+                            preview_chars = None
                 else:
                     try:
                         from translation import _call_translation_model
+                        cut = _slice_for_translation(body)
+                        snippet = body[:cut]
                         lang_name = LIBRARY_LANG_CODE_TO_NAME.get(lang, lang)
-                        translated = _call_translation_model(body, lang_name, "English", timeout=900)
+                        translated = _call_translation_model(snippet, lang_name, "English", timeout=120)
                         if translated and translated.strip():
                             text_out = translated
                             is_translated = True
+                            is_preview = True
+                            preview_chars = cut
                             try:
                                 r.set(tx_key, text_out)
+                                r.hset(tx_meta_key, mapping={
+                                    'is_preview': '1',
+                                    'preview_chars': str(cut),
+                                })
                             except Exception as ex:
                                 app.logger.warning(f"Failed to cache library translation {tx_key}: {ex}")
                         else:
@@ -1822,7 +1862,13 @@ def get_library_work(gutenberg_id):
             'scored_at':            meta.get('scored_at', ''),
             'text':                 text_out,
             'is_translated':        is_translated,
+            'is_preview':           is_preview,
+            'total_chars':          len(body),
         }
+        if is_preview and preview_chars is not None:
+            payload['preview_chars'] = preview_chars
+        if language_name:
+            payload['language_name'] = language_name
         if translation_error:
             payload['translation_error'] = translation_error
 
@@ -1832,6 +1878,56 @@ def get_library_work(gutenberg_id):
     except Exception as e:
         app.logger.error(f"🔥 /api/library/{gutenberg_id} error: {e}", exc_info=True)
         return jsonify({"error": "Internal error"}), 500
+
+
+@app.route('/api/library/search', methods=['GET'])
+def library_search():
+    """Substring search across title + author. Public, no auth.
+    Returns up to 50 matches sorted by download_count desc."""
+    if not r:
+        return jsonify([]), 503
+    q = (request.args.get('q', '') or '').strip().lower()
+    if len(q) < 2:
+        return jsonify([])
+    try:
+        gids = r.zrevrange('library:works', 0, -1)
+        if not gids:
+            return jsonify([])
+
+        pipe = r.pipeline()
+        for gid in gids:
+            pipe.hmget(
+                f"library:work:{gid}",
+                'gutenberg_id', 'title', 'author', 'language',
+                'download_count', 'year_published',
+            )
+        rows = pipe.execute()
+
+        results = []
+        for gid, row in zip(gids, rows):
+            gutenberg_id, title, author, language, download_count, year_published = row
+            if not title:
+                continue
+            haystack = f"{title or ''} {author or ''}".lower()
+            if q not in haystack:
+                continue
+            results.append({
+                'gutenberg_id':   gutenberg_id or gid,
+                'title':          title or '',
+                'author':         author or 'Unknown',
+                'language':       language or '',
+                'download_count': int(download_count) if download_count else 0,
+                'year_published': year_published or '',
+            })
+            if len(results) >= 50:
+                break
+
+        resp = jsonify(results)
+        resp.headers['Cache-Control'] = 'public, max-age=300'
+        return resp
+    except Exception as e:
+        app.logger.error(f"🔥 /api/library/search error: {e}", exc_info=True)
+        return jsonify([]), 500
 
 
 @app.route('/api/library/shelves', methods=['GET'])
