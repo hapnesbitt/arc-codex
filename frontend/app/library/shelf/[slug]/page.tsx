@@ -5,7 +5,7 @@ import React from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
-import { ChevronRight } from 'lucide-react';
+import ShelfBooksClient from './ShelfBooksClient';
 
 export const revalidate = 3600;
 
@@ -116,59 +116,7 @@ export default async function LibraryShelfDetailPage({
             No works in this shelf yet. Run the library fetcher to populate.
           </div>
         ) : (
-          <ul className="border-t border-slate-800/40 mt-8">
-            {books.map((work) => {
-              const hasChimera = typeof work.chimera_score === 'number';
-              return (
-                <li key={work.gutenberg_id} className="border-b border-slate-800/40">
-                  <Link
-                    href={`/library/${work.gutenberg_id}`}
-                    className="flex items-center justify-between gap-4 py-5 px-2 -mx-2 hover:bg-slate-800/30 transition-colors group rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
-                  >
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <h2 className="font-serif text-lg sm:text-xl text-slate-100 group-hover:text-slate-50 transition-colors leading-snug">
-                        {work.title}
-                      </h2>
-                      <p className="font-serif italic text-sm text-slate-400 leading-snug">
-                        {work.author || 'Unknown'}
-                      </p>
-                      <div className="flex items-center gap-3 flex-wrap font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500">
-                        <span>{work.download_count.toLocaleString()} Gutenberg downloads</span>
-                        {work.language && (
-                          <>
-                            <span aria-hidden="true">·</span>
-                            <span>{work.language}</span>
-                          </>
-                        )}
-                        {work.year_published && (
-                          <>
-                            <span aria-hidden="true">·</span>
-                            <span>{work.year_published}</span>
-                          </>
-                        )}
-                        {hasChimera && (
-                          <>
-                            <span aria-hidden="true">·</span>
-                            <span
-                              className="text-emerald-300/80"
-                              title="Chimera Difficulty Score — synthesizes Flesch-Kincaid, Coleman-Liau, SMOG, and Dale-Chall readability metrics"
-                            >
-                              Difficulty {work.chimera_score}
-                              {work.reading_label && ` (${work.reading_label})`}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <ChevronRight
-                      className="h-4 w-4 text-slate-600 group-hover:text-slate-300 transition-colors shrink-0"
-                      aria-hidden="true"
-                    />
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+          <ShelfBooksClient books={books} />
         )}
 
         {/* Footer */}
