@@ -1,12 +1,15 @@
 // Filename: /frontend/app/library/[id]/page.tsx
 // Library — single Project Gutenberg work, full text on one page.
-// Server Component. Translation is URL-driven via ?lang=<code>.
+// Server Component. Fetches the English work; the translation overlay
+// (pills, banner, body swap on ?lang=) lives in LibraryReaderClient so
+// Next.js ISR regeneration doesn't fan out into translation requests.
 
 import React from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { ChevronLeft } from 'lucide-react';
+import LibraryReaderClient from './LibraryReaderClient';
 
 interface WorkResponse {
   gutenberg_id: string;
@@ -29,17 +32,12 @@ interface WorkResponse {
   scored_at: string;
   text: string;
   is_translated?: boolean;
+  is_preview?: boolean;
+  preview_chars?: number;
+  total_chars?: number;
+  language_name?: string;
   translation_error?: string;
 }
-
-const LANG_PILLS: { code: string; label: string }[] = [
-  { code: 'de', label: 'Deutsch' },
-  { code: 'fr', label: 'Français' },
-  { code: 'es', label: 'Español' },
-  { code: 'pt-br', label: 'Português (BR)' },
-];
-
-const LANG_CODE_RE = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/i;
 
 const getChimeraColors = (score: number) => {
   if (score < 30) return { bar: 'bg-emerald-200', text: 'text-emerald-300' };
@@ -84,56 +82,19 @@ export async function generateMetadata({
   };
 }
 
-function paragraphize(raw: string): string[] {
-  const blocks = raw.replace(/\r\n/g, '\n').split(/\n\s*\n+/);
-  return blocks
-    .map((block) => {
-      const trimmed = block.replace(/\n+$/g, '');
-      const lines = trimmed.split('\n').filter(Boolean);
-      const isVerse = lines.length > 1 && lines.every((l) => l.length < 60);
-      return isVerse ? trimmed : trimmed.replace(/\n/g, ' ').replace(/\s{2,}/g, ' ').trim();
-    })
-    .filter(Boolean);
-}
-
-function buildHref(id: string, code: string | null): string {
-  if (!code || code === 'en') return `/library/${id}`;
-  return `/library/${id}?lang=${encodeURIComponent(code)}`;
-}
-
 export default async function LibraryWorkPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ lang?: string }>;
 }) {
   const { id } = await params;
-  const sp = await searchParams;
-
-  const requestedLang = (sp?.lang || 'en').toLowerCase().trim();
-  const lang: string = LANG_CODE_RE.test(requestedLang) ? requestedLang : 'en';
-
-  const work = await getWork(id, lang);
+  const work = await getWork(id, 'en');
   if (!work) notFound();
-
-  const workIsEnglish = (work.language || '').trim().toLowerCase() === 'en';
-  const effectiveLang: string = workIsEnglish ? lang : 'en';
-  const isTranslated = !!work.is_translated && effectiveLang !== 'en';
 
   const gutenbergUrl = `https://www.gutenberg.org/ebooks/${work.gutenberg_id}`;
   const showChimera =
     typeof work.chimera_score === 'number' && work.chimera_skip_reason !== 'non-english';
   const chimeraColors = showChimera ? getChimeraColors(work.chimera_score as number) : null;
-
-  const text = work.text || '';
-  const paragraphs = paragraphize(text);
-  const lineLengths = text.split('\n').map((l) => l.length).filter((n) => n > 0);
-  const avgLineLen =
-    lineLengths.length > 0
-      ? lineLengths.reduce((a, b) => a + b, 0) / lineLengths.length
-      : 0;
-  const renderAsVerse = lineLengths.length > 4 && avgLineLen > 0 && avgLineLen < 60;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -214,84 +175,9 @@ export default async function LibraryWorkPage({
               </span>
             </div>
           )}
-
-          {/* Language pills (English originals only) */}
-          {workIsEnglish && (
-            <div className="pt-4 flex flex-wrap items-center gap-2">
-              <Link
-                href={buildHref(id, null)}
-                className={
-                  effectiveLang === 'en'
-                    ? 'px-3 py-1.5 rounded-full bg-amber-500 text-black text-[10px] font-black uppercase tracking-widest'
-                    : 'px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10 transition-all text-[10px] font-bold uppercase tracking-widest'
-                }
-              >
-                English
-              </Link>
-              {LANG_PILLS.map((p) => {
-                const active = effectiveLang === p.code;
-                return (
-                  <Link
-                    key={p.code}
-                    href={buildHref(id, p.code)}
-                    className={
-                      active
-                        ? 'px-3 py-1.5 rounded-full bg-amber-500 text-black text-[10px] font-black uppercase tracking-widest'
-                        : 'px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500/20 transition-all text-[10px] font-bold uppercase tracking-widest'
-                    }
-                  >
-                    {p.label}
-                  </Link>
-                );
-              })}
-            </div>
-          )}
         </header>
 
-        {work.translation_error && (
-          <p className="pt-6 font-serif italic text-sm text-slate-400 text-center">
-            Translation unavailable. Showing original English.
-          </p>
-        )}
-
-        {isTranslated && (
-          <p className="pt-6 font-serif italic text-sm text-slate-400 text-center">
-            Translated from English. Translation by TranslateGemma 4B.
-          </p>
-        )}
-
-        {/* Body */}
-        {paragraphs.length === 0 ? (
-          <div className="py-16 text-center font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
-            No body text available.
-          </div>
-        ) : renderAsVerse ? (
-          <article className="py-10 font-serif text-lg text-slate-200 leading-[1.75] [text-wrap:pretty]">
-            <pre className="font-serif whitespace-pre-wrap text-lg text-slate-200 leading-[1.75]">
-              {text}
-            </pre>
-          </article>
-        ) : (
-          <article className="py-10 font-serif text-lg text-slate-200 leading-[1.75] [text-wrap:pretty]">
-            {paragraphs.map((p, i) => {
-              if (p.includes('\n')) {
-                return (
-                  <pre
-                    key={i}
-                    className="font-serif whitespace-pre-wrap text-lg text-slate-200 leading-[1.75] mb-6"
-                  >
-                    {p}
-                  </pre>
-                );
-              }
-              return (
-                <p key={i} className="mb-6">
-                  {p}
-                </p>
-              );
-            })}
-          </article>
-        )}
+        <LibraryReaderClient work={work} />
 
         {/* Footer */}
         <footer className="border-t border-slate-800/60 pt-10 pb-6 mt-12 space-y-3 text-center font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
