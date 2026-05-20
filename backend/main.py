@@ -49,7 +49,7 @@ app = Flask(__name__)
 CORS(app)
 app.secret_key = os.getenv('SECRET_KEY', os.urandom(32))
 # Shared session cookie — must match LightBox (vid.arc-codex.com) config
-app.config['SESSION_COOKIE_DOMAIN'] = '.arc-codex.com'
+# app.config['SESSION_COOKIE_DOMAIN'] = '.arc-codex.com'  # removed 2026-05-16 — Safari ITP rejects parent-domain cookies
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
