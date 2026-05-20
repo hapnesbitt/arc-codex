@@ -2053,6 +2053,7 @@ def get_library_shelf(slug):
 # ─────────────────────────────────────────────────────────────────────────────
 PLANTS_ANNUALS_FILE = '/home/ross/dual.py'
 PLANTS_PERENNIALS_FILE = '/home/ross/perennials.py'
+SYNDROMES_FILE = '/home/ross/syndromes.py'
 _ARC_URL_PREFIX = 'https://arc-codex.com'
 
 
@@ -2065,6 +2066,27 @@ def _strip_arc_prefix(entries):
             url = url[len(_ARC_URL_PREFIX):] or '/'
         out.append({'common': e['common'], 'latin': e['latin'], 'url': url})
     return out
+
+
+@app.route('/api/syndromes', methods=['GET'])
+def get_syndromes_catalog():
+    """Return curated syndromes index. Cached 5 minutes.
+    Maps catalog_loader's generic second column to 'classification'."""
+    try:
+        rows = _strip_arc_prefix(load_catalog(SYNDROMES_FILE, 'ALL_SYNDROMES'))
+        syndromes = [
+            {'common': r['common'], 'classification': r['latin'], 'url': r['url']}
+            for r in rows
+        ]
+        resp = jsonify({'syndromes': syndromes})
+        resp.headers['Cache-Control'] = 'public, max-age=300'
+        return resp
+    except FileNotFoundError as e:
+        app.logger.error(f"🧬 /api/syndromes source missing: {e}")
+        return jsonify({'error': 'Catalog source missing'}), 500
+    except Exception as e:
+        app.logger.error(f"🧬 /api/syndromes error: {e}", exc_info=True)
+        return jsonify({'error': 'Internal error'}), 500
 
 
 @app.route('/api/plants', methods=['GET'])
