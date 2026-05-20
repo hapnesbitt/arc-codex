@@ -42,6 +42,7 @@ from fetch_utils import (
     create_default_headers,
     DEFAULT_IMAGE_URL as FETCH_UTILS_DEFAULT_IMAGE
 )
+from catalog_loader import load_catalog
 
 load_dotenv()
 
@@ -2045,6 +2046,42 @@ def get_library_shelf(slug):
     except Exception as e:
         app.logger.error(f"🔥 /api/library/shelf/{slug} error: {e}", exc_info=True)
         return jsonify({"error": "Internal error"}), 500
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Curated catalogs (table-of-contents surfaces backed by Python source files)
+# ─────────────────────────────────────────────────────────────────────────────
+PLANTS_ANNUALS_FILE = '/home/ross/dual.py'
+PLANTS_PERENNIALS_FILE = '/home/ross/perennials.py'
+_ARC_URL_PREFIX = 'https://arc-codex.com'
+
+
+def _strip_arc_prefix(entries):
+    """Return entries with arc-codex.com host stripped — frontend renders relative."""
+    out = []
+    for e in entries:
+        url = e.get('url', '')
+        if url.startswith(_ARC_URL_PREFIX):
+            url = url[len(_ARC_URL_PREFIX):] or '/'
+        out.append({'common': e['common'], 'latin': e['latin'], 'url': url})
+    return out
+
+
+@app.route('/api/plants', methods=['GET'])
+def get_plants_catalog():
+    """Return curated plant catalog grouped by lifecycle. Cached 5 minutes."""
+    try:
+        annuals = _strip_arc_prefix(load_catalog(PLANTS_ANNUALS_FILE, 'ALL_PLANTS'))
+        perennials = _strip_arc_prefix(load_catalog(PLANTS_PERENNIALS_FILE, 'ALL_PERENNIALS'))
+        resp = jsonify({'annuals': annuals, 'perennials': perennials})
+        resp.headers['Cache-Control'] = 'public, max-age=300'
+        return resp
+    except FileNotFoundError as e:
+        app.logger.error(f"🌱 /api/plants source missing: {e}")
+        return jsonify({'error': 'Catalog source missing'}), 500
+    except Exception as e:
+        app.logger.error(f"🌱 /api/plants error: {e}", exc_info=True)
+        return jsonify({'error': 'Internal error'}), 500
 
 
 if __name__ == '__main__':
