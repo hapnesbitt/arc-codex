@@ -61,16 +61,18 @@ function PlantRow({ plant }: { plant: PlantEntry }) {
 }
 
 function CatalogSection({
+  id,
   title,
   protocol,
   plants,
 }: {
+  id: string;
   title: string;
   protocol: string;
   plants: PlantEntry[];
 }) {
   return (
-    <section className="py-8 border-b border-slate-800/60">
+    <section id={id} className="scroll-mt-20 py-8 border-b border-slate-800/60">
       <header className="flex items-center justify-between gap-4 mb-6">
         <div className="flex items-center gap-3">
           <Leaf className="h-3.5 w-3.5 text-amber-400/70" aria-hidden="true" />
@@ -139,10 +141,29 @@ export default async function PlantoriumPage() {
           <p className="font-serif text-lg text-slate-400 italic leading-relaxed max-w-xl mx-auto">
             A field index of {annuals.length + perennials.length} plants profiled across Arc Codex, paired by common and botanical name.
           </p>
+          <nav
+            aria-label="Section navigation"
+            className="flex items-center justify-center gap-3 pt-2"
+          >
+            <a
+              href="#annuals"
+              className="inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-500/5 px-4 py-1.5 font-sans text-[10px] uppercase tracking-[0.25em] text-amber-300 hover:bg-amber-500/10 hover:border-amber-400/50 hover:text-amber-200 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400/50"
+            >
+              <Leaf className="h-3 w-3 text-amber-400/70" aria-hidden="true" />
+              Annuals
+            </a>
+            <a
+              href="#perennials"
+              className="inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-500/5 px-4 py-1.5 font-sans text-[10px] uppercase tracking-[0.25em] text-amber-300 hover:bg-amber-500/10 hover:border-amber-400/50 hover:text-amber-200 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400/50"
+            >
+              <Leaf className="h-3 w-3 text-amber-400/70" aria-hidden="true" />
+              Perennials
+            </a>
+          </nav>
         </header>
 
-        <CatalogSection title="Annuals" protocol="LIFECYCLE_ONE_SEASON" plants={annuals} />
-        <CatalogSection title="Perennials" protocol="LIFECYCLE_RECURRING" plants={perennials} />
+        <CatalogSection id="annuals" title="Annuals" protocol="LIFECYCLE_ONE_SEASON" plants={annuals} />
+        <CatalogSection id="perennials" title="Perennials" protocol="LIFECYCLE_RECURRING" plants={perennials} />
 
         <footer className="text-center pt-10 pb-4 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500 space-y-2">
           <p>

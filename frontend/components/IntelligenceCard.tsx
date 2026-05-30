@@ -915,6 +915,71 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
     const uid = card.id;
     const researchSnippet = card.blue_team_analysis || card.purple_team_analysis || card.original_text;
 
+    // ── Minimal video card — no analysis fields, no AI UI ─────────────────────
+    if (card.origin === 'video') {
+        const videoUrl = card.sourceUrl || (card as any).url || '#';
+        const videoDomain = (() => {
+            try { return new URL(videoUrl).hostname.replace(/^www\./, ''); } catch { return 'vid.arc-codex.com'; }
+        })();
+        return (
+            <article
+                aria-labelledby={`card-title-${uid}`}
+                className="w-full max-w-2xl mx-auto"
+            >
+                <div className="w-full overflow-hidden border-b border-slate-800/60 bg-slate-900/30">
+                    <div className="p-8">
+                        <header className="flex flex-col-reverse items-end gap-4 sm:flex-row sm:justify-between sm:items-start mb-4">
+                            <div className="flex-1">
+                                <a
+                                    href={videoUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                >
+                                    <h2
+                                        id={`card-title-${uid}`}
+                                        className="font-serif text-3xl font-semibold text-slate-50 mb-3 cursor-pointer transition-colors hover:text-slate-100 leading-tight tracking-tight"
+                                    >
+                                        {card.title}
+                                    </h2>
+                                </a>
+                            </div>
+                            <div className="flex items-center gap-2 print:hidden">
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={handleCopy}
+                                    className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
+                                    aria-label={hasCopied ? "Link copied" : "Copy article link"}
+                                >
+                                    {hasCopied
+                                        ? <Check className="text-emerald-400" aria-hidden="true" />
+                                        : <Copy aria-hidden="true" />
+                                    }
+                                </Button>
+                                <ShareMenu
+                                    title={card.title}
+                                    articleId={card.id}
+                                    blurb={card.description || ''}
+                                    lang={null}
+                                />
+                            </div>
+                        </header>
+                        {card.description && (
+                            <p className="font-serif text-slate-400 leading-relaxed mb-4">{card.description}</p>
+                        )}
+                        <span className="font-sans text-[10px] uppercase tracking-[0.2em] text-slate-600 border border-slate-800 px-2 py-0.5 rounded-sm">
+                            {videoDomain}
+                        </span>
+                    </div>
+                    <div className="border-t border-slate-800" aria-hidden="true" />
+                    <footer className="flex justify-between items-center px-8 py-5 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
+                        <time dateTime={card.timestamp}>{formattedDate}</time>
+                    </footer>
+                </div>
+            </article>
+        );
+    }
+
     return (
         // <article> is the correct semantic element for a self-contained piece of content.
         // aria-labelledby points to the h2 title so AT announces "Article: [title]"

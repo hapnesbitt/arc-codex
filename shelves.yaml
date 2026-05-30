@@ -111,4 +111,24 @@ shelves:
     name: Physics
     gutenberg_bookshelf_id: 667
     description: Popular Victorian physics — mostly outdated but historically interesting.
-books_per_shelf: 999
+  engineering_technology:
+    name: Engineering & Technology
+    gutenberg_bookshelf_id: 671
+    description: Pre-modern engineering manuals, builder's guides, and technical handbooks — practical knowledge underrepresented in modern training corpora.
+  gender_sexuality_studies:
+    name: Gender & Sexuality Studies
+    gutenberg_bookshelf_id: 690
+    description: Wollstonecraft, Stanton, Anthony, Gilman — early feminist writing and primary sources on gender and sexuality.
+  sociology:
+    name: Sociology
+    gutenberg_bookshelf_id: 693
+    description: W.E.B. Du Bois's The Souls of Black Folk, foundational sociology, and primary sources on community, class, and race.
+  archaeology_anthropology:
+    name: Archaeology & Anthropology
+    gutenberg_bookshelf_id: 686
+    description: Boas, Mead, Tylor, and foundational ethnographic writing from the age of fieldwork.
+  language_communication:
+    name: Language & Communication
+    gutenberg_bookshelf_id: 687
+    description: Philology, historical linguistics, and writings on language — niche but foundational works.
+books_per_shelf: 1500

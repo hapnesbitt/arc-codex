@@ -1124,15 +1124,20 @@ def submit():
     Submit a URL or raw text directly into the scribe priority queue.
     Replaces the old filesystem-based submit_content path for url/text types.
 
+    Also handles origin=video: bypasses scribe and writes the article record
+    directly to Redis so the feed is updated immediately.
+
     JSON body:
         {
-            "content_type": "url" | "text",
+            "content_type": "url" | "text",  # not used when origin=video
             "content":      "...",
             "title":        "...",
-            "image_url":    "https://..."   # optional — overrides OG image extraction
+            "origin":       "video",          # optional — skips scribe
+            "description":  "...",            # optional — only used when origin=video
+            "image_url":    "https://..."     # optional
         }
 
-    Returns 202 immediately — scribe processes asynchronously.
+    Returns 202 for standard submissions (async), 201 for video (already published).
     """
 
     if not r:
@@ -1140,6 +1145,64 @@ def submit():
         return jsonify({"error": "Database connection is offline."}), 503
 
     data = request.get_json(force=True, silent=True) or {}
+    origin_param = (data.get('origin') or '').strip()
+
+    # ── Video origin: bypass scribe, publish article record directly ────────────
+    if origin_param == 'video':
+        url_content = (data.get('content') or data.get('url') or '').strip()
+        title       = (data.get('title') or '').strip()
+        description = (data.get('description') or '').strip()
+        visibility  = (data.get('visibility') or 'public')
+        owner       = request.headers.get('X-User-Id') or session.get('username', '')
+
+        if not title:
+            return jsonify({'error': 'title is required for video submissions'}), 400
+        if not url_content:
+            return jsonify({'error': 'content (url) is required for video submissions'}), 400
+        try:
+            from urllib.parse import urlparse as _urlparse
+            parsed = _urlparse(url_content)
+            if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+                return jsonify({'error': 'Invalid URL'}), 400
+        except Exception:
+            return jsonify({'error': 'Invalid URL'}), 400
+
+        article_id = str(uuid.uuid4())
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
+        article_data = {
+            'id':           article_id,
+            'origin':       'video',
+            'url':          url_content,
+            'sourceUrl':    url_content,
+            'title':        title,
+            'description':  description,
+            'original_text': description,
+            'timestamp':    now_iso,
+            'created_at':   now_iso,
+            'owner':        owner,
+            'visibility':   visibility,
+            'source_name':  'LightBox',
+            'source':       'vid.arc-codex.com',
+            'directive':    '',
+        }
+
+        try:
+            pipe = r.pipeline()
+            pipe.hset(f"article:{article_id}", mapping=article_data)
+            pipe.zadd('feed', {article_id: int(time.time())})
+            pipe.sadd('processed_hashes', article_id)
+            pipe.execute()
+            app.logger.info(f"🎬 Video article published: '{title}' (ID: {article_id})")
+            return jsonify({
+                'success': True,
+                'message': 'Video collection published.',
+                'article_id': article_id,
+            }), 201
+        except Exception as e:
+            app.logger.error(f"🔥 Failed to publish video article: {e}", exc_info=True)
+            return jsonify({'error': 'Failed to publish video article.'}), 500
+
+    # ── Standard URL/text submissions → scribe priority queue ──────────────────
     content_type = data.get('content_type', '').strip()
     content      = (data.get('content') or '').strip()
     title        = (data.get('title') or '').strip()

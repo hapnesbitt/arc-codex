@@ -65,3 +65,8 @@ frontend/tsconfig.tsbuildinfo
 *.Mar[0-9]*
 *.beforelib
 *.Oops
+
+# Python virtual environment
+backend/venv/
+__pycache__/
+*.pyc

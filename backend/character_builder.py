@@ -148,8 +148,7 @@ def call_ollama(system_prompt: str, dossier: str, model: str | None = None) -> s
 
     When `model` is None, the global OLLAMA_MODEL is used (legacy behavior).
     Per-character overrides come in via characters.yaml `model:` field —
-    e.g. medgemma1.5:4b for the school nurse, devstral-2:123b-cloud for
-    Torchy Blane.
+    e.g. devstral-2:123b-cloud for the school librarian and Torchy Blane.
     """
     actual_model = model or OLLAMA_MODEL
     log.info("Calling Ollama model=%s for character", actual_model)

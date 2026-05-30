@@ -26,6 +26,8 @@ export interface Article {
   timestamp: string;
   directive: string;
   category?: string;
+  origin?: string;       // 'video' for LightBox submissions; absent on standard articles
+  description?: string;  // video article description
   blue_team_analysis?: string;
   red_team_analysis?: string;
   purple_team_analysis?: string;

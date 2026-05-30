@@ -13,8 +13,8 @@
 
 'use client';
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { Suspense, useEffect, useState, useCallback, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,7 +25,7 @@ import {
   Send, Loader, CheckCircle, RefreshCw, Upload,
   Sparkles, FileText, Link2, Wand2,
   Rocket, Globe, Crown, Shield, PenLine, ImagePlus, X as XIcon,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, Video,
 } from 'lucide-react';
 import UploadArea from '@/components/UploadArea';
 import StatusMessage from '@/components/StatusMessage';
@@ -203,8 +203,9 @@ const RadioGroup: React.FC<{
 };
 
 // --- MAIN COMPONENT ---
-export default function PublishPage() {
+function PublishPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: session } = useSession();
   const isAuthed = !!session?.user;
   const [title, setTitle]               = useState('');
@@ -222,7 +223,8 @@ export default function PublishPage() {
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
   const [imageOpen, setImageOpen] = useState(false);
   const [urlFetchFailed, setUrlFetchFailed] = useState(false);
-  const [description, setDescription]       = useState('');
+  const [description, setDescription]       = useState(() => searchParams.get('body') ?? '');
+  const [isVideoMode, setIsVideoMode]       = useState(false);
   const [mounted, setMounted]               = useState(false);
   const submitBtnRef     = useRef<HTMLButtonElement>(null);
   const imageInputRef    = useRef<HTMLInputElement>(null);
@@ -337,16 +339,22 @@ export default function PublishPage() {
 
   useEffect(() => { setMounted(true); }, []);
 
-  // Pre-fill from ?url and ?title query params (e.g. deep-link from LightBox)
+  // Pre-fill from ?url, ?title, ?origin, ?description query params (e.g. deep-link from LightBox)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const urlParam  = params.get('url');
-    const titleParam = params.get('title');
+    const urlParam    = params.get('url');
+    const titleParam  = params.get('title');
+    const originParam = params.get('origin');
+    const descParam   = params.get('description');
     if (urlParam) {
       setContent(urlParam);
       setContentType('url');
     }
     if (titleParam) setTitle(titleParam);
+    if (originParam === 'video') {
+      setIsVideoMode(true);
+      if (descParam) setDescription(descParam);
+    }
   }, []);
 
   const isProbablyUrl = useCallback((s: string): boolean => {
@@ -361,6 +369,17 @@ export default function PublishPage() {
   // Step 1: validate, then open confirmation modal
   const handleRequestSubmit = useCallback((e?: React.FormEvent) => {
     if (e?.preventDefault) e.preventDefault();
+
+    // Video mode — only title required
+    if (isVideoMode) {
+      if (!title.trim()) {
+        setStatus('error');
+        setMessage('A title is required.');
+        return;
+      }
+      setShowConfirmModal(true);
+      return;
+    }
 
     // Validation — title optional for prompt mode (scribe derives it)
     if (contentType !== 'prompt' && !title.trim() && !imageFile && !uploadedImageUrl) {
@@ -396,12 +415,43 @@ export default function PublishPage() {
 
     // Validation passed — open confirmation modal
     setShowConfirmModal(true);
-  }, [title, content, contentType, file, description, isProbablyUrl, imageFile, uploadedImageUrl]);
+  }, [title, content, contentType, file, description, isProbablyUrl, imageFile, uploadedImageUrl, isVideoMode]);
 
   // Step 2: user confirmed — actually publish
   const handleConfirmedPublish = useCallback(async (visibility: 'public' | 'private' = 'public') => {
     setShowConfirmModal(false);
     setStatus('loading');
+
+    // ── Video mode: POST origin=video directly, no scribe ──────────────────────
+    if (isVideoMode) {
+      setMessage('Publishing video collection to Arc Codex...');
+      try {
+        const resp = await fetch('/api/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            origin: 'video',
+            content: content.trim(),
+            title: title.trim(),
+            description: description.trim(),
+            visibility,
+          }),
+        });
+        const resData = await resp.json();
+        if (!resp.ok) throw new Error(resData.error || 'Unknown error from server.');
+        setStatus('success');
+        setMessage('Published! Your video collection is live on Arc Codex.');
+        setShowConfetti(true);
+        setTimeout(() => {
+          setShowConfetti(false);
+          router.push(resData.article_id ? `/article/${resData.article_id}` : '/');
+        }, 2000);
+      } catch (err) {
+        setStatus('error');
+        setMessage(err instanceof Error ? err.message : 'Something went wrong.');
+      }
+      return;
+    }
 
     // Upload image if selected (inlined to avoid forward reference)
     let resolvedImageUrl: string | null = uploadedImageUrl;
@@ -577,7 +627,7 @@ export default function PublishPage() {
       setStatus('error');
       setMessage(err instanceof Error ? err.message : 'Something went wrong.');
     }
-  }, [title, content, contentType, file, description, clearDraft, router, isProbablyUrl, imageFile, uploadedImageUrl, pollJobStatus]);
+  }, [title, content, contentType, file, description, clearDraft, router, isProbablyUrl, imageFile, uploadedImageUrl, pollJobStatus, isVideoMode]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -883,22 +933,65 @@ export default function PublishPage() {
             </div>
           </Section>
 
-          {/* Content Type Selector */}
-          <Section
-            title="Medium"
-            icon={<Link2 className="w-4 h-4" />}
-            sectionId="medium-section"
-          >
-            <RadioGroup value={contentType} onChange={setContentType} />
-          </Section>
+          {/* Video mode: description textarea instead of medium selector */}
+          {isVideoMode && (
+            <Section
+              title="Video Collection"
+              icon={<Video className="w-4 h-4" />}
+              sectionId="video-section"
+            >
+              <div className="space-y-4">
+                <p className="font-serif text-sm text-slate-400 italic leading-relaxed">
+                  Publishing a LightBox video collection to Arc Codex. No scribe analysis — the collection link is the content.
+                </p>
+                <div>
+                  <div className="font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500 block mb-2">Collection URL</div>
+                  <p className="font-mono text-sm text-slate-400 break-all">{content}</p>
+                </div>
+                <div className="space-y-3 pt-2">
+                  <label htmlFor="video-description" className="font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500 block">
+                    Description <span className="text-slate-600 normal-case tracking-normal">(optional)</span>
+                  </label>
+                  <Textarea
+                    id="video-description"
+                    value={description}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDescription(e.target.value)}
+                    rows={4}
+                    placeholder="Describe this video collection…"
+                    aria-describedby="video-desc-hint"
+                    className="bg-transparent border border-slate-800 rounded-sm px-4 py-3 text-slate-100 font-serif text-base leading-relaxed focus:border-emerald-500 focus:ring-0 focus-visible:ring-0 placeholder:text-slate-600 resize-none transition-colors"
+                    disabled={status === 'loading' || status === 'success'}
+                    maxLength={500}
+                  />
+                  <div id="video-desc-hint" className="flex justify-between items-center font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                    <span className="italic normal-case tracking-normal font-serif text-sm text-slate-400">Appears as a caption on the Arc Codex card.</span>
+                    <span>{description.length} / 500</span>
+                  </div>
+                </div>
+              </div>
+            </Section>
+          )}
 
-          {/* Content Input */}
-          <div>
-            {contentType === 'text'   && renderTextInput()}
-            {contentType === 'url'    && renderUrlInput()}
-            {contentType === 'file'   && renderFileUpload()}
-            {contentType === 'prompt' && renderPromptInput()}
-          </div>
+          {/* Content Type Selector — hidden in video mode */}
+          {!isVideoMode && (
+            <Section
+              title="Medium"
+              icon={<Link2 className="w-4 h-4" />}
+              sectionId="medium-section"
+            >
+              <RadioGroup value={contentType} onChange={setContentType} />
+            </Section>
+          )}
+
+          {/* Content Input — hidden in video mode */}
+          {!isVideoMode && (
+            <div>
+              {contentType === 'text'   && renderTextInput()}
+              {contentType === 'url'    && renderUrlInput()}
+              {contentType === 'file'   && renderFileUpload()}
+              {contentType === 'prompt' && renderPromptInput()}
+            </div>
+          )}
 
           {/* Cover Image Accordion */}
           <section
@@ -1183,7 +1276,11 @@ export default function PublishPage() {
                 className="w-full p-4 rounded-sm border border-emerald-500/60 bg-emerald-600/10 text-slate-100 text-left transition-colors hover:bg-emerald-600/20 focus-visible:ring-1 focus-visible:ring-emerald-400/60 focus-visible:outline-none"
               >
                 <div className="font-sans text-xs uppercase tracking-[0.2em] font-semibold text-emerald-300">Make Public</div>
-                <div className="font-serif text-sm text-slate-400 mt-1">Published to the Arc Codex feed with full A.R.C. analysis.</div>
+                <div className="font-serif text-sm text-slate-400 mt-1">
+                  {isVideoMode
+                    ? 'Published to the Arc Codex feed as a video collection.'
+                    : 'Published to the Arc Codex feed with full A.R.C. analysis.'}
+                </div>
               </button>
 
               {/* Keep Private — disabled when not signed in */}
@@ -1259,13 +1356,19 @@ export default function PublishPage() {
           <div className="text-center px-8 max-w-lg">
             <div className="w-16 h-16 border border-slate-800 border-t-emerald-500 rounded-full mx-auto mb-8 animate-spin" aria-hidden="true" />
             <div className="font-sans text-[10px] uppercase tracking-[0.4em] text-slate-500 mb-3">
-              {contentType === 'prompt' ? 'Sending to Arc Codex' : 'Processing'}
+              {isVideoMode ? 'Publishing' : contentType === 'prompt' ? 'Sending to Arc Codex' : 'Processing'}
             </div>
             <h3 className="font-serif text-2xl font-semibold text-slate-100 tracking-tight mb-3">
-              {contentType === 'prompt' ? 'Your article is being generated' : 'A.R.C. is analyzing your content'}
+              {isVideoMode
+                ? 'Publishing your video collection'
+                : contentType === 'prompt'
+                ? 'Your article is being generated'
+                : 'A.R.C. is analyzing your content'}
             </h3>
             <p className="font-serif text-sm text-slate-400 italic leading-relaxed">
-              {contentType === 'prompt'
+              {isVideoMode
+                ? 'It will appear in the Arc Codex feed shortly.'
+                : contentType === 'prompt'
                 ? 'It will appear in the feed shortly.'
                 : 'Forty-eight cognitive patterns are at work.'}
             </p>
@@ -1283,5 +1386,13 @@ export default function PublishPage() {
         }
       `}</style>
     </PageWrapper>
+  );
+}
+
+export default function PublishPage() {
+  return (
+    <Suspense>
+      <PublishPageInner />
+    </Suspense>
   );
 }

@@ -1,0 +1,2 @@
+/^rossnesbitt@gmail\.com$/i   OK
+/./                            REJECT Cecil only accepts mail from authorized senders
