@@ -21,7 +21,7 @@
 #   3. build_post_text() uses article.get('url') directly — never reconstruct from slug/id
 #   4. Ghost hashes accumulate from failed publishes — run kasmir7 option 8 periodically
 #   5. After any restart: reseed posted sets from feed before enabling autopost
-#      redis-cli -a simplenes eval "local k=redis.call('zrange','feed',0,-1); for i,id in ipairs(k) do redis.call('sadd','bluesky:posted',id); redis.call('sadd','mastodon:posted',id) end; return #k" 0
+#      redis-cli -a $REDIS_PASSWORD eval "local k=redis.call('zrange','feed',0,-1); for i,id in ipairs(k) do redis.call('sadd','bluesky:posted',id); redis.call('sadd','mastodon:posted',id) end; return #k" 0
 #
 # QUICK NAVIGATION:
 #   USER      — What Arc Codex does for readers (line ~20)
@@ -216,8 +216,8 @@ admin:
         handle             { reverse_proxy localhost:3000 }
 
   redis:
-    url: "redis://:simplenes@localhost:6379/0"
-    admin_cli: "redis-cli -a simplenes"
+    url: "redis://:$REDIS_PASSWORD@localhost:6379/0"
+    admin_cli: "redis-cli -a $REDIS_PASSWORD"
     translation_lock: "translation:active — TTL 300s. Prevents model thrashing on M1."
     autopost_keys: "bluesky:autopost, mastodon:autopost, linkedin:autopost — set 1|0 to enable/disable"
     posted_sets: "bluesky:posted, mastodon:posted, linkedin:posted — SET of article IDs (dedup)"
@@ -541,7 +541,7 @@ developer:
     app: "Arc Codex — app ID 8424769"
     scope: "write:statuses write:media — fixed Mar 24 2026, images now uploading"
     file: backend/mastodon_poster.py
-    on_off: "redis-cli -a simplenes set mastodon:autopost 1|0"
+    on_off: "redis-cli -a $REDIS_PASSWORD set mastodon:autopost 1|0"
     posted_set: "mastodon:posted — SET of article IDs (prevents duplicates)"
     seed_on_start: "All existing articles seeded on startup — no spam flood"
     token_expiry: "~no expiry for user tokens with write:statuses+write:media scope"

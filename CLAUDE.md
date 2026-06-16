@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Arc Codex is a news intelligence platform that ingests RSS feeds, analyzes articles via the A.R.C. framework (three independent AI perspectives), and serves them through a Next.js frontend. It runs alongside **Huntaegis** (`/home/www/huntaegis_stack`) as a sibling stack on the same server — same Redis instance (different DB), same Ollama/Solr, same code structure.
 
+## Editorial principle — scores annotate, never gate
+
+**Scores annotate. They never gate.** Sentiment, readability, AI-detection, and A.R.C. anti-pattern scores are stored, displayed, and exported as metrics — they must NOT be wired into any filter, sort, or gate that decides what content surfaces or in what order. The article feed is chronological. The one sanctioned content gate is comment hostility moderation; the one sanctioned ranking is the opt-in email digest (by readability). Adding any new score-driven gate/sort requires a deliberate decision and an update to /about.
+
 ## Commands
 
 ### Backend

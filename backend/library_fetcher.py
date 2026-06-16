@@ -58,7 +58,7 @@ SECTION_HEADING = "Top 100 EBooks last 30 days"
 RECHECK_AFTER_SECONDS = 7 * 24 * 60 * 60  # 7 days
 SHELVES_CONFIG_PATH = Path(__file__).resolve().parent.parent / "shelves.yaml"
 
-REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "simplenes")
+REDIS_PASSWORD = os.environ['REDIS_PASSWORD']
 
 logging.basicConfig(
     level=logging.INFO,

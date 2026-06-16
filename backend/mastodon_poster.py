@@ -30,7 +30,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 MASTODON_INSTANCE    = os.getenv("MASTODON_INSTANCE", "https://mastodon.social")
 MASTODON_ACCESS_TOKEN = os.getenv("MASTODON_ACCESS_TOKEN", "")
-REDIS_URL            = os.getenv("REDIS_URL", "redis://:simplenes@localhost:6379/0")
+REDIS_URL            = os.environ['REDIS_URL']
 ARTICLE_BASE_URL     = os.getenv("NEXT_PUBLIC_BACKEND_URL", "https://arc-codex.com")
 
 POLL_INTERVAL  = 15          # seconds between Redis scans

@@ -37,7 +37,7 @@ from dotenv import load_dotenv
 # ── env ────────────────────────────────────────────────────────────────────────
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
-REDIS_URL        = os.getenv("REDIS_URL", "redis://:simplenes@localhost:6379/0")
+REDIS_URL        = os.environ['REDIS_URL']
 OLLAMA_HOST      = os.getenv("OLLAMA_HOST", "http://192.168.1.185:11434")
 OLLAMA_MODEL     = os.getenv("OLLAMA_MODEL", "gemma3:4b")
 ARTICLE_BASE_URL = os.getenv("NEXT_PUBLIC_BACKEND_URL", "https://arc-codex.com")

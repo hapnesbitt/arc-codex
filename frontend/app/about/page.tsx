@@ -13,7 +13,14 @@ export const metadata: Metadata = {
   description: 'An instrument for stewarding the process of knowing — A.R.C. cognitive analysis applied to news and discourse.',
 };
 
-const PILLARS = [
+type Pillar = {
+  href: string;
+  title: string;
+  description: string;
+  kicker?: string;
+};
+
+const PILLARS: Pillar[] = [
   {
     href: '/about/sales',
     title: 'Vision & Doctrine',
@@ -34,6 +41,12 @@ const PILLARS = [
     title: 'Stewardship',
     description: 'Professional consulting on cognitive resilience and high-fidelity systems architecture.',
   },
+  {
+    href: '/about/transparency',
+    title: 'The Open Ledger',
+    kicker: 'Candor',
+    description: 'The Standing Audit. Every score that shapes the feed — and every line of code that could — recorded in the open, available for inspection.',
+  },
 ];
 
 const UTILITY_NAV = [
@@ -43,6 +56,7 @@ const UTILITY_NAV = [
   { href: '/about/contact', label: 'Contact' },
   { href: '/about/privacy', label: 'Privacy' },
   { href: '/about/terms', label: 'Terms' },
+  { href: '/about/transparency', label: 'Transparency' },
 ];
 
 export default function AboutGateway() {
@@ -70,7 +84,7 @@ export default function AboutGateway() {
         {PILLARS.map((pillar) => (
           <section key={pillar.href} className="py-10 border-b border-slate-800/60 space-y-4">
             <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
-              Protocol · {pillar.title.split(' ')[0]}
+              Protocol · {pillar.kicker || pillar.title.split(' ')[0]}
             </div>
             <h2 className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-slate-300">
               {pillar.title}

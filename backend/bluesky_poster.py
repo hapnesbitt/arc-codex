@@ -36,7 +36,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 BLUESKY_HANDLE       = os.getenv("BLUESKY_HANDLE", "hapenez.bsky.social")
 BLUESKY_APP_PASSWORD = os.getenv("BLUESKY_APP_PASSWORD", "")
-REDIS_URL            = os.getenv("REDIS_URL", "redis://:simplenes@localhost:6379/0")
+REDIS_URL            = os.environ['REDIS_URL']
 BACKEND_URL          = os.getenv("BACKEND_INTERNAL_URL", "http://localhost:5005")
 ARTICLE_BASE_URL     = os.getenv("NEXT_PUBLIC_BACKEND_URL", "https://arc-codex.com")
 

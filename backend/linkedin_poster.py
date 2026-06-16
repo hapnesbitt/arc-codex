@@ -36,7 +36,7 @@ load_dotenv()
 # ==============================================================================
 # CONFIG
 # ==============================================================================
-REDIS_URL         = os.getenv("REDIS_URL", "redis://:simplenes@localhost:6379/0")
+REDIS_URL         = os.environ['REDIS_URL']
 ACCESS_TOKEN      = os.getenv("LINKEDIN_ACCESS_TOKEN")
 MEMBER_ID         = os.getenv("LINKEDIN_MEMBER_ID")
 ARTICLE_BASE_URL  = "https://arc-codex.com/article"

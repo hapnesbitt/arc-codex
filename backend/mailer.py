@@ -80,7 +80,7 @@ logger = logging.getLogger(__name__)
 
 def get_redis():
     return redis.Redis.from_url(
-        os.environ.get("REDIS_URL", "redis://:simplenes@localhost:6379/0"),
+        os.environ['REDIS_URL'],
         decode_responses=True,
     )
 
@@ -276,7 +276,7 @@ def get_top_articles(r: redis.Redis, n: int = 10) -> list[dict]:
                     import json as _json
                     dossier_raw = data.get("dossier", "{}")
                     dossier = _json.loads(dossier_raw) if dossier_raw else {}
-                    score = float(dossier.get("chimera_score", dossier.get("sentiment", 0)))
+                    score = float(dossier.get("chimera_score", 0))
             except (ValueError, Exception):
                 score = 0
             articles.append({

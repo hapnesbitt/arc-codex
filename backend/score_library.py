@@ -41,7 +41,7 @@ load_dotenv()
 # --- CONFIG ---
 SCORING_CHAR_LIMIT      = 30000          # First N chars used for readability
 RESCORE_AFTER_SECONDS   = 30 * 24 * 60 * 60
-REDIS_PASSWORD          = os.environ.get("REDIS_PASSWORD", "simplenes")
+REDIS_PASSWORD          = os.environ['REDIS_PASSWORD']
 FORCE_RESCORE           = os.environ.get("SCORE_LIBRARY_FORCE") == "1"
 
 logging.basicConfig(

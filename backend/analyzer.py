@@ -70,7 +70,7 @@ except Exception as e:
 # --- REDIS ---
 r = None
 try:
-    r = redis.Redis(decode_responses=True, password=os.environ.get("REDIS_PASSWORD", "simplenes"))
+    r = redis.Redis(decode_responses=True, password=os.environ['REDIS_PASSWORD'])
     r.ping()
     logger.info("✅ Redis connection successful")
     ensure_stream_group(r)

@@ -34,7 +34,6 @@ import uuid
 import threading
 import random
 import gc
-import numbers
 from stream_utils import publish_analysis, ensure_stream_group
 from ollama_utils import call_ollama_local_only, OLLAMA_LOCAL_FALLBACK, OLLAMA_LOCAL_FALLBACK2
 from datetime import datetime, timezone
@@ -81,7 +80,7 @@ STATS_SOURCE_LATENCY = "arc:stats:source_latency"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 API_BASE_URL = os.environ.get("SCRIBE_API_BASE_URL", "http://127.0.0.1:5005/api")
 SOLR_URL = os.environ.get("SCRIBE_SOLR_URL", "http://localhost:8983/solr/feeds/")
-REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "simplenes")
+REDIS_PASSWORD = os.environ['REDIS_PASSWORD']
 SCRIBE_SECRET_KEY = os.environ.get("SCRIBE_SECRET_KEY", "default_secret_for_dev")
 
 # Category-based default images (using existing assets in /public)
@@ -1347,25 +1346,10 @@ def find_best_target(candidates, all_directives, recently_published):
             if not any(re.search(r'\b' + re.escape(keyword) + r'\b', text_to_search, re.IGNORECASE) for keyword in keywords):
                 continue
 
-            sentiment = cand.get('dossier', {}).get('sentiment', 0)
-            emotion_score = 0.5
-            profile = directive.get('emotion_profile', 'high')
-
-            if isinstance(profile, numbers.Number):
-                emotion_score = max(0, 1.0 - abs(sentiment - profile))
-            elif profile == 'high':
-                emotion_score = abs(sentiment)
-            elif profile == 'low':
-                emotion_score = 1.0 - abs(sentiment)
-            elif profile == 'high_positive':
-                emotion_score = max(0, sentiment)
-            elif profile == 'high_negative':
-                emotion_score = abs(min(0, sentiment))
-
             category_bonus = 2.0 if CATEGORY_TO_DIRECTIVE.get(
                 cand.get('source_category', ''), ''
             ) == directive.get('name') else 0.0
-            final_score = directive.get('priority', 1.0) + emotion_score + category_bonus
+            final_score = directive.get('priority', 1.0) + category_bonus
             potential_targets.append({'score': final_score, 'article': cand, 'directive': directive})
 
     if not potential_targets:
@@ -1377,23 +1361,10 @@ def find_best_target(candidates, all_directives, recently_published):
                 keywords = directive.get('keywords', [])
                 if not any(re.search(r'\b' + re.escape(keyword) + r'\b', text_to_search, re.IGNORECASE) for keyword in keywords):
                     continue
-                sentiment = cand.get('dossier', {}).get('sentiment', 0)
-                emotion_score = 0.5
-                profile = directive.get('emotion_profile', 'high')
-                if isinstance(profile, numbers.Number):
-                    emotion_score = max(0, 1.0 - abs(sentiment - profile))
-                elif profile == 'high':
-                    emotion_score = abs(sentiment)
-                elif profile == 'low':
-                    emotion_score = 1.0 - abs(sentiment)
-                elif profile == 'high_positive':
-                    emotion_score = max(0, sentiment)
-                elif profile == 'high_negative':
-                    emotion_score = abs(min(0, sentiment))
                 category_bonus = 2.0 if CATEGORY_TO_DIRECTIVE.get(
                     cand.get('source_category', ''), ''
                 ) == directive.get('name') else 0.0
-                final_score = directive.get('priority', 1.0) + emotion_score + category_bonus
+                final_score = directive.get('priority', 1.0) + category_bonus
                 potential_targets.append({'score': final_score, 'article': cand, 'directive': directive})
         if not potential_targets:
             return None

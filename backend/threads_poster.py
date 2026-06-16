@@ -30,7 +30,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 THREADS_ACCESS_TOKEN = os.getenv("THREADS_ACCESS_TOKEN", "")
 THREADS_USER_ID      = os.getenv("THREADS_USER_ID", "")
-REDIS_URL            = os.getenv("REDIS_URL", "redis://:simplenes@localhost:6379/0")
+REDIS_URL            = os.environ['REDIS_URL']
 ARTICLE_BASE_URL     = os.getenv("NEXT_PUBLIC_BACKEND_URL", "https://arc-codex.com")
 
 THREADS_API_BASE = "https://graph.threads.net/v1.0"

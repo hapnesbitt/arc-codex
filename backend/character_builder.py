@@ -30,14 +30,15 @@ import logging
 import hashlib
 import yaml
 import redis
-import requests
 from datetime import datetime, timezone
 from dotenv import load_dotenv
+
+import ollama_client  # transport-layer primary/fallback host failover (owns requests)
 
 # ── env ────────────────────────────────────────────────────────────────────────
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
-REDIS_URL        = os.getenv("REDIS_URL", "redis://:simplenes@localhost:6379/0")
+REDIS_URL        = os.environ['REDIS_URL']
 OLLAMA_HOST      = os.getenv("OLLAMA_HOST", "http://192.168.1.185:11434")
 OLLAMA_MODEL     = os.getenv("OLLAMA_MODEL", "gemma3:4b")
 ARTICLE_BASE_URL = os.getenv("NEXT_PUBLIC_BACKEND_URL", "https://arc-codex.com")
@@ -154,8 +155,8 @@ def call_ollama(system_prompt: str, dossier: str, model: str | None = None) -> s
     log.info("Calling Ollama model=%s for character", actual_model)
     prompt = f"{dossier}\n\n---\n\nBased on the above, write your comment now."
     try:
-        resp = requests.post(
-            f"{OLLAMA_HOST}/api/generate",
+        resp = ollama_client.post(
+            "/api/generate",
             json={
                 "model":  actual_model,
                 "prompt": prompt,
@@ -163,7 +164,7 @@ def call_ollama(system_prompt: str, dossier: str, model: str | None = None) -> s
                 "stream": False,
                 "options": {"temperature": 0.7, "num_predict": 300},
             },
-            timeout=120,
+            read_timeout=120,
         )
         resp.raise_for_status()
         text = resp.json().get("response", "").strip()

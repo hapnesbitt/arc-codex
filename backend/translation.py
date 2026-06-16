@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 from ollama_utils import call_ollama_with_fallback
+import os
 
 logger = logging.getLogger(__name__)
 translation_bp = Blueprint("translation", __name__)
@@ -61,7 +62,7 @@ RTL_LANGUAGES = {
 # ---------------------------------------------------------------------------
 # Redis
 # ---------------------------------------------------------------------------
-_redis = redis_lib.Redis.from_url("redis://:simplenes@localhost:6379/0", decode_responses=True)
+_redis = redis_lib.Redis.from_url(os.environ['REDIS_URL'], decode_responses=True)
 TRANSLATION_TTL         = 86_400    # 24 hours (default)
 TRANSLATION_TTL_ENGLISH = 604_800   # 7 days — English translations are high-value
 TRANSLATION_LANGS_TTL   = 604_800   # 7 days — langs set TTL matches longest translation

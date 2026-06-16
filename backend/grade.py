@@ -28,7 +28,7 @@ grade_bp = Blueprint("grade", __name__)
 # Config
 # ---------------------------------------------------------------------------
 _redis = redis_lib.Redis.from_url(
-    os.environ.get("REDIS_URL", "redis://:simplenes@localhost:6379/0"),
+    os.environ['REDIS_URL'],
     decode_responses=True
 )
 

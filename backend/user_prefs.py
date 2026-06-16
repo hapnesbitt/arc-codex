@@ -18,13 +18,14 @@ import logging
 from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request, abort
 import redis as redis_lib
+import os
 
 logger = logging.getLogger(__name__)
 
 user_prefs_bp = Blueprint("user_prefs", __name__)
 
 _redis = redis_lib.Redis.from_url(
-    "redis://:simplenes@localhost:6379/0",
+    os.environ['REDIS_URL'],
     decode_responses=True
 )
 

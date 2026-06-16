@@ -20,7 +20,7 @@ CONSUMER_GROUP = "analysis_workers"
 
 def get_redis_connection():
     """Get a Redis connection using environment variables."""
-    password = os.getenv('REDIS_PASSWORD', 'simplenes')
+    password = os.environ['REDIS_PASSWORD']
     host = os.getenv('REDIS_HOST', 'localhost')
     port = int(os.getenv('REDIS_PORT', 6379))
     db = int(os.getenv('REDIS_DB', 0))

@@ -47,7 +47,7 @@ APP_ID           = os.getenv("FACEBOOK_APP_ID", "")
 APP_SECRET       = os.getenv("FACEBOOK_APP_SECRET", "")
 PAGE_ID          = os.getenv("FACEBOOK_PAGE_ID", "")
 ACCESS_TOKEN     = os.getenv("FACEBOOK_ACCESS_TOKEN", "")
-REDIS_URL        = os.getenv("REDIS_URL", "redis://:simplenes@localhost:6379/0")
+REDIS_URL        = os.environ['REDIS_URL']
 ARTICLE_BASE_URL = os.getenv("NEXT_PUBLIC_BACKEND_URL", "https://arc-codex.com")
 DEFAULT_IMAGE    = f"{ARTICLE_BASE_URL}/uploads/arc-codex-default.jpg"
 

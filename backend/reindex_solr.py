@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 load_dotenv('/home/www/arc_stack/backend/.env')
 
-REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', 'simplenes')
+REDIS_PASSWORD = os.environ['REDIS_PASSWORD']
 SOLR_URL = os.getenv('SCRIBE_SOLR_URL', 'http://localhost:8983/solr/feeds/')
 
 r = redis.Redis(host='localhost', port=6379, password=REDIS_PASSWORD, decode_responses=True)

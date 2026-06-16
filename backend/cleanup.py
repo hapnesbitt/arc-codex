@@ -30,7 +30,7 @@ logging.basicConfig(
 logger = logging.getLogger('cleanup')
 
 # --- CONFIG ---
-REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', 'simplenes')
+REDIS_PASSWORD = os.environ['REDIS_PASSWORD']
 SOLR_URL       = os.environ.get('SCRIBE_SOLR_URL', 'http://localhost:8983/solr/feeds/')
 
 
