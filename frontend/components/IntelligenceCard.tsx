@@ -1,13 +1,12 @@
 // Filename: /frontend/components/IntelligenceCard.tsx
-// Version 7.2 - Chimera Difficulty Score
-// Changes from v7.1:
-// - MRIGauge replaced with ChimeraGauge (readability difficulty, 0-100)
-// - All-green color scale — difficulty only, no warning language
-// - Reading label: Kindergarten → Quantum Electrodynamics
+// Version 7.3 - Chimera Difficulty Score
+// Changes from v7.2:
+// - Fixed mobile action button clipping by ensuring proper alignment/wrapping in flex column
+// - Made AnalysisSection headers, content, and footers responsively padded (px-4 sm:px-8) to maximize text width on small screens
 
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useId, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -58,11 +57,14 @@ interface IntelligenceCardProps {
     isCompact?: boolean;
     initialLang?: string | null;
     defaultExpandedSection?: keyof ExpandedSections;
+    /** Permalink mode: every section open, no accordion chrome, no read-more toggles. */
+    fullyExpanded?: boolean;
 }
 
 interface AccordionTextProps {
     text: string;
     characterLimit?: number;
+    fullyExpanded?: boolean;
 }
 
 interface ChimeraGaugeProps {
@@ -78,6 +80,8 @@ interface AnalysisSectionProps {
     onToggle: () => void;
     /** Unique id used to wire aria-controls → content region */
     sectionId: string;
+    /** When true, render as a static heading with always-visible content (no toggle, no chevron, no animation). */
+    fullyExpanded?: boolean;
 }
 
 interface ExpandedSections {
@@ -218,9 +222,28 @@ const markdownToHtml = (text: string): string => {
     return html.join('\n');
 };
 
+// Strip a leading line from `body` if it equals `title` (whitespace + case insensitive).
+// Many RSS feeds embed the headline as the first line of original_text; we don't want
+// the title rendered twice (visible duplication + screen-reader repeat).
+function stripLeadingTitle(body: string, title: string): string {
+    if (!body || !title) return body;
+    const normalize = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+    const target = normalize(title);
+    if (!target) return body;
+    const lines = body.split(/\r?\n/);
+    let i = 0;
+    while (i < lines.length && lines[i].trim() === '') i++;
+    if (i >= lines.length) return body;
+    if (normalize(lines[i]) === target) {
+        return lines.slice(i + 1).join('\n').replace(/^[\r\n]+/, '');
+    }
+    return body;
+}
+
 // --- Helper: Text with "Read More" Accordion ---
-const AccordionText: React.FC<AccordionTextProps> = ({ text, characterLimit = 400 }) => {
+const AccordionText: React.FC<AccordionTextProps> = ({ text, characterLimit = 400, fullyExpanded = false }) => {
     const [isExpanded, setIsExpanded] = useState<boolean>(false);
+    const remainderId = useId();
 
     useEffect(() => {
         const expand = () => setIsExpanded(true);
@@ -228,13 +251,13 @@ const AccordionText: React.FC<AccordionTextProps> = ({ text, characterLimit = 40
         return () => window.removeEventListener('beforeprint', expand);
     }, []);
 
-    const { plainText, needsTruncation, fullHtml } = useMemo(() => {
+    const { needsTruncation, fullHtml } = useMemo(() => {
         const cleanText = safeText(text);
         const isMarkdown = hasMarkdown(cleanText);
         const plainText = isMarkdown ? stripMarkdown(cleanText) : cleanText;
         const fullHtml = isMarkdown ? markdownToHtml(cleanText) : plainTextToHtml(cleanText);
-        return { plainText, needsTruncation: plainText.length > characterLimit, fullHtml };
-    }, [text, characterLimit]);
+        return { needsTruncation: !fullyExpanded && plainText.length > characterLimit, fullHtml };
+    }, [text, characterLimit, fullyExpanded]);
 
     if (!needsTruncation) {
         return (
@@ -251,22 +274,25 @@ const AccordionText: React.FC<AccordionTextProps> = ({ text, characterLimit = 40
         setIsExpanded(prev => !prev);
     };
 
-    const displayHtml = isExpanded
-        ? fullHtml
-        : linkifyText(`${plainText.slice(0, characterLimit)}...`);
-
     return (
         <div>
             <button
                 onClick={toggleExpansion}
                 aria-expanded={isExpanded}
-                className="font-sans text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-slate-100 mb-4 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+                aria-controls={remainderId}
+                className={`font-sans text-xs uppercase tracking-[0.2em] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm ${
+                    isExpanded
+                        ? 'text-sky-400 hover:text-sky-200'
+                        : 'text-rose-400 hover:text-rose-200'
+                }`}
             >
-                {isExpanded ? "— Read less" : "— Read more"}
+                {isExpanded ? "Read less —" : "— Read more"}
             </button>
             <div
-                className="prose prose-invert max-w-none font-serif text-slate-200 leading-relaxed"
-                dangerouslySetInnerHTML={{ __html: displayHtml }}
+                id={remainderId}
+                hidden={!isExpanded}
+                className="prose prose-invert max-w-none font-serif text-slate-200 leading-relaxed mt-4"
+                dangerouslySetInnerHTML={{ __html: fullHtml }}
             />
         </div>
     );
@@ -316,8 +342,6 @@ const VideoList: React.FC<{ text: string }> = ({ text }) => {
 };
 
 // --- Chimera Difficulty Score Gauge ---
-// All-green scale: difficulty only, no warning language.
-// aria-hidden on SVG; score + label surfaced via sr-only span.
 const ChimeraGauge: React.FC<ChimeraGaugeProps> = ({ score, readingLabel }) => {
     const circumference = 2 * Math.PI * 20;
     const strokeDashoffset = circumference - ((score / 100) * circumference);
@@ -329,8 +353,8 @@ const ChimeraGauge: React.FC<ChimeraGaugeProps> = ({ score, readingLabel }) => {
         : '#14532d';
 
     return (
-        <div className="flex flex-col items-center gap-1">
-            {/* Circular gauge — score number centred inside */}
+        <>
+        <div className="flex flex-col items-center gap-1" aria-hidden="true">
             <div className="relative h-16 w-16 flex items-center justify-center flex-shrink-0">
                 <svg
                     className="absolute inset-0"
@@ -361,7 +385,6 @@ const ChimeraGauge: React.FC<ChimeraGaugeProps> = ({ score, readingLabel }) => {
                 </div>
             </div>
 
-            {/* Persistent, selectable text below the gauge */}
             <div className="text-center max-w-[9rem]">
                 <div
                     className="font-mono text-xs font-semibold leading-tight"
@@ -377,11 +400,14 @@ const ChimeraGauge: React.FC<ChimeraGaugeProps> = ({ score, readingLabel }) => {
                 </div>
             </div>
         </div>
+        <span className="sr-only">
+            Chimera readability score {score} out of 100, {readingLabel} reading level.
+        </span>
+        </>
     );
 };
 
 // --- Collapsible Analysis Section ---
-// aria-expanded on toggle button, aria-controls linking to content region.
 const AnalysisSection: React.FC<AnalysisSectionProps> = ({
     title,
     icon,
@@ -389,15 +415,33 @@ const AnalysisSection: React.FC<AnalysisSectionProps> = ({
     isExpanded,
     onToggle,
     sectionId,
+    fullyExpanded = false,
 }) => {
     const contentId = `${sectionId}-content`;
+    if (fullyExpanded) {
+        return (
+            <div className="border-t border-slate-800">
+                <div className="w-full flex items-center px-4 sm:px-8 py-5">
+                    <div className="flex items-center gap-3">
+                        <div aria-hidden="true">{icon}</div>
+                        <h3 className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-slate-300">
+                            {title}
+                        </h3>
+                    </div>
+                </div>
+                <div id={contentId} className="px-4 sm:px-8 pb-6 pt-0">
+                    {children}
+                </div>
+            </div>
+        );
+    }
     return (
         <div className="border-t border-slate-800">
             <button
                 onClick={onToggle}
                 aria-expanded={isExpanded}
                 aria-controls={contentId}
-                className="w-full flex justify-between items-center px-8 py-5 text-left hover:bg-slate-800/30 transition-colors group focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-emerald-400/40"
+                className="w-full flex justify-between items-center px-4 sm:px-8 py-5 text-left hover:bg-slate-800/30 transition-colors group focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-emerald-400/40"
             >
                 <div className="flex items-center gap-3">
                     <div aria-hidden="true">
@@ -422,7 +466,7 @@ const AnalysisSection: React.FC<AnalysisSectionProps> = ({
                         transition={{ duration: 0.3, ease: 'easeInOut' }}
                         className="overflow-hidden"
                     >
-                        <div className="px-8 pb-6 pt-0">
+                        <div className="px-4 sm:px-8 pb-6 pt-0">
                             {children}
                         </div>
                     </motion.div>
@@ -450,8 +494,7 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
     };
 
     useEffect(() => {
-        const handleClickOutside = (e: MouseEvent) => {
-        };
+        const handleClickOutside = (e: MouseEvent) => {};
         const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
         document.addEventListener("mousedown", handleClickOutside);
         document.addEventListener("keydown", handleEsc);
@@ -489,7 +532,7 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
         <div className="relative" ref={menuRef}>
             <button
                 ref={triggerRef}
-		onClick={(e) => { e.stopPropagation(); setIsOpen(s => !s); }}
+                onClick={(e) => { e.stopPropagation(); setIsOpen(s => !s); }}
                 aria-label="Research this article"
                 aria-expanded={isOpen}
                 aria-haspopup="menu"
@@ -548,7 +591,6 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
 };
 
 // --- Share Menu ---
-// aria-expanded + aria-haspopup on trigger, focus returns to trigger on close.
 const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; lang?: string | null; counterComment?: string }> = ({
     title,
     articleId,
@@ -564,11 +606,9 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://arc-codex.com';
     const baseUrl = `${backendUrl}/article/${articleId}`;
     const fullUrl = lang ? `${baseUrl}?lang=${encodeURIComponent(lang)}` : baseUrl;
-    // Share payload: title + counter-analyst comment (if available) + URL
     const sharePayload = counterComment
         ? `${title}\n\n${counterComment}\n\n${fullUrl}`
         : `${title}\n\n${fullUrl}`;
-    const shareText = blurb || 'Read this on Arc Codex';
 
     const close = () => {
         setIsOpen(false);
@@ -600,67 +640,35 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
         setIsOpen(prev => !prev);
     };
 
-    const handleCopyLink = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        navigator.clipboard.writeText(sharePayload);
-        setCopied(true);
-        setTimeout(() => { setCopied(false); close(); }, 1500);
-    };
-
-    const handleTwitter = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        window.open(`https://x.com/intent/tweet?text=${encodeURIComponent(sharePayload)}&url=${encodeURIComponent(fullUrl)}`, '_blank', 'width=600,height=400');
-        close();
-    };
-
     const handleFacebook = (e: React.MouseEvent) => {
         e.stopPropagation();
         window.open(`https://www.facebook.com/sharer.php?u=${encodeURIComponent(fullUrl)}`, '_blank', 'width=600,height=400');
         close();
     };
 
-    const handleLinkedIn = (e: React.MouseEvent) => {
+    const handleBluesky = (e: React.MouseEvent) => {
         e.stopPropagation();
-        navigator.clipboard.writeText(sharePayload).catch(() => {});
-        window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(fullUrl)}`, '_blank', 'width=600,height=600');
+        window.open(`https://bsky.app/intent/compose?text=${encodeURIComponent(sharePayload)}`, '_blank', 'width=600,height=400');
+        close();
+    };
+
+    const handleMastodon = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        window.open(`https://mastodon.social/share?text=${encodeURIComponent(sharePayload)}`, '_blank', 'width=600,height=400');
+        close();
+    };
+
+    const handleSubstack = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        const body = blurb ? `${blurb}\n\nRead the full A.R.C. analysis: ${fullUrl}` : fullUrl;
+        navigator.clipboard.writeText(`${title}\n\n${body}`);
+        window.open('https://substack.com/publish/post/new', '_blank', 'width=900,height=700');
         close();
     };
 
     const handleEmail = (e: React.MouseEvent) => {
         e.stopPropagation();
         window.location.href = `mailto:?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(sharePayload)}`;
-        close();
-    };
-
-    const handleBluesky = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        window.open(
-            `https://bsky.app/intent/compose?text=${encodeURIComponent(sharePayload)}`,
-            '_blank', 'width=600,height=400'
-        );
-        close();
-    };
-
-    const handleMastodon = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        window.open(
-            `https://mastodon.social/share?text=${encodeURIComponent(sharePayload)}`,
-            '_blank', 'width=600,height=400'
-        );
-        close();
-    };
-
-    const handleSubstack = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        const body = blurb
-            ? `${blurb}
-
-Read the full A.R.C. analysis: ${fullUrl}`
-            : fullUrl;
-        navigator.clipboard.writeText(`${title}
-
-${body}`);
-        window.open('https://substack.com/publish/post/new', '_blank', 'width=900,height=700');
         close();
     };
 
@@ -705,13 +713,9 @@ ${body}`);
                             onClick={handleBluesky}
                             className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors focus-visible:outline-none focus-visible:bg-slate-800/80"
                         >
-                            {bskyPosted ? (
-                                <Check className="h-4 w-4 text-emerald-400" aria-hidden="true" />
-                            ) : (
-                                <svg className="h-4 w-4 text-sky-400" viewBox="0 0 360 320" fill="currentColor" aria-hidden="true">
-                                    <path d="M180 141.964C163.699 110.262 119.308 51.1817 78.0347 26.67C56.326 14.0375 3.49981 -3.09781 3.49981 58.4432C3.49981 70.0484 6.51032 152.417 8.02611 164.966C13.0991 206.358 55.1251 218.468 91.8511 211.868C28.8511 221.896 -1.74363 233.946 21.5634 269.754C55.0434 319.698 119.309 292.734 148.915 278.006C167.735 268.609 178.431 260.768 180 256.477C181.569 260.768 192.265 268.609 211.085 278.006C240.691 292.734 304.957 319.698 338.437 269.754C361.744 233.946 331.149 221.896 268.149 211.868C304.875 218.468 346.901 206.358 351.974 164.966C353.49 152.417 356.5 70.0484 356.5 58.4432C356.5 -3.09781 303.674 14.0375 281.965 26.67C240.692 51.1817 196.301 110.262 180 141.964Z"/>
-                                </svg>
-                            )}
+                            <svg className="h-4 w-4 text-sky-400" viewBox="0 0 360 320" fill="currentColor" aria-hidden="true">
+                                <path d="M180 141.964C163.699 110.262 119.308 51.1817 78.0347 26.67C56.326 14.0375 3.49981 -3.09781 3.49981 58.4432C3.49981 70.0484 6.51032 152.417 8.02611 164.966C13.0991 206.358 55.1251 218.468 91.8511 211.868C28.8511 221.896 -1.74363 233.946 21.5634 269.754C55.0434 319.698 119.309 292.734 148.915 278.006C167.735 268.609 178.431 260.768 180 256.477C181.569 260.768 192.265 268.609 211.085 278.006C240.691 292.734 304.957 319.698 338.437 269.754C361.744 233.946 331.149 221.896 268.149 211.868C304.875 218.468 346.901 206.358 351.974 164.966C353.49 152.417 356.5 70.0484 356.5 58.4432C356.5 -3.09781 303.674 14.0375 281.965 26.67C240.692 51.1817 196.301 110.262 180 141.964Z"/>
+                            </svg>
                             <span>Bluesky</span>
                         </button>
                         <button
@@ -756,6 +760,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
     isCompact = false,
     initialLang = null,
     defaultExpandedSection,
+    fullyExpanded = false,
 }) => {
     const [hasCopied, setHasCopied] = useState<boolean>(false);
     const [translatedFields, setTranslatedFields] = useState<TranslatedFields | null>(null);
@@ -789,10 +794,9 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                     handleTranslated(fields, Boolean(rtl));
                     setCurrentLang(initialLang);
                 }
-            } catch { /* silent — fall back to original */ }
+            } catch { /* silent fallback */ }
         };
         fetchInitialLang();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initialLang]);
 
     useEffect(() => {
@@ -808,12 +812,12 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
         translatedFields?.[field] ?? original;
 
     const [expandedSections, setExpandedSections] = useState<ExpandedSections>({
-        talkingPoints: defaultExpandedSection === 'talkingPoints',
-        deepAnalysis: defaultExpandedSection === 'deepAnalysis',
-        redTeam: defaultExpandedSection === 'redTeam',
-        blueTeam: defaultExpandedSection === 'blueTeam',
-        purpleTeam: defaultExpandedSection === 'purpleTeam',
-        sentinel: defaultExpandedSection === 'sentinel',
+        talkingPoints: fullyExpanded || defaultExpandedSection === 'talkingPoints',
+        deepAnalysis: fullyExpanded || defaultExpandedSection === 'deepAnalysis',
+        redTeam: fullyExpanded || defaultExpandedSection === 'redTeam',
+        blueTeam: fullyExpanded || defaultExpandedSection === 'blueTeam',
+        purpleTeam: fullyExpanded || defaultExpandedSection === 'purpleTeam',
+        sentinel: fullyExpanded || defaultExpandedSection === 'sentinel',
     });
 
     const sourceName = card.source_name || card.source || 'Unknown Source';
@@ -862,14 +866,11 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
         setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
     };
 
-    // Chimera Difficulty Score (0-100 int): dossier.chimera_score → nlp_chimera_score Redis field.
     const chimeraScore: number =
         dossier?.chimera_score != null ? dossier.chimera_score
         : parseInt((card as any).nlp_chimera_score || '0', 10) || 0;
     const readingLabel: string =
-        dossier?.reading_label
-        ?? (card as any).nlp_reading_label
-        ?? '';
+        dossier?.reading_label ?? (card as any).nlp_reading_label ?? '';
     const talkingPoints = dossier?.talking_points;
     const deepAnalysisSummary = dossier?.deep_analysis_summary;
 
@@ -877,7 +878,6 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
         || card.blue_team_analysis?.substring(0, 200)
         || 'Read this on Arc Codex';
 
-    // Counter-Analyst comment for share payload — normalize "The article" → "This article"
     const rawCounterComment = comments.find(c => c.author === 'A.R.C. Counter-Analyst')?.text ?? null;
     const counterComment = rawCounterComment
         ? rawCounterComment.replace(/^The article/i, 'This article')
@@ -911,11 +911,10 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
 
     if (!card) return null;
 
-    // Unique prefix for aria-controls wiring on this card instance
     const uid = card.id;
     const researchSnippet = card.blue_team_analysis || card.purple_team_analysis || card.original_text;
 
-    // ── Minimal video card — no analysis fields, no AI UI ─────────────────────
+    // ── Minimal video card ─────────────────────
     if (card.origin === 'video') {
         const videoUrl = card.sourceUrl || (card as any).url || '#';
         const videoDomain = (() => {
@@ -927,23 +926,19 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                 className="w-full max-w-2xl mx-auto"
             >
                 <div className="w-full overflow-hidden border-b border-slate-800/60 bg-slate-900/30">
-                    <div className="p-8">
+                    <div className="p-4 sm:p-8">
                         <header className="flex flex-col-reverse items-end gap-4 sm:flex-row sm:justify-between sm:items-start mb-4">
-                            <div className="flex-1">
-                                <a
-                                    href={videoUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                >
+                            <div className="flex-1 w-full">
+                                <a href={videoUrl} target="_blank" rel="noopener noreferrer">
                                     <h2
                                         id={`card-title-${uid}`}
-                                        className="font-serif text-3xl font-semibold text-slate-50 mb-3 cursor-pointer transition-colors hover:text-slate-100 leading-tight tracking-tight"
+                                        className="font-serif text-2xl sm:text-3xl font-semibold text-slate-50 mb-3 cursor-pointer transition-colors hover:text-slate-100 leading-tight tracking-tight"
                                     >
                                         {card.title}
                                     </h2>
                                 </a>
                             </div>
-                            <div className="flex items-center gap-2 print:hidden">
+                            <div className="flex items-center gap-2 print:hidden max-w-full flex-wrap justify-end">
                                 <Button
                                     variant="ghost"
                                     size="icon"
@@ -951,10 +946,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                     className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
                                     aria-label={hasCopied ? "Link copied" : "Copy article link"}
                                 >
-                                    {hasCopied
-                                        ? <Check className="text-emerald-400" aria-hidden="true" />
-                                        : <Copy aria-hidden="true" />
-                                    }
+                                    {hasCopied ? <Check className="text-emerald-400" aria-hidden="true" /> : <Copy aria-hidden="true" />}
                                 </Button>
                                 <ShareMenu
                                     title={card.title}
@@ -972,7 +964,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                         </span>
                     </div>
                     <div className="border-t border-slate-800" aria-hidden="true" />
-                    <footer className="flex justify-between items-center px-8 py-5 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
+                    <footer className="flex justify-between items-center px-4 sm:px-8 py-5 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
                         <time dateTime={card.timestamp}>{formattedDate}</time>
                     </footer>
                 </div>
@@ -981,17 +973,11 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
     }
 
     return (
-        // <article> is the correct semantic element for a self-contained piece of content.
-        // aria-labelledby points to the h2 title so AT announces "Article: [title]"
-        // when navigating by landmarks.
         <article
             aria-labelledby={`card-title-${uid}`}
             className="w-full max-w-2xl mx-auto"
         >
             <div className="group relative w-full h-full overflow-hidden border-b border-slate-800/60 bg-slate-900/30">
-                {/* Static border-only frame — no glow, no animated outline */}
-
-                {/* Article Image — alt="" because title h2 adjacent covers it */}
                 {card.imageUrl && (
                     <a
                         href={sourceUrl}
@@ -1012,9 +998,9 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                 )}
 
                 {/* Main Content */}
-                <div className="p-8">
+                <div className="p-4 sm:p-8">
                     <header className="flex flex-col-reverse items-end gap-4 sm:flex-row sm:justify-between sm:items-start mb-6">
-                        <div className="flex-1">
+                        <div className="flex-1 w-full">
                             <a
                                 href={sourceUrl}
                                 target={hasExternalSource ? "_blank" : "_self"}
@@ -1022,7 +1008,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             >
                                 <h2
                                     id={`card-title-${uid}`}
-                                    className="font-serif text-3xl font-semibold text-slate-50 mb-3 cursor-pointer transition-colors hover:text-slate-100 leading-tight tracking-tight"
+                                    className="font-serif text-2xl sm:text-3xl font-semibold text-slate-50 mb-3 cursor-pointer transition-colors hover:text-slate-100 leading-tight tracking-tight"
                                 >
                                     {t('title', card.title)}
                                 </h2>
@@ -1041,77 +1027,68 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                         </div>
 
                         {/* Right column: Chimera gauge + action buttons */}
-                        <div className="flex flex-col items-end gap-2">
-
-                        {/* Chimera Difficulty Score Gauge */}
-                        {chimeraScore > 0 && (
-                            <ChimeraGauge score={chimeraScore} readingLabel={readingLabel} />
-                        )}
-
-                        {/* Action Buttons */}
-                        <div className="flex items-center gap-2 print:hidden">
-                            {isPrivate && isOwner && (
-                                <span
-                                    title="Private — only visible to you"
-                                    aria-label="Private article"
-                                    className="text-slate-500"
-                                >
-                                    <Lock className="h-4 w-4" aria-hidden="true" />
-                                </span>
+                        <div className="flex flex-col items-end gap-2 w-full sm:w-auto">
+                            {chimeraScore > 0 && (
+                                <ChimeraGauge score={chimeraScore} readingLabel={readingLabel} />
                             )}
-                            <Link
-                                href={`/article/${card.id}`}
-                                aria-label="Arc Codex permalink"
-                                title="Permalink — Arc Codex's copy with full A.R.C. analysis"
-                                className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
-                            >
-                                <LinkIcon className="h-5 w-5" aria-hidden="true" />
-                            </Link>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={handleCopy}
-                                className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
-                                aria-label={hasCopied ? "Link copied" : "Copy article link"}
-                            >
-                                {hasCopied
-                                    ? <Check className="text-emerald-400" aria-hidden="true" />
-                                    : <Copy aria-hidden="true" />
-                                }
-                            </Button>
-                            <ResearchMenu
-                                title={translatedFields?.title ?? card.title}
-                                articleId={card.id}
-                                snippet={researchSnippet}
-                                sourceUrl={card.sourceUrl}
-                            />
-                            <ShareMenu
-                                title={translatedFields?.title ?? card.title}
-                                articleId={card.id}
-                                blurb={shareBlurb}
-                                lang={currentLang}
-                                counterComment={counterComment ?? undefined}
-                            />
-                            <a
-                                href={card.directive ? `/wiki/${toSlug(card.directive)}#article-${card.id}` : '/wiki'}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                aria-label="Full take — open wiki directive page"
-                                title="Full Take"
-                                className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
-                            >
-                                <Flashlight className="h-5 w-5" aria-hidden="true" />
-                            </a>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={(e: React.MouseEvent) => { e.stopPropagation(); window.print(); }}
-                                className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
-                                aria-label="Print article"
-                            >
-                                <Printer className="h-5 w-5" aria-hidden="true" />
-                            </Button>
-                        </div>
+
+                            {/* Action Buttons: flex-wrap ensures buttons drop cleanly to the next row if pinched */}
+                            <div className="flex items-center gap-2 print:hidden max-w-full flex-wrap justify-end">
+                                {isPrivate && isOwner && (
+                                    <span title="Private — only visible to you" aria-label="Private article" className="text-slate-500">
+                                        <Lock className="h-4 w-4" aria-hidden="true" />
+                                    </span>
+                                )}
+                                <Link
+                                    href={`/article/${card.id}`}
+                                    aria-label="Arc Codex permalink"
+                                    title="Permalink — Arc Codex's copy with full A.R.C. analysis"
+                                    className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                                >
+                                    <LinkIcon className="h-5 w-5" aria-hidden="true" />
+                                </Link>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={handleCopy}
+                                    className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
+                                    aria-label={hasCopied ? "Link copied" : "Copy article link"}
+                                >
+                                    {hasCopied ? <Check className="text-emerald-400" aria-hidden="true" /> : <Copy aria-hidden="true" />}
+                                </Button>
+                                <ResearchMenu
+                                    title={translatedFields?.title ?? card.title}
+                                    articleId={card.id}
+                                    snippet={researchSnippet}
+                                    sourceUrl={card.sourceUrl}
+                                />
+                                <ShareMenu
+                                    title={translatedFields?.title ?? card.title}
+                                    articleId={card.id}
+                                    blurb={shareBlurb}
+                                    lang={currentLang}
+                                    counterComment={counterComment ?? undefined}
+                                />
+                                <a
+                                    href={card.directive ? `/wiki/${toSlug(card.directive)}#article-${card.id}` : '/wiki'}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    aria-label="Full take — open wiki directive page"
+                                    title="Full Take"
+                                    className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                                >
+                                    <Flashlight className="h-5 w-5" aria-hidden="true" />
+                                </a>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); window.print(); }}
+                                    className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
+                                    aria-label="Print article"
+                                >
+                                    <Printer className="h-5 w-5" aria-hidden="true" />
+                                </Button>
+                            </div>
                         </div>
                     </header>
 
@@ -1125,8 +1102,12 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             <VideoList text={t('original_text', card.original_text)} />
                         ) : (
                             <AccordionText
-                                text={t('original_text', card.original_text)}
+                                text={stripLeadingTitle(
+                                    t('original_text', card.original_text),
+                                    t('title', card.title)
+                                )}
                                 characterLimit={isCompact ? 180 : 400}
+                                fullyExpanded={fullyExpanded}
                             />
                         )}
                     </div>
@@ -1142,6 +1123,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 icon={<MessageSquare className="h-4 w-4 text-slate-500" aria-hidden="true" />}
                                 isExpanded={expandedSections.talkingPoints}
                                 onToggle={() => toggleSection('talkingPoints')}
+                                fullyExpanded={fullyExpanded}
                             >
                                 <ul className="list-disc pl-5 space-y-3 text-slate-200 font-serif">
                                     {talkingPoints.map((point, index) => (
@@ -1158,6 +1140,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 icon={<BrainCircuit className="h-4 w-4 text-slate-500" aria-hidden="true" />}
                                 isExpanded={expandedSections.deepAnalysis}
                                 onToggle={() => toggleSection('deepAnalysis')}
+                                fullyExpanded={fullyExpanded}
                             >
                                 <p className="text-slate-200 font-serif leading-relaxed">{deepAnalysisSummary}</p>
                             </AnalysisSection>
@@ -1175,8 +1158,9 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 }
                                 isExpanded={expandedSections.redTeam}
                                 onToggle={() => toggleSection('redTeam')}
+                                fullyExpanded={fullyExpanded}
                             >
-                                <AccordionText text={t('red_team_analysis', card.red_team_analysis)} characterLimit={500} />
+                                <AccordionText text={t('red_team_analysis', card.red_team_analysis)} characterLimit={500} fullyExpanded={fullyExpanded} />
                             </AnalysisSection>
                         )}
 
@@ -1192,8 +1176,9 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 }
                                 isExpanded={expandedSections.blueTeam}
                                 onToggle={() => toggleSection('blueTeam')}
+                                fullyExpanded={fullyExpanded}
                             >
-                                <AccordionText text={t('blue_team_analysis', card.blue_team_analysis)} characterLimit={500} />
+                                <AccordionText text={t('blue_team_analysis', card.blue_team_analysis)} characterLimit={500} fullyExpanded={fullyExpanded} />
                             </AnalysisSection>
                         )}
 
@@ -1209,8 +1194,9 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 }
                                 isExpanded={expandedSections.purpleTeam}
                                 onToggle={() => toggleSection('purpleTeam')}
+                                fullyExpanded={fullyExpanded}
                             >
-                                <AccordionText text={t('purple_team_analysis', card.purple_team_analysis)} characterLimit={500} />
+                                <AccordionText text={t('purple_team_analysis', card.purple_team_analysis)} characterLimit={500} fullyExpanded={fullyExpanded} />
                             </AnalysisSection>
                         )}
 
@@ -1221,9 +1207,9 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 icon={<ScanLine className="h-4 w-4 text-slate-500" aria-hidden="true" />}
                                 isExpanded={expandedSections.sentinel}
                                 onToggle={() => toggleSection('sentinel')}
+                                fullyExpanded={fullyExpanded}
                             >
                                 <div className="space-y-5">
-                                    {/* Confidence bar — role=progressbar with accessible value */}
                                     <div className="flex items-center gap-3">
                                         <span className="font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500 w-24 shrink-0" id={`${uid}-conf-label`}>
                                             Confidence
@@ -1289,11 +1275,11 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
 
                 {/* Comments */}
                 {!isCompact ? (
-                    <div className="px-8 pb-8 pt-6 border-t border-slate-800">
+                    <div className="px-4 sm:px-8 pb-8 pt-6 border-t border-slate-800">
                         <CommentSection comments={comments} articleId={card.id} />
                     </div>
                 ) : comments.length > 0 ? (
-                    <a href={`/article/${card.id}`} className="block px-8 pb-3 group">
+                    <a href={`/article/${card.id}`} className="block px-4 sm:px-8 pb-3 group">
                         <div className="flex items-center gap-2 font-sans text-xs uppercase tracking-[0.2em] text-slate-500 group-hover:text-slate-200 transition-colors cursor-pointer">
                             <MessageSquare className="h-4 w-4" aria-hidden="true" />
                             <span>{comments.length} Comment{comments.length !== 1 ? 's' : ''}</span>
@@ -1303,11 +1289,11 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
 
                 {/* Footer */}
                 <div className="border-t border-slate-800" aria-hidden="true" />
-                <footer className="flex justify-between items-center px-8 py-5 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
+                <footer className="flex justify-between items-center px-4 sm:px-8 py-5 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
                     <time dateTime={card.timestamp}>{formattedDate}</time>
                     {card.directive ? (
                         <Link
-                            href={card.directive ? `/wiki/${toSlug(card.directive)}` : '/wiki'}
+                            href={`/wiki/${toSlug(card.directive)}`}
                             className="font-semibold text-slate-500 hover:text-slate-200 transition-colors duration-200"
                             aria-label={`View ${card.directive} in wiki`}
                         >
@@ -1323,5 +1309,6 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
 export default React.memo(IntelligenceCard, (prev, next) =>
     prev.card.id === next.card.id &&
     prev.comments.length === next.comments.length &&
-    prev.isCompact === next.isCompact
+    prev.isCompact === next.isCompact &&
+    prev.fullyExpanded === next.fullyExpanded
 );
