@@ -1,5 +1,6 @@
 // File: /frontend/app/ClientLayout.tsx
 // VERSION: v4 — Removed local auth (/api/me), login uses signIn() provider picker
+// MODIFICATION: Set mobile responsive horizontal padding to px-0 so cards render edge-to-edge on small viewports.
 
 'use client';
 
@@ -109,7 +110,6 @@ const MobileAuthButton = () => {
     setDeleteError(null);
   };
 
-  // ── OAuth authenticated (GitHub) — full prefs sheet ──────────────────────
   if (status === 'authenticated' && session?.user?.image) {
     return (
       <>
@@ -292,7 +292,6 @@ const MobileAuthButton = () => {
     );
   }
 
-  // ── Not authenticated — single Sign In button ─────────────────────────────
   return (
     <div className="group relative flex flex-col items-center flex-1">
       <button
@@ -456,7 +455,8 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
             className={cn(styles.mainContent, "md:pl-28 pb-28 md:pb-0 relative transition-all outline-none")}
             tabIndex={-1}
           >
-            <div className="max-w-6xl mx-auto px-6 py-10 relative z-10">
+            {/* MODIFIED: px-6 changed to px-0 md:px-6 to flush inner items completely edge-to-edge on mobile display viewports */}
+            <div className="max-w-6xl mx-auto px-0 md:px-6 py-6 md:py-10 relative z-10">
               {children}
             </div>
           </main>

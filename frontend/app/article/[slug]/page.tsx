@@ -1,8 +1,9 @@
 import React from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Home, ShieldAlert, Play } from 'lucide-react';
+import { ArrowLeft, ShieldAlert, Play } from 'lucide-react';
 import IntelligenceCard from '@/components/IntelligenceCard';
 import CopyAllButton from '@/components/CopyAllButton';
+import BackButton from '@/components/BackButton';
 import type { Article, Comment, Dossier } from '@/lib/types';
 import type { Metadata } from 'next';
 
@@ -180,13 +181,7 @@ export default async function ArticlePage(props: PageProps) {
           aria-label="Article navigation"
           className="mb-10 flex items-center justify-between print:hidden"
         >
-          <Link 
-            href="/" 
-            className="group flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 border border-white/5 text-slate-400 hover:text-amber-400 hover:border-amber-500/30 transition-all duration-300"
-          >
-            <Home className="h-4 w-4 transition-transform group-hover:-translate-y-0.5" />
-            <span className="text-[10px] font-black uppercase tracking-widest">Home</span>
-          </Link>
+          <BackButton />
           
           <div className="flex items-center gap-3">
             {article.sourceUrl?.includes('vid.arc-codex.com') && (
@@ -212,6 +207,7 @@ export default async function ArticlePage(props: PageProps) {
             isCompact={false}
             initialLang={initialLang}
             defaultExpandedSection="purpleTeam"
+            fullyExpanded
           />
         </article>
 

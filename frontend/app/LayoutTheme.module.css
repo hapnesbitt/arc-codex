@@ -1,4 +1,5 @@
-/* File: LayoutTheme.module.css - v7.0 Ukraine Blue/Yellow Theme */
+/* File: /frontend/app/LayoutTheme.module.css */
+/* VERSION: v7.0 Ukraine Blue/Yellow Theme */
 /* ARCHITECTURAL FIX: 
   - The body is now a simple, full-height flex container.
   - `overflow: hidden` is the definitive fix for the double scrollbar bug.
@@ -72,8 +73,7 @@
   color: #fef08a;
 }
 
-/* POLISHED: Enhanced sidebar link with glow effect — yellow accent
-*/
+/* POLISHED: Enhanced sidebar link with glow effect — yellow accent */
 .sidebarLink {
   color: rgba(255, 255, 255, 0.8);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -184,9 +184,12 @@
     padding: 1rem;
   }
   
+  /* MODIFIED: Stripped margins, padding, and border radius on mobile 
+     to ensure the shell container flushes flat to the device edge. */
   .mainContent {
-    margin: 0.5rem;
-    padding: 0.5rem;
+    margin: 0px;
+    padding: 0px;
+    border-radius: 0px;
   }
 }
 
