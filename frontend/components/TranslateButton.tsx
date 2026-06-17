@@ -203,74 +203,30 @@ export default function TranslateButton({
     : "Translate article";
 
   return (
-    <div className="relative inline-block text-left" ref={dropdownRef}>
-      <div className="flex flex-wrap items-center gap-2">
-
-        {/* Primary Translate trigger */}
-        <button
-          ref={triggerRef}
-          onClick={toggleDropdown}
-          onKeyDown={handleTriggerKeyDown}
-          aria-haspopup="menu"
-          aria-expanded={isOpen}
-          aria-controls={dropdownId}
-          aria-label={triggerLabel}
-          disabled={!!loadingLang}
-          className={cn(
-            "flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all outline-none focus-visible:ring-2 focus-visible:ring-amber-500 disabled:cursor-wait",
-            isOpen || activeLang
-              ? "bg-amber-500 text-black shadow-[0_0_12px_rgba(245,158,11,0.4)]"
-              : "bg-white/5 text-slate-400 hover:bg-white/10 border border-white/5"
-          )}
-        >
-          {loadingLang ? (
-            <Spinner aria-hidden="true" />
-          ) : (
-            <GlobeIcon aria-hidden="true" />
-          )}
-          <span aria-hidden="true">
-            {loadingLang ? loadingLang : activeLang ? activeLang : "Translate"}
-          </span>
-        </button>
-
-        {/* Reset pill — only when a translation is active */}
-        {activeLang && (
-          <button
-            onClick={handleReset}
-            aria-label="Show original text"
-            className="px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-slate-500 text-[10px] font-bold uppercase tracking-widest hover:text-white hover:bg-white/10 transition-all outline-none focus-visible:ring-2 focus-visible:ring-white"
-          >
-            Original
-          </button>
+    <div className="relative inline-block" ref={dropdownRef}>
+      {/* Trigger — icon-only, matches the action-row pattern */}
+      <button
+        ref={triggerRef}
+        onClick={toggleDropdown}
+        onKeyDown={handleTriggerKeyDown}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        aria-controls={dropdownId}
+        aria-label={triggerLabel}
+        disabled={!!loadingLang}
+        className={cn(
+          "inline-flex items-center justify-center h-10 w-10 rounded-sm transition-colors outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 disabled:cursor-wait",
+          activeLang || loadingLang
+            ? "text-emerald-400 hover:text-emerald-300 hover:bg-slate-800/40"
+            : "text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
         )}
-
-        {/* Cached language pills */}
-        {allCached
-          .filter((l) => l !== activeLang)
-          .map((lang) => (
-            <button
-              key={lang}
-              onClick={() => handleTranslate(lang)}
-              disabled={!!loadingLang}
-              aria-label={
-                loadingLang === lang
-                  ? `Translating to ${lang}`
-                  : `Switch to ${lang} translation`
-              }
-              aria-busy={loadingLang === lang}
-              className="px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-bold uppercase tracking-widest hover:bg-blue-500/20 transition-all disabled:opacity-50 outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
-            >
-              {loadingLang === lang ? (
-                <span className="flex items-center gap-1">
-                  <Spinner aria-hidden="true" />
-                  <span>{lang}</span>
-                </span>
-              ) : (
-                lang
-              )}
-            </button>
-          ))}
-      </div>
+      >
+        {loadingLang ? (
+          <Spinner aria-hidden="true" />
+        ) : (
+          <GlobeIcon aria-hidden="true" />
+        )}
+      </button>
 
       {/* Dropdown menu */}
       {isOpen && (
@@ -279,7 +235,7 @@ export default function TranslateButton({
           role="menu"
           aria-label="Select language"
           aria-orientation="vertical"
-          className="absolute left-0 mt-2 z-[60] w-52 rounded-xl border border-white/10 bg-[#0a0a0a]/95 shadow-2xl overflow-hidden backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100"
+          className="absolute right-0 mt-2 z-[60] w-52 rounded-xl border border-white/10 bg-[#0a0a0a]/95 shadow-2xl overflow-hidden backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100"
         >
           <div className="p-3 border-b border-white/5 bg-white/[0.02]" aria-hidden="true">
             <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
@@ -292,6 +248,18 @@ export default function TranslateButton({
             className="max-h-64 overflow-y-auto p-1 custom-scrollbar"
             role="none"
           >
+            {activeLang && (
+              <li role="none" className="border-b border-white/5 mb-1 pb-1">
+                <button
+                  role="menuitem"
+                  onClick={handleReset}
+                  aria-label="Show original text"
+                  className="w-full text-left px-3 py-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-between outline-none text-slate-400 hover:bg-white/5 hover:text-slate-200 focus:bg-amber-500/10 focus:text-amber-400"
+                >
+                  <span>Show original</span>
+                </button>
+              </li>
+            )}
             {LANGUAGE_NAMES.map((lang) => (
               <li key={lang} role="none">
                 <button
@@ -334,11 +302,11 @@ function GlobeIcon({ ...props }: React.SVGProps<SVGSVGElement>) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      className="h-3.5 w-3.5"
+      className="h-5 w-5"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={2.5}
+      strokeWidth={2}
       strokeLinecap="round"
       strokeLinejoin="round"
       {...props}
@@ -352,7 +320,7 @@ function GlobeIcon({ ...props }: React.SVGProps<SVGSVGElement>) {
 
 function Spinner({ ...props }: React.SVGProps<SVGSVGElement>) {
   return (
-    <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" {...props}>
+    <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" {...props}>
       <circle
         className="opacity-25"
         cx="12" cy="12" r="10"

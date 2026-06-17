@@ -71,17 +71,41 @@ export default function SupportCodex() {
           <div className="border-t border-slate-800/40">
             <Panel label="The Chimera Difficulty Score (circle gauge)">
               <p>
-                The circular gauge on each card shows reading difficulty on a 0–100 scale, synthesizing four grade-level readability metrics: Flesch–Kincaid, Coleman–Liau, SMOG, and Dale–Chall. This is a purely informational signal — not a quality or manipulation score.
+                The circular gauge on each card shows reading difficulty on a 0–100 scale, synthesizing four grade-level readability metrics into a single number. This is a purely informational signal — not a quality or manipulation score.
               </p>
-              <ul className="list-disc ml-6 space-y-1 not-italic">
-                <li>0–30 — accessible (Kindergarten → Middle School)</li>
-                <li>31–50 — moderate (High School → College)</li>
-                <li>41–55 — the sweet spot for quality journalism</li>
-                <li>56–70 — challenging (Graduate → Academic)</li>
-                <li>71–100 — formidable (Expert → Quantum Electrodynamics)</li>
-              </ul>
+
+              <div className="pt-2 space-y-2">
+                <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
+                  The four metrics
+                </div>
+                <ul className="list-disc ml-6 space-y-1 not-italic">
+                  <li><strong className="font-semibold text-slate-200">Flesch–Kincaid</strong> — architectural complexity.</li>
+                  <li><strong className="font-semibold text-slate-200">Coleman–Liau</strong> — character density.</li>
+                  <li><strong className="font-semibold text-slate-200">SMOG</strong> — polysyllabic gravity.</li>
+                  <li><strong className="font-semibold text-slate-200">Dale–Chall</strong> — lexical rarity.</li>
+                </ul>
+              </div>
+
+              <div className="pt-2 space-y-2">
+                <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
+                  Reading-level scale
+                </div>
+                <ul className="list-disc ml-6 space-y-1 not-italic">
+                  <li>0–10 — Kindergarten</li>
+                  <li>11–20 — Elementary</li>
+                  <li>21–30 — Middle School</li>
+                  <li>31–40 — High School</li>
+                  <li>41–50 — College</li>
+                  <li>51–60 — Graduate</li>
+                  <li>61–70 — Academic</li>
+                  <li>71–80 — Expert</li>
+                  <li>81–90 — Specialist</li>
+                  <li>91–100 — Quantum Electrodynamics</li>
+                </ul>
+              </div>
+
               <p className="text-sm text-slate-400">
-                Labels run from &ldquo;Kindergarten&rdquo; through &ldquo;Quantum Electrodynamics.&rdquo; Higher scores indicate denser, more technical prose — not better or worse content.
+                Higher scores indicate denser, more technical prose — not better or worse content. The 41–55 band tends to be the sweet spot for quality long-form journalism.
               </p>
             </Panel>
             <Panel label="Directive tags (footer)">

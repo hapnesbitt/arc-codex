@@ -390,13 +390,7 @@ const ChimeraGauge: React.FC<ChimeraGaugeProps> = ({ score, readingLabel }) => {
                     className="font-mono text-xs font-semibold leading-tight"
                     style={{ color: scoreColor }}
                 >
-                    {readingLabel}
-                </div>
-                <div className="text-slate-400 leading-tight" style={{ fontSize: '0.6rem' }}>
-                    Chimera Difficulty Score
-                </div>
-                <div className="text-slate-500 leading-tight mt-0.5" style={{ fontSize: '0.55rem' }}>
-                    a synthesis of Flesch-Kincaid, Coleman-Liau, SMOG, and Dale-Chall readability metrics
+                    {readingLabel} reading level
                 </div>
             </div>
         </div>
@@ -1013,17 +1007,6 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                     {t('title', card.title)}
                                 </h2>
                             </a>
-
-                            <div className="mt-3 print:hidden">
-                                <TranslateButton
-                                    articleId={card.id}
-                                    cachedLangs={(card as any).cached_langs ?? []}
-                                    sourceLang={(card as any).source_lang ?? null}
-                                    onTranslated={handleTranslated}
-                                    onReset={handleReset}
-                                    onLangChange={setCurrentLang}
-                                />
-                            </div>
                         </div>
 
                         {/* Right column: Chimera gauge + action buttons */}
@@ -1034,6 +1017,14 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
 
                             {/* Action Buttons: flex-wrap ensures buttons drop cleanly to the next row if pinched */}
                             <div className="flex items-center gap-2 print:hidden max-w-full flex-wrap justify-end">
+                                <TranslateButton
+                                    articleId={card.id}
+                                    cachedLangs={(card as any).cached_langs ?? []}
+                                    sourceLang={(card as any).source_lang ?? null}
+                                    onTranslated={handleTranslated}
+                                    onReset={handleReset}
+                                    onLangChange={setCurrentLang}
+                                />
                                 {isPrivate && isOwner && (
                                     <span title="Private — only visible to you" aria-label="Private article" className="text-slate-500">
                                         <Lock className="h-4 w-4" aria-hidden="true" />
