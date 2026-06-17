@@ -10,9 +10,10 @@ import os
 import re
 import time
 import logging
-import requests
 import redis as redis_lib
 from dotenv import load_dotenv
+
+import ollama_client  # transport-layer primary/fallback host failover (owns requests)
 
 load_dotenv()
 
@@ -99,7 +100,7 @@ def call_ollama_with_fallback(prompt_text: str, timeout: int = 900):
             payload = {"model": model, "prompt": prompt_text, "stream": False}
 
             call_start = time.perf_counter()
-            resp = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=timeout)
+            resp = ollama_client.post("/api/generate", json=payload, read_timeout=timeout)
             duration_ms = (time.perf_counter() - call_start) * 1000
 
             if resp.status_code == 200:
@@ -141,7 +142,7 @@ def call_ollama_local_only(prompt_text: str, timeout: int = 900):
             payload = {"model": model, "prompt": prompt_text, "stream": False}
 
             call_start = time.perf_counter()
-            resp = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=timeout)
+            resp = ollama_client.post("/api/generate", json=payload, read_timeout=timeout)
             duration_ms = (time.perf_counter() - call_start) * 1000
 
             if resp.status_code == 200:
