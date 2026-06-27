@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 import ollama_client  # transport-layer primary/fallback host failover (owns requests)
+from domain_registry import domain_matches  # precision domain predicate (domains.yaml)
 
 # ── env ────────────────────────────────────────────────────────────────────────
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -216,11 +217,12 @@ def should_character_speak(character: dict, article_data: dict) -> bool:
     if trigger_directives and article_directive in trigger_directives:
         return True
 
-    # Domain match — substring, case-insensitive against article.category
-    article_category = (article_data.get("category") or "").strip().lower()
+    # Domain match — precision predicate from the shared domain registry
+    # (domains.yaml, the SAME _passes_selector courses use), replacing the old
+    # coarse substring match against the 5-value article.category.
     trigger_domains = triggers.get("domains") or []
     for d in trigger_domains:
-        if d.lower() in article_category:
+        if domain_matches(d, article_data):
             return True
 
     return False

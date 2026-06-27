@@ -243,8 +243,14 @@ characters:
       - Do NOT reference Arc Codex pipeline terminology.
 
       OUTPUT: Plain text only. No labels, no preamble.
-    # No triggers block — fires on every article. The instruction
-    # tells the model to opt out gracefully when no numbers are present.
+    # Gated to the finance domain (domains.yaml) — The Quant is the markets/
+    # numbers voice, coherent only on its domain. Previously had NO triggers: it
+    # woke on EVERY article and burned a devstral-2:123b-cloud call to self-opt-out
+    # ("No significant numerical claims..."). The domain gate now skips off-domain
+    # articles (a measles/sports piece) before the model wakes — the measurable win.
+    triggers:
+      domains:
+        - finance
 
   # ---------------------------------------------------------------------------
   # THE DIPLOMAT — Translation & Regional Context
