@@ -61,3 +61,16 @@ domains:
       pattern: '(\bmalware\b|ransomware|\bphishing\b|\bbreach(?:es|ed)?\b|data breach|\bexploit(?:s|ed|ing)?\b|vulnerabilit|\bCVE-|zero-day|\bransom\b|\bhacker|\bhacked\b|cyberattack|cyber attack|cybersecurit|\bbotnet|\bspyware|\btrojan\b|\bDDoS\b|threat actor|\bAPT\d|credential theft|\bencryption\b|\bfirewall\b|patch(?:ed|ing)? a vuln|security flaw|\bbackdoor\b)'
       title_anchor: true
       body_min_distinct: 3
+
+  sports:
+    # source: authored 2026-06-27 (no SoC sports course — new classifier)
+    precision: 0.78   # MEASURED: 9210-article corpus scan, 27 hits, ~21 on-domain (~0.78). Thin
+                      # by design (0.29% capture) — precision-first. Event-NAME magnets (world cup,
+                      # olympics, march madness, F1) dropped because they double as finance/culture
+                      # metaphors; genuine coverage still caught via FIFA/UEFA/league names + game
+                      # vocab. Residual FPs are cyber pieces about the World Cup as an attack target.
+    selector:
+      type: classifier
+      pattern: '(\bNFL\b|\bNBA\b|\bWNBA\b|\bMLB\b|\bNHL\b|\bNCAA\b|\bNASCAR\b|\bUEFA\b|\bFIFA\b|\bMLS\b|\bPGA\b|\bATP\b|\bWTA\b|premier league|champions league|europa league|la liga|serie a|\bbundesliga\b|\bligue 1\b|world series|\bsuper bowl\b|stanley cup|\bFA Cup\b|\btest match\b|\bquarterback|\btouchdowns?\b|\bfumbles?\b|\binterception|\bhome run|\bRBIs?\b|\bstrikeouts?\b|\bshortstop|\bstarting pitcher|\bbullpen\b|\bdugout\b|free throw|slam dunk|three-pointer|\blayup|penalty kick|\boffside|\bmidfielders?\b|\bgoalkeepers?\b|\bstrikers?\b|\bhat-trick|\bclean sheet|\bgroup stage|\bknockout stage|stoppage time|\bmatchday|\bscoreless|\bshutout|grand slam|pole position|\bplayoffs?\b|\bquarterfinals?\b|\bsemifinals?\b|\bbatsman|\bbowlers?\b|\bwickets?\b|\bpeloton\b|sportsbook)'
+      title_anchor: true
+      body_min_distinct: 3
