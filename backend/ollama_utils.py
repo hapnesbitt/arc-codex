@@ -75,29 +75,58 @@ def _wait_for_translation(max_wait: int = TRANSLATION_LOCK_MAX_WAIT) -> None:
     logger.info("⏳ Translation lock wait expired (%ds) — proceeding anyway", max_wait)
 
 
-def call_ollama_with_fallback(prompt_text: str, timeout: int = 900):
+def call_ollama_with_fallback(
+    prompt_text: str,
+    timeout: int = 900,
+    *,
+    format_schema: dict | str | None = None,
+    temperature: float | None = None,
+    models: list[tuple[str, str]] | None = None,
+):
     """
     Call Ollama API with cloud model first, fallback to local if cloud fails.
     Waits for any active translation to finish before calling the M1.
     Strips <think>...</think> reasoning blocks from thinking models.
 
+    Optional opt-in kwargs (None = today's behavior, no payload change):
+        format_schema  — dict (JSON Schema) for schema-constrained decoding,
+                         or the string "json" for valid-JSON only.
+        temperature    — 0.0 for deterministic output. None = model default.
+        models         — [(model_name, label), …] override of the default
+                         cloud→local cascade. Labels are free-form for logs;
+                         the literal label "cloud" still trips the 429 breaker.
+
     Returns:
         tuple: (response_text, duration_ms, model_used)
 
     Raises:
-        Exception: if both cloud and local models fail.
+        Exception: if every candidate model fails.
     """
     _wait_for_translation()
 
-    candidates = [(OLLAMA_CLOUD_MODEL, "cloud"), (OLLAMA_LOCAL_FALLBACK, "local"), (OLLAMA_LOCAL_FALLBACK2, "local2")]
+    if models is None:
+        candidates = [
+            (OLLAMA_CLOUD_MODEL, "cloud"),
+            (OLLAMA_LOCAL_FALLBACK, "local"),
+            (OLLAMA_LOCAL_FALLBACK2, "local2"),
+        ]
+    else:
+        candidates = list(models)
+
     if not is_cloud_available():
-        logger.info("☁️  Cloud circuit breaker is OPEN — skipping cloud model")
+        before = len(candidates)
         candidates = [(m, l) for m, l in candidates if l != "cloud"]
+        if before != len(candidates):
+            logger.info("☁️  Cloud circuit breaker is OPEN — skipping cloud model(s)")
 
     for model, label in candidates:
         try:
             logger.info(f"{'🌩️' if label == 'cloud' else '🖥️ '} Trying {label} model: {model}")
-            payload = {"model": model, "prompt": prompt_text, "stream": False}
+            payload: dict = {"model": model, "prompt": prompt_text, "stream": False}
+            if format_schema is not None:
+                payload["format"] = format_schema
+            if temperature is not None:
+                payload["options"] = {"temperature": temperature}
 
             call_start = time.perf_counter()
             resp = ollama_client.post("/api/generate", json=payload, read_timeout=timeout)
@@ -119,7 +148,8 @@ def call_ollama_with_fallback(prompt_text: str, timeout: int = 900):
         except Exception as e:
             logger.warning(f"{label.capitalize()} model error: {e}, trying next")
 
-    raise Exception(f"All Ollama models failed (tried {OLLAMA_CLOUD_MODEL}, {OLLAMA_LOCAL_FALLBACK}, {OLLAMA_LOCAL_FALLBACK2})")
+    tried = ", ".join(m for m, _ in candidates) or "(none)"
+    raise Exception(f"All Ollama models failed (tried {tried})")
 
 
 def call_ollama_local_only(prompt_text: str, timeout: int = 900):

@@ -50,6 +50,7 @@ SERVICES=(
     "mastodon_poster|$BACKEND_DIR|python3 mastodon_poster.py|true|"
     "facebook_poster|$BACKEND_DIR|python3 facebook_poster.py|true|"
     "character_builder|$BACKEND_DIR|python3 character_builder.py|true|"
+    "quiz_generator|$BACKEND_DIR|python3 quiz_generator.py|true|"
     "frontend|$ITC_ROOT|docker|false|3000"   # docker sentinel — managed via docker compose
     "watchdog|$ITC_ROOT|./watchdog.sh|false|"
     "corpus_exporter|$BACKEND_DIR|python3 corpus_exporter.py|true|9101"
@@ -544,7 +545,7 @@ cmd_restore() {
 # ==============================================================================
 # COMMAND DISPATCH
 # ==============================================================================
-VALID_SERVICES="gunicorn|scribe|manual_publisher|stream_consumer|analyzer|mailer|bluesky_poster|mastodon_poster|facebook_poster|character_builder|frontend|watchdog|corpus_exporter|caddy_exporter"
+VALID_SERVICES="gunicorn|scribe|manual_publisher|stream_consumer|analyzer|mailer|bluesky_poster|mastodon_poster|facebook_poster|character_builder|quiz_generator|frontend|watchdog|corpus_exporter|caddy_exporter"
 
 case "${1:-}" in
     start)        cmd_start "${2:-}" ;;
