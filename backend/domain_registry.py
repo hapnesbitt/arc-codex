@@ -84,3 +84,15 @@ def domain_matches(domain_id: str, article: dict) -> bool:
         return False
     selector = entry.get("selector") or {"type": "none"}
     return _passes_selector(article, selector)
+
+
+def matching_domains(article: dict) -> list[str]:
+    """Every registry domain_id whose predicate matches `article`. Used by the
+    cross-domain trigger: an article at the intersection of 2+ domains is one no
+    single specialist owns cleanly. Reuses the same predicates — just runs them
+    all and collects the hits."""
+    return [
+        domain_id
+        for domain_id, entry in load_domains().items()
+        if _passes_selector(article, entry.get("selector") or {"type": "none"})
+    ]
