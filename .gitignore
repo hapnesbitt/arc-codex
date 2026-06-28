@@ -74,3 +74,4 @@ __pycache__/
 # Local timestamped backups / superseded drafts
 *.bak*
 Jun17*
+*.Jun[0-9]*
