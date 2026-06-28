@@ -71,7 +71,6 @@ backend/venv/
 __pycache__/
 *.pyc
 
-# Local timestamped backups
-*.bak-*
-*.Jun*
-*.bak
+# Local timestamped backups / superseded drafts
+*.bak*
+Jun17*
