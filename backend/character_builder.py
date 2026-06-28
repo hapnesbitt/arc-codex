@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 import ollama_client  # transport-layer primary/fallback host failover (owns requests)
+from domain_registry import domain_matches, matching_domains  # domain predicates (domains.yaml)
 
 # ── env ────────────────────────────────────────────────────────────────────────
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -216,11 +217,22 @@ def should_character_speak(character: dict, article_data: dict) -> bool:
     if trigger_directives and article_directive in trigger_directives:
         return True
 
-    # Domain match — substring, case-insensitive against article.category
-    article_category = (article_data.get("category") or "").strip().lower()
+    # Domain match — precision predicate from the shared domain registry
+    # (domains.yaml, the SAME _passes_selector courses use), replacing the old
+    # coarse substring match against the 5-value article.category.
     trigger_domains = triggers.get("domains") or []
     for d in trigger_domains:
-        if d.lower() in article_category:
+        if domain_matches(d, article_data):
+            return True
+
+    # Cross-domain match — fire when the article sits at the intersection of
+    # >= N distinct registry domains. This is the synthesizer's lane: a story no
+    # single specialist owns cleanly (finance meets ethics, sports meets economics).
+    # Reuses the registry predicates — just counts distinct matches. Threshold is
+    # a tunable field (triggers.cross_domain: N), default 2.
+    threshold = triggers.get("cross_domain")
+    if threshold:
+        if len(matching_domains(article_data)) >= int(threshold):
             return True
 
     return False

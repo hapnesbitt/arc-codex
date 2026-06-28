@@ -1,5 +1,0 @@
----
-{"original_url": "", "content_type": "text", "category": "general"}
----
-Test of whether something is AI generated
-Look man I’m right text that doesn’t sound like it was AI generated at all in fact when I write something, it sounds like the opposite of AI generated text. I could talk about my dogs and my neighbors all day and it wouldn’t matter how much stuff I said or how stupid it was nobody would think it was AI generated for sure. A title.

@@ -1,0 +1,76 @@
+# =============================================================================
+# Arc Codex — DOMAIN REGISTRY  (domains.yaml)
+# =============================================================================
+# Single source of truth for "what does domain X mean." A domain is a named,
+# reusable SELECTOR PREDICATE, decoupled from any course or character. Courses
+# (School of Chat) and characters (this stack) both gate on these.
+#
+# Evaluated by backend/domain_registry.domain_matches() using the vendored
+# _passes_selector predicate — the SAME predicate School of Chat courses use
+# (claude_stack/backend/main.py). Selector types: none | category | classifier.
+#
+# precision: MEASURED on-topic precision, NOT asserted. null = not yet measured.
+# The proven selectors are lifted verbatim from the SoC course classifiers that
+# already hit ~87-90% at "is this article about domain X."
+#
+# Adding a domain = author selector + measure precision (separate per-domain task).
+# Out of scope here: search-by-domain (deferred to a precompute architecture).
+# =============================================================================
+
+domains:
+
+  finance:
+    # source: SoC financial-daily — category economic_finance
+    precision: null   # clean arc category (~19% of corpus); precision not formally sampled
+    selector:
+      type: category
+      category: economic_finance
+
+  health:
+    # source: SoC health-daily
+    precision: 0.87   # MEASURED 2026-06-27: 30 title-anchor hits sampled, ~26-27 on-topic (~87%)
+    selector:
+      type: classifier
+      pattern: '(\bhealth\b|healthcare|health care|public health|mental health|\bmedical\b|\bmedicine\b|\bdisease|\bvaccin|\bvaccines?\b|\bhospital(?:s|ized|ization)?\b|\bpatients?\b|\bdoctors?\b|physician|\bclinic(?:s|al)?\b|\bdrug\b|\bdrugs\b|\bFDA\b|pharmaceutic|\bcancer\b|\bdiabetes\b|\bsurgery\b|\bsurgical\b|\bnurses?\b|\bepidemic|\bpandemic|\bvirus\b|\binfection|\bobesity\b|\btherap(?:y|ies|eutic)|\bdementia\b|alzheimer|\bopioids?\b|prescription|\bEbola\b|\bmedicaid\b|\bmedicare\b|\babortion|\bmeasles\b|world health organization|\bmaternal\b|\bfentanyl\b|\bdiagnos)'
+      title_anchor: true
+      body_min_distinct: 3
+
+  religion:
+    # source: SoC religion-daily
+    precision: null   # precision-first by design (title-anchor + 3 distinct, pope/surname guards); not formally sampled
+    selector:
+      type: classifier
+      pattern: '(\breligio|\bfaith\b|\bchurch|\bcatholic|\bvatican|\bpapal|the pope|popes?\s+(?:francis|leo|benedict|john\s+paul|to|will|is|has|said|visit|urge|call|warns?|condemn|appoint|name|met|elect|pray)|\bchristian|evangelical|protestant|\bbaptist|methodist|presbyterian|\bislam|muslim|mosque|\bimam|\bquran|\bkoran|sharia|ramadan|\bjewish|\bjudaism|synagogue|\brabbi|\btorah|antisemit|\bhindu|\bbuddhis|\bsikh|clergy|\bpriest|\bbishop|archbishop|\bcardinal\b|\bpastor|\bsermon|congregation|interfaith|theolog|scripture|\bbiblical|religious freedom|religious liberty|freedom of religion|\bdiocese|\bparish|missionar|pilgrimage|\bhajj\b|holy site|\bdiwali|\bhanukkah|\bjihad|caliphate|religious right|christian nationalis|religious minorit|religious hostilit)'
+      title_anchor: true
+      body_min_distinct: 3
+
+  ai:
+    # source: SoC new-machine
+    precision: null   # volume ~6.6% measured; on-topic precision not formally sampled
+    selector:
+      type: classifier
+      pattern: '(artificial intelligence|machine learning|\bLLM\b|\bLLMs\b|\bGPT|ChatGPT|OpenAI|Anthropic|\bClaude\b|Gemini|\bAGI\b|\balignment\b|superintellig|neural net|generative AI|chatbot|agentic|model inference|\bOllama\b|consciousness|sentien|philosophy of mind|epistem|frontier model|reward hacking|interpretability|large language model)'
+      title_anchor: true
+      body_min_distinct: 3
+
+  cyber:
+    # source: new (arc-corpus cyber classifier)
+    precision: null   # NEW classifier — SoC cyber is source-gated (huntaegis), not portable to the arc corpus; pending measurement
+    selector:
+      type: classifier
+      pattern: '(\bmalware\b|ransomware|\bphishing\b|\bbreach(?:es|ed)?\b|data breach|\bexploit(?:s|ed|ing)?\b|vulnerabilit|\bCVE-|zero-day|\bransom\b|\bhacker|\bhacked\b|cyberattack|cyber attack|cybersecurit|\bbotnet|\bspyware|\btrojan\b|\bDDoS\b|threat actor|\bAPT\d|credential theft|\bencryption\b|\bfirewall\b|patch(?:ed|ing)? a vuln|security flaw|\bbackdoor\b)'
+      title_anchor: true
+      body_min_distinct: 3
+
+  sports:
+    # source: authored 2026-06-27 (no SoC sports course — new classifier)
+    precision: 0.78   # MEASURED: 9210-article corpus scan, 27 hits, ~21 on-domain (~0.78). Thin
+                      # by design (0.29% capture) — precision-first. Event-NAME magnets (world cup,
+                      # olympics, march madness, F1) dropped because they double as finance/culture
+                      # metaphors; genuine coverage still caught via FIFA/UEFA/league names + game
+                      # vocab. Residual FPs are cyber pieces about the World Cup as an attack target.
+    selector:
+      type: classifier
+      pattern: '(\bNFL\b|\bNBA\b|\bWNBA\b|\bMLB\b|\bNHL\b|\bNCAA\b|\bNASCAR\b|\bUEFA\b|\bFIFA\b|\bMLS\b|\bPGA\b|\bATP\b|\bWTA\b|premier league|champions league|europa league|la liga|serie a|\bbundesliga\b|\bligue 1\b|world series|\bsuper bowl\b|stanley cup|\bFA Cup\b|\btest match\b|\bquarterback|\btouchdowns?\b|\bfumbles?\b|\binterception|\bhome run|\bRBIs?\b|\bstrikeouts?\b|\bshortstop|\bstarting pitcher|\bbullpen\b|\bdugout\b|free throw|slam dunk|three-pointer|\blayup|penalty kick|\boffside|\bmidfielders?\b|\bgoalkeepers?\b|\bstrikers?\b|\bhat-trick|\bclean sheet|\bgroup stage|\bknockout stage|stoppage time|\bmatchday|\bscoreless|\bshutout|grand slam|pole position|\bplayoffs?\b|\bquarterfinals?\b|\bsemifinals?\b|\bbatsman|\bbowlers?\b|\bwickets?\b|\bpeloton\b|sportsbook)'
+      title_anchor: true
+      body_min_distinct: 3

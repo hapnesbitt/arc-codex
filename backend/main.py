@@ -86,6 +86,8 @@ if REDIS_URL:
         app.register_blueprint(user_prefs_bp)
         from auth import auth_bp, init_auth
         app.register_blueprint(auth_bp)
+        from quiz_api import quiz_bp
+        app.register_blueprint(quiz_bp)
         init_auth(app,
             redis_password=os.getenv("REDIS_PASSWORD"),
             domain=os.getenv("DOMAIN", "arc-codex.com"),

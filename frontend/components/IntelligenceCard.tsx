@@ -26,6 +26,7 @@ import {
     Lock,
     Printer,
     Flashlight,
+    GraduationCap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card as ShadCard } from "@/components/ui/card";
@@ -1069,6 +1070,16 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                     className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
                                 >
                                     <Flashlight className="h-5 w-5" aria-hidden="true" />
+                                </a>
+                                <a
+                                    href={`https://soc.arc-codex.com/course/quiz-me/article/${card.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    aria-label="Quiz me on this article"
+                                    title="Quiz Me — earn a per-article badge on School of Chat"
+                                    className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                                >
+                                    <GraduationCap className="h-5 w-5" aria-hidden="true" />
                                 </a>
                                 <Button
                                     variant="ghost"
