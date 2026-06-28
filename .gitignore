@@ -70,3 +70,8 @@ frontend/tsconfig.tsbuildinfo
 backend/venv/
 __pycache__/
 *.pyc
+
+# Local timestamped backups
+*.bak-*
+*.Jun*
+*.bak
