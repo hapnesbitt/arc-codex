@@ -141,8 +141,16 @@ def refresh_access_token() -> bool:
         _persist_token(new_token)
         log.info("Facebook access token refreshed successfully")
         return True
+    except requests.HTTPError as exc:
+        # Never log exc or the URL — both contain client_secret & fb_exchange_token
+        resp = getattr(exc, "response", None)
+        status = getattr(resp, "status_code", "?")
+        body = (getattr(resp, "text", "") or "")[:200]
+        log.error("Token refresh failed: HTTP %s — %s", status, body)
+        return False
     except Exception as exc:
-        log.error("Token refresh failed: %s", exc)
+        # Avoid str(exc) — request exceptions can echo the URL with query params
+        log.error("Token refresh failed: %s", type(exc).__name__)
         return False
 
 
@@ -189,8 +197,14 @@ def upload_photo_unpublished(image_url: str) -> str | None:
                 log.info("Uploaded unpublished photo: %s", photo_id)
             return photo_id
         return None
+    except requests.HTTPError as exc:
+        # Avoid str(exc) — URL contains ?access_token=...
+        resp = getattr(exc, "response", None)
+        status = getattr(resp, "status_code", "?")
+        log.warning("Photo upload failed (%s): HTTP %s", image_url, status)
+        return None
     except Exception as exc:
-        log.warning("Photo upload failed (%s): %s", image_url, exc)
+        log.warning("Photo upload failed (%s): %s", image_url, type(exc).__name__)
         return None
 
 
@@ -239,11 +253,14 @@ def post_to_page(message: str, article_url: str, image_url: str) -> bool:
             log.info("Posted to Facebook Page: %s", post_id)
             return True
         except requests.HTTPError as exc:
-            body = exc.response.text[:400] if exc.response is not None else str(exc)
-            log.error("Facebook API error: %s — %s", exc, body)
+            # Never log exc — its message includes the URL with ?access_token=...
+            resp = getattr(exc, "response", None)
+            status = getattr(resp, "status_code", "?")
+            body = (getattr(resp, "text", "") or "")[:400]
+            log.error("Facebook API error: HTTP %s — %s", status, body)
             return False
         except Exception as exc:
-            log.error("Facebook post error: %s", exc)
+            log.error("Facebook post error: %s", type(exc).__name__)
             return False
     return False
 
