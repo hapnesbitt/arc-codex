@@ -1507,7 +1507,13 @@ def generate_sitemap(r):
 
                 if ts_raw:
                     ts = ts_raw.decode('utf-8') if isinstance(ts_raw, bytes) else ts_raw
-                    ET.SubElement(url_node, "lastmod").text = ts[:10]
+                    # W3C Datetime per sitemaps.org spec — accept both epoch-ms and ISO inputs.
+                    # No-op for Arc today (all timestamps are ISO); guards against future format drift.
+                    if ts.isdigit():
+                        lastmod = datetime.fromtimestamp(int(ts) / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
+                    else:
+                        lastmod = ts[:10]
+                    ET.SubElement(url_node, "lastmod").text = lastmod
 
                 ET.SubElement(url_node, "priority").text = "0.8"
                 count += 1
