@@ -64,6 +64,11 @@ RUN addgroup --system --gid 1001 nodejs \
 
 # Standalone output + static assets only — no node_modules, no source
 COPY --from=builder /app/public                    ./public
+# Defensive: ensure all public/ files are world-readable so the nextjs user
+# (uid 1001) can serve them. Without this, a host-side mode 600 file (the
+# kind umask-restrictive editors create) gets baked in and Next.js returns
+# 500. Mirrors the fix landed on Huntaegis.
+RUN chmod -R a+rX ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static     ./.next/static
 
