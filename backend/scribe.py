@@ -35,7 +35,7 @@ import threading
 import random
 import gc
 from stream_utils import publish_analysis, ensure_stream_group
-from ollama_utils import call_ollama_local_only, OLLAMA_LOCAL_FALLBACK, OLLAMA_LOCAL_FALLBACK2
+from ollama_utils import call_ollama_local_only, OLLAMA_LOCAL_FALLBACK
 from datetime import datetime, timezone
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
@@ -1507,7 +1507,7 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
 
 def main():
     logger.info("🚀 Arc Codex Scribe v53.0")
-    logger.info(f"   📡 Models: {OLLAMA_LOCAL_FALLBACK} → {OLLAMA_LOCAL_FALLBACK2} (local only, no cloud)")
+    logger.info(f"   📡 Model: {OLLAMA_LOCAL_FALLBACK} (local only, no cloud, no fallback)")
     logger.info(f"   🚫 Playwright/Chromium DISABLED (radeon GPU crash prevention on Z230)")
     logger.info(f"   ▶️  YouTube ingest: yt-dlp metadata mode")
     logger.info(f"   ✍️  Prompt-to-article: enabled")

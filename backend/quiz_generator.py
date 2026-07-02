@@ -62,13 +62,13 @@ COUNTER_KEY = "arc:quiz:counter"   # lifetime quiz # — INCR'd ONLY at successf
 LOCK_KEY = "arc:quiz:generating"
 LOCK_TTL = 600
 
-# Local-first model cascade for quiz generation. Cloud is intentionally NOT
-# included — the quiz must not depend on weekly cloud quota. Pattern is
-# reusable; if we later want cloud as a quality boost during healthy quota,
-# prepend ("devstral-2:123b-cloud", "cloud") to this list.
+# Single local model for quiz generation. Cloud is intentionally NOT
+# included — the quiz must not depend on weekly cloud quota. No local-to-local
+# fallback (fleet policy 2026-07-01; qwen2.5-coder:7b was removed from the M1
+# in the same cleanup). If we later want cloud as a quality boost during
+# healthy quota, prepend ("devstral-2:123b-cloud", "cloud").
 QUIZ_MODELS = [
-    ("qwen2.5-coder:7b", "local-qwen"),
-    ("mistral:7b", "local-mistral"),
+    ("gemma4:e2b", "local"),
 ]
 
 # JSON Schema for a SINGLE question. We generate the quiz one article at a

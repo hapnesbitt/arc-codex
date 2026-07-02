@@ -20,9 +20,8 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 OLLAMA_URL            = os.environ.get("OLLAMA_URL", "http://192.168.1.185:11434")
-OLLAMA_CLOUD_MODEL    = os.environ.get("OLLAMA_CLOUD_MODEL", "nemotron-3-nano:30b-cloud")
-OLLAMA_LOCAL_FALLBACK  = os.environ.get("OLLAMA_LOCAL_FALLBACK", "mistral:7b")
-OLLAMA_LOCAL_FALLBACK2 = os.environ.get("OLLAMA_LOCAL_FALLBACK2", "llama3.2:latest")
+OLLAMA_CLOUD_MODEL    = os.environ.get("OLLAMA_CLOUD_MODEL", "devstral-2:123b-cloud")
+OLLAMA_LOCAL_FALLBACK  = os.environ.get("OLLAMA_LOCAL_FALLBACK", "gemma4:e2b")
 
 TRANSLATION_LOCK_KEY      = "translation:active"
 TRANSLATION_LOCK_MAX_WAIT = 60  # seconds to wait before proceeding anyway
@@ -108,7 +107,6 @@ def call_ollama_with_fallback(
         candidates = [
             (OLLAMA_CLOUD_MODEL, "cloud"),
             (OLLAMA_LOCAL_FALLBACK, "local"),
-            (OLLAMA_LOCAL_FALLBACK2, "local2"),
         ]
     else:
         candidates = list(models)
@@ -154,19 +152,19 @@ def call_ollama_with_fallback(
 
 def call_ollama_local_only(prompt_text: str, timeout: int = 900):
     """
-    Call Ollama using local models only — never the cloud model.
-    Tries OLLAMA_LOCAL_FALLBACK (mistral:7b) first, then OLLAMA_LOCAL_FALLBACK2 (llama3.2:latest).
+    Call Ollama using the local model only (OLLAMA_LOCAL_FALLBACK) — never the cloud model.
+    No local-to-local fallback: one local model, one attempt.
     Used by scribe.py to avoid cloud API costs during background ingestion.
 
     Returns:
         tuple: (response_text, duration_ms, model_used)
 
     Raises:
-        Exception: if both local models fail.
+        Exception: if the local model fails.
     """
     _wait_for_translation()
 
-    for model, label in [(OLLAMA_LOCAL_FALLBACK, "local"), (OLLAMA_LOCAL_FALLBACK2, "local2")]:
+    for model, label in [(OLLAMA_LOCAL_FALLBACK, "local")]:
         try:
             logger.info(f"🖥️  Trying {label} model: {model}")
             payload = {"model": model, "prompt": prompt_text, "stream": False}
@@ -187,4 +185,4 @@ def call_ollama_local_only(prompt_text: str, timeout: int = 900):
         except Exception as e:
             logger.warning(f"{label.capitalize()} model error: {e}, trying next")
 
-    raise Exception(f"All local Ollama models failed (tried {OLLAMA_LOCAL_FALLBACK}, {OLLAMA_LOCAL_FALLBACK2})")
+    raise Exception(f"Local Ollama model failed (tried {OLLAMA_LOCAL_FALLBACK})")
