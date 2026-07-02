@@ -981,7 +981,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                         tabIndex={-1}
                         aria-hidden="true"
                     >
-                        <div className="w-full h-80 bg-slate-950 overflow-hidden border-b border-slate-800/60">
+                        <div className="w-full aspect-video sm:aspect-auto sm:h-80 bg-slate-950 overflow-hidden border-b border-slate-800/60">
                             <img
                                 src={card.imageUrl!.startsWith('/uploads/') ? `${process.env.NEXT_PUBLIC_BACKEND_URL ?? ''}${card.imageUrl}` : card.imageUrl}
                                 alt=""
