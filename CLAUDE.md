@@ -106,8 +106,8 @@ DB 5 is shared auth across all stacks (`arc:users` SET, `arc:user:{username}` HA
 ### AI Inference
 - **Primary**: Ollama on MacBook Air M1 at `192.168.1.185:11434`
 - **Cloud model**: `devstral-2:123b-cloud` (weekly credit limit)
-- **Local fallbacks**: `mistral:7b` → `llama3.2:latest`
-- **Translation model**: `MedAIBase/TranslateGemma:4b` — uses `/api/chat` endpoint (not `/api/generate`)
+- **Local fallback**: `gemma4:e2b` — the only local model; no local-to-local fallback (fleet policy 2026-07-01)
+- **Translation**: routes through `call_ollama_with_fallback` (the dedicated TranslateGemma endpoint was retired 2026-05-06; the model was removed from the M1 2026-07-01)
 
 ### Frontend Key Components
 - `components/IntelligenceCard.tsx` — Full article renderer (tabs, scores, menus). Most complex component.
@@ -144,7 +144,7 @@ DB 5 is shared auth across all stacks (`arc:users` SET, `arc:user:{username}` HA
 
 The two stacks are nearly identical in code but run independently. When fixing a bug or adding a feature, check whether the same change is needed in `/home/www/huntaegis_stack/`. Key differences:
 - Arc: Redis DB 0, port 5005 (API), port 3000 (frontend), `arc:priority_uploads`
-- Huntaegis: Redis DB 1, port 5006 (API), port 3001 (frontend), `huntaegis:priority_uploads`
+- Huntaegis: Redis DB 1, port 5006 (API), port 3002 (frontend), `huntaegis:priority_uploads`
 - Domain-specific strings (arc-codex.com vs huntaegis.com, branding) are intentionally different
 
 Shared utilities: `auth.py`, `ollama_utils.py`, `fetch_utils.py`, `stream_utils.py` — changes here may need mirroring.
