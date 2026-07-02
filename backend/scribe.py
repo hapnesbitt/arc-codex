@@ -491,6 +491,90 @@ def extract_image_url_enhanced(html_content, url):
     return DEFAULT_IMAGE_URL
 
 
+# --- Image self-hosting -----------------------------------------------------
+# Scraped hero images are re-hosted at publish time: fetched once, normalized
+# to 16:9 (matches the frontend card container), saved under
+# frontend/public/uploads/scraped/ (served by Caddy's /uploads/* file_server —
+# scribe must run on the host, or mount that path if ever moved into Docker).
+# The original URL is kept in image_source_url for provenance. ~3% of scraped
+# sources 403 on hotlink (measured 2026-07-02) and URLs rot over time.
+SCRAPED_IMAGE_DIR = os.path.join(os.path.dirname(BASE_DIR), 'frontend', 'public', 'uploads', 'scraped')
+REHOST_W, REHOST_H = 1200, 675          # 16:9 — matches the aspect-video card container
+REHOST_MAX_BYTES = 10 * 1024 * 1024     # same cap as the manual-upload endpoint
+REHOST_FETCH_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+}
+
+
+def _resolves_to_private_ip(url):
+    """True if the host resolves to any private/loopback/link-local address.
+    Scraped pages control these URLs — never let scribe fetch internal targets."""
+    try:
+        import ipaddress
+        host = urlparse(url).hostname
+        if not host:
+            return True
+        for info in socket.getaddrinfo(host, None):
+            ip = ipaddress.ip_address(info[4][0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return True
+        return False
+    except Exception:
+        return True
+
+
+def rehost_article_image(article_id, image_url):
+    """Fetch an external hero image, normalize to 1200x675 JPEG (center-crop,
+    same PIL pattern as the manual-upload resize in main.py), save as
+    /uploads/scraped/{article_id}.jpg — idempotent per article. Returns the
+    relative serving path, or None on any failure: callers keep the hotlink
+    and the article publishes regardless."""
+    try:
+        if not image_url.startswith(('http://', 'https://')):
+            return None
+        if _resolves_to_private_ip(image_url):
+            logger.warning(f"🖼️  Rehost skipped (private address): {image_url[:80]}")
+            return None
+
+        resp = requests.get(image_url, timeout=10, stream=True, headers=REHOST_FETCH_HEADERS)
+        if resp.status_code != 200:
+            logger.info(f"🖼️  Rehost fetch HTTP {resp.status_code}: {image_url[:80]}")
+            return None
+        content_type = resp.headers.get('content-type', '')
+        if not content_type.startswith('image/'):
+            logger.info(f"🖼️  Rehost non-image content-type '{content_type[:30]}': {image_url[:80]}")
+            return None
+        raw = b''
+        for chunk in resp.iter_content(chunk_size=65536):
+            raw += chunk
+            if len(raw) > REHOST_MAX_BYTES:
+                logger.info(f"🖼️  Rehost over size cap, keeping hotlink: {image_url[:80]}")
+                return None
+
+        import io
+        from PIL import Image, ImageOps
+        img = Image.open(io.BytesIO(raw))
+        img = ImageOps.exif_transpose(img)
+        img = img.convert('RGB')  # flattens GIF/PNG alpha; animated GIFs keep first frame only
+        src_w, src_h = img.size
+        scale = max(REHOST_W / src_w, REHOST_H / src_h)
+        new_w, new_h = round(src_w * scale), round(src_h * scale)
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+        left = (new_w - REHOST_W) // 2
+        top = (new_h - REHOST_H) // 2
+        img = img.crop((left, top, left + REHOST_W, top + REHOST_H))
+
+        os.makedirs(SCRAPED_IMAGE_DIR, exist_ok=True)
+        img.save(os.path.join(SCRAPED_IMAGE_DIR, f"{article_id}.jpg"),
+                 format='JPEG', quality=85, optimize=True)
+        logger.info(f"🖼️  Rehosted image for {article_id}: {src_w}x{src_h} → {REHOST_W}x{REHOST_H}")
+        return f"/uploads/scraped/{article_id}.jpg"
+    except Exception as e:
+        logger.info(f"🖼️  Rehost failed ({type(e).__name__}) for {image_url[:80]} — keeping hotlink")
+        return None
+
+
 def assess_content_quality(article_text, html_content=None):
     """Detect low-quality/problematic content before publishing"""
     text_lower = article_text.lower()
@@ -1405,6 +1489,15 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
         )
         article['imageUrl'] = smart_image
         logger.info(f"🖼️  Using category default image for '{directive.get('name', '')}' / '{article.get('source_category', '')}': {smart_image}")
+
+    # Self-host external hero images. On any failure the hotlink stays and
+    # publishing proceeds — an image must never block an article.
+    hero_url = article.get('imageUrl', '')
+    if hero_url.startswith(('http://', 'https://')) and 'arc-codex.com' not in hero_url:
+        local_path = rehost_article_image(article_id, hero_url)
+        if local_path:
+            article['image_source_url'] = hero_url
+            article['imageUrl'] = local_path
 
     publish_payload = {
         k: v for k, v in article.items()
