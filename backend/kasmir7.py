@@ -1478,7 +1478,6 @@ def generate_sitemap(r):
         import xml.etree.ElementTree as ET
         import json
         import re
-        import requests
         from datetime import datetime
         print(colored("\n[!] Scanning Redis for published intelligence...", "yellow"))
 
@@ -1490,7 +1489,7 @@ def generate_sitemap(r):
             return re.sub(r'^-|-$', '', s)
 
         try:
-            keys = r.keys("article:*")
+            feed_ids = r.zrevrange('feed', 0, -1)
             root = ET.Element("urlset", xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
 
             # Static Homepage
@@ -1522,8 +1521,9 @@ def generate_sitemap(r):
                 print(colored(f"[!] Wiki section skipped: {e}", "yellow"))
 
             count = 0
-            for key in keys:
-                article = r.hgetall(key)
+            for aid in feed_ids:
+                aid_str = aid.decode('utf-8') if isinstance(aid, bytes) else aid
+                article = r.hgetall(f"article:{aid_str}")
 
                 vis_raw = article.get(b'visibility') or article.get('visibility')
                 vis = vis_raw.decode('utf-8') if isinstance(vis_raw, bytes) else vis_raw
@@ -1536,8 +1536,7 @@ def generate_sitemap(r):
                 if slug_raw:
                     slug = slug_raw.decode('utf-8') if isinstance(slug_raw, bytes) else slug_raw
                 else:
-                    key_str = key.decode('utf-8') if isinstance(key, bytes) else key
-                    slug = key_str.split(':')[-1]
+                    slug = aid_str
 
                 url_node = ET.SubElement(root, "url")
                 ET.SubElement(url_node, "loc").text = f"https://arc-codex.com/article/{slug}"
@@ -1602,77 +1601,88 @@ def generate_sitemap(r):
                 tree.write(f, encoding='utf-8', xml_declaration=False)
 
             print(colored(f"[✓] Success: {count} articles + {wiki_count} wiki + {lib_count} library URLs synced to {output_path}", "green"))
-
-            # Search Engine Pings
-            print(colored("[!] Notifying search engines of sitemap update...", "cyan"))
-            for engine in ["google", "bing"]:
-                try:
-                    requests.get(f"https://www.{engine}.com/ping?sitemap=https://arc-codex.com/sitemap.xml", timeout=5)
-                except:
-                    continue
         except Exception as e:
             print(colored(f"[!] Sitemap generation failed: {e}", "red"))
 
 def generate_rss(r):
         """Enriched RSS Generator for Arc Codex Elite."""
         import xml.etree.ElementTree as ET
-        import requests
         from datetime import datetime
+        from email.utils import formatdate
         print(colored("\n[!] Broadcasting Elite RSS feed...", "magenta"))
 
         output_path = "/home/www/arc_stack/frontend/public/rss.xml"
 
+        # RSS 2.0 spec: dates are RFC 822. Handles ISO 8601 (arc) + epoch-ms.
+        def _to_rfc822(ts):
+            try:
+                if ts.isdigit():
+                    return formatdate(int(ts) / 1000, usegmt=True)
+                dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                return formatdate(dt.timestamp(), usegmt=True)
+            except Exception:
+                return None
+
         try:
             rss = ET.Element("rss", version="2.0")
+            rss.set("xmlns:atom", "http://www.w3.org/2005/Atom")
             channel = ET.SubElement(rss, "channel")
             ET.SubElement(channel, "title").text = "Arc Codex | Intelligence Discovery"
             ET.SubElement(channel, "link").text = "https://arc-codex.com"
             ET.SubElement(channel, "description").text = "AI for the Independent Mind"
-            ET.SubElement(channel, "lastBuildDate").text = datetime.now().strftime("%a, %d %b %Y %H:%M:%S GMT")
+            atom_self = ET.SubElement(channel, "atom:link")
+            atom_self.set("href", "https://arc-codex.com/rss.xml")
+            atom_self.set("rel", "self")
+            atom_self.set("type", "application/rss+xml")
+            ET.SubElement(channel, "lastBuildDate").text = formatdate(usegmt=True)
 
-            keys = r.keys("article:*")
+            feed_ids = r.zrevrange('feed', 0, -1)
             articles = []
-            for key in keys:
-                data = r.hgetall(key)
+            for aid in feed_ids:
+                aid_str = aid.decode('utf-8') if isinstance(aid, bytes) else aid
+                data = r.hgetall(f"article:{aid_str}")
                 vis_raw = data.get(b'visibility') or data.get('visibility')
                 vis = vis_raw.decode('utf-8') if isinstance(vis_raw, bytes) else vis_raw
                 if vis == 'private':
                     continue
-                ts_raw = data.get(b'timestamp') or data.get('timestamp', '')
-                ts = ts_raw.decode('utf-8') if isinstance(ts_raw, bytes) else ts_raw
-                articles.append((ts, key, data))
+                articles.append((aid_str, data))
+                if len(articles) >= 100:
+                    break
 
-            articles.sort(key=lambda x: x[0], reverse=True)
-
-            for ts, key, data in articles[:100]:
+            for aid_str, data in articles:
                 item = ET.SubElement(channel, "item")
                 title_raw = data.get(b'title') or data.get('title', 'Untitled Intel')
                 title = title_raw.decode('utf-8') if isinstance(title_raw, bytes) else title_raw
-                slug_raw = data.get(b'slug') or data.get('slug', (key.decode('utf-8') if isinstance(key, bytes) else key).split(':')[-1])
+                slug_raw = data.get(b'slug') or data.get('slug', aid_str)
                 slug = slug_raw.decode('utf-8') if isinstance(slug_raw, bytes) else slug_raw
+                source_raw = data.get(b'source_name') or data.get('source_name', '')
+                source = source_raw.decode('utf-8') if isinstance(source_raw, bytes) else source_raw
+                ts_raw = data.get(b'timestamp') or data.get('timestamp', '')
+                ts = ts_raw.decode('utf-8') if isinstance(ts_raw, bytes) else ts_raw
 
+                link = f"https://arc-codex.com/article/{slug}"
                 ET.SubElement(item, "title").text = title
-                ET.SubElement(item, "link").text = f"https://arc-codex.com/article/{slug}"
-                ET.SubElement(item, "pubDate").text = ts
+                ET.SubElement(item, "link").text = link
+                ET.SubElement(item, "description").text = f"Source: {source}" if source else title
+                guid = ET.SubElement(item, "guid")
+                guid.set("isPermaLink", "true")
+                guid.text = link
+                pubdate = _to_rfc822(ts)
+                if pubdate:
+                    ET.SubElement(item, "pubDate").text = pubdate
 
             tree = ET.ElementTree(rss)
             with open(output_path, "wb") as f:
                 f.write(b'<?xml version="1.0" encoding="UTF-8"?>\n')
                 tree.write(f, encoding='utf-8', xml_declaration=False)
 
-            print(colored(f"[✓] Elite Feed live: {output_path}", "green"))
-            try:
-                requests.get("https://www.bing.com/ping?sitemap=https://arc-codex.com/rss.xml", timeout=5)
-                print(colored("[!] RSS update broadcasted to Bing.", "cyan"))
-            except:
-                pass
+            print(colored(f"[✓] Elite Feed live: {len(articles)} items → {output_path}", "green"))
         except Exception as e:
             print(colored(f"[!] Elite RSS failed: {e}", "red"))
 
 def generate_news_sitemap(r):
         """Generates a high-velocity Google News sitemap for the last 48 hours."""
         import xml.etree.ElementTree as ET
-        import requests
         from datetime import datetime, timedelta
         print(colored("\n[!] Filtering for fresh intelligence (Last 48h)...", "yellow"))
 
@@ -1680,13 +1690,14 @@ def generate_news_sitemap(r):
         cutoff = datetime.now() - timedelta(hours=48)
 
         try:
-            keys = r.keys("article:*")
+            feed_ids = r.zrevrange('feed', 0, -1)
             root = ET.Element("urlset", xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
             root.set("xmlns:news", "http://www.google.com/schemas/sitemap-news/0.9")
 
             count = 0
-            for key in keys:
-                article = r.hgetall(key)
+            for aid in feed_ids:
+                aid_str = aid.decode('utf-8') if isinstance(aid, bytes) else aid
+                article = r.hgetall(f"article:{aid_str}")
 
                 vis_raw = article.get(b'visibility') or article.get('visibility')
                 vis = vis_raw.decode('utf-8') if isinstance(vis_raw, bytes) else vis_raw
@@ -1711,8 +1722,7 @@ def generate_news_sitemap(r):
                     if slug_raw:
                         slug = slug_raw.decode('utf-8') if isinstance(slug_raw, bytes) else slug_raw
                     else:
-                        key_str = key.decode('utf-8') if isinstance(key, bytes) else key
-                        slug = key_str.split(':')[-1]
+                        slug = aid_str
                     title = title_raw.decode('utf-8') if isinstance(title_raw, bytes) else title_raw
 
                     url_node = ET.SubElement(root, "url")
@@ -1733,12 +1743,6 @@ def generate_news_sitemap(r):
                 tree.write(f, encoding='utf-8', xml_declaration=False)
 
             print(colored(f"[✓] News Wire live: {count} recent stories at {output_path}", "green"))
-
-            try:
-                requests.get(f"https://www.google.com/ping?sitemap=https://arc-codex.com/news-sitemap.xml", timeout=5)
-                print(colored("[!] Google News pinged successfully.", "cyan"))
-            except:
-                pass
         except Exception as e:
             print(colored(f"[!] News Sitemap failed: {e}", "red"))
 
