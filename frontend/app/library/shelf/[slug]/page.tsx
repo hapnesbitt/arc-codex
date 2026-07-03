@@ -59,6 +59,13 @@ export async function generateMetadata({
   return {
     title: `${shelf.name} — Arc Codex Library`,
     description: shelf.description || `Curated shelf of public-domain works: ${shelf.name}.`,
+    alternates: {
+      canonical: `https://arc-codex.com/library/shelf/${slug}`,
+      types: {
+        'application/opensearchdescription+xml': '/opensearch.xml',
+        'application/rss+xml': '/rss.xml',
+      },
+    },
   };
 }
 

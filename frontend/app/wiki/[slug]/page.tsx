@@ -56,6 +56,13 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   return {
     title: `${resolved.name} — Arc Codex Library`,
     description: `Intelligence entries classified under ${resolved.name} within the A.R.C. Framework.`,
+    alternates: {
+      canonical: `https://arc-codex.com/wiki/${slug}`,
+      types: {
+        'application/opensearchdescription+xml': '/opensearch.xml',
+        'application/rss+xml': '/rss.xml',
+      },
+    },
   };
 }
 

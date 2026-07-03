@@ -12,6 +12,13 @@ import { ChevronRight } from 'lucide-react';
 export const metadata: Metadata = {
   title: 'Library — Arc Codex',
   description: 'A formal classification of intelligence and discourse patterns.',
+  alternates: {
+    canonical: 'https://arc-codex.com/wiki',
+    types: {
+      'application/opensearchdescription+xml': '/opensearch.xml',
+      'application/rss+xml': '/rss.xml',
+    },
+  },
 };
 
 interface DirectiveEntry {

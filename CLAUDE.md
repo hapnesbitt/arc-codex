@@ -172,7 +172,7 @@ Example: `"Consumer Tech & Electronics"` → `"consumer-tech-electronics"`.
 
 **Article lifecycle**: Wiki pages are derived live from Redis. An article trimmed from the feed ZSET automatically disappears from the wiki on next page load (5-min revalidation cache).
 
-**SEO**: Each `<li>` in `wiki/[slug]/page.tsx` has `id="article-{id}"`. Full `purple_team_analysis` text is in a `<details>` element (collapsed for users, indexed by crawlers). `generateMetadata` sets canonical URL.
+**SEO**: Each `<li>` in `wiki/[slug]/page.tsx` has `id="article-{id}"`. Full `purple_team_analysis` text is in a `<details>` element (collapsed for users, indexed by crawlers). `generateMetadata` sets `alternates.canonical`; non-article pages that emit their own metadata should include `alternates.canonical` too, since Next.js replaces (rather than deep-merges) `alternates` from the root layout.
 
 ### Sitemap
 

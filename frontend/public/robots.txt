@@ -6,3 +6,4 @@ Crawl-delay: 10
 # Arc Codex: Intelligence infrastructure for the independent mind.
 # Systematic combat of disinformation via Python & AI.
 Sitemap: https://arc-codex.com/sitemap.xml
+Sitemap: https://arc-codex.com/news-sitemap.xml

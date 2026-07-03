@@ -79,6 +79,13 @@ export async function generateMetadata({
   return {
     title: `${work.title} — ${work.author} — Arc Codex Library`,
     description: `${work.title} by ${work.author}, freely readable from Project Gutenberg via Arc Codex.`,
+    alternates: {
+      canonical: `https://arc-codex.com/library/${id}`,
+      types: {
+        'application/opensearchdescription+xml': '/opensearch.xml',
+        'application/rss+xml': '/rss.xml',
+      },
+    },
   };
 }
 

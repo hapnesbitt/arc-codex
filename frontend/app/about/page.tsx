@@ -11,6 +11,13 @@ import { ChevronRight } from 'lucide-react';
 export const metadata: Metadata = {
   title: 'About — Arc Codex',
   description: 'An instrument for stewarding the process of knowing — A.R.C. cognitive analysis applied to news and discourse.',
+  alternates: {
+    canonical: 'https://arc-codex.com/about',
+    types: {
+      'application/opensearchdescription+xml': '/opensearch.xml',
+      'application/rss+xml': '/rss.xml',
+    },
+  },
 };
 
 type Pillar = {

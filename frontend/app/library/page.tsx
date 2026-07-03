@@ -14,6 +14,13 @@ import LibrarySearch from './LibrarySearch';
 export const metadata: Metadata = {
   title: 'Library — Arc Codex',
   description: 'Curated shelves of public-domain works, freely readable — drawn from Project Gutenberg.',
+  alternates: {
+    canonical: 'https://arc-codex.com/library',
+    types: {
+      'application/opensearchdescription+xml': '/opensearch.xml',
+      'application/rss+xml': '/rss.xml',
+    },
+  },
 };
 
 export const revalidate = 3600;

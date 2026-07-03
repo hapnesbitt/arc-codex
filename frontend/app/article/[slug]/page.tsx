@@ -1,6 +1,6 @@
 import React from 'react';
-import Link from 'next/link';
-import { ArrowLeft, ShieldAlert, Play } from 'lucide-react';
+import { notFound } from 'next/navigation';
+import { Play } from 'lucide-react';
 import IntelligenceCard from '@/components/IntelligenceCard';
 import CopyAllButton from '@/components/CopyAllButton';
 import BackButton from '@/components/BackButton';
@@ -126,50 +126,20 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   };
 }
 
-// --- NOT FOUND COMPONENT ---
-function ArticleNotFound() {
-  return (
-    <div className="min-h-screen bg-[#050505] text-slate-200 flex flex-col items-center justify-center px-4">
-      <div className="text-center space-y-6">
-        <div className="flex justify-center">
-          <div className="p-4 rounded-full bg-red-500/10 border border-red-500/20 animate-pulse">
-            <ShieldAlert className="h-12 w-12 text-red-500" />
-          </div>
-        </div>
-        <div>
-          <h1 className="text-2xl font-black uppercase tracking-[0.2em] text-white mb-2">
-            Intelligence Missing
-          </h1>
-          <p className="text-slate-500 text-sm max-w-xs mx-auto leading-relaxed">
-            The requested slug does not exist in the current repository or has been purged.
-          </p>
-        </div>
-        <Link 
-          href="/" 
-          className="inline-flex items-center gap-2 px-6 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl transition-all font-bold text-xs uppercase tracking-widest"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Return to Nexus
-        </Link>
-      </div>
-    </div>
-  );
-}
-
 // --- MAIN PAGE COMPONENT ---
 export default async function ArticlePage(props: PageProps) {
   const params = await props.params;
   const searchParams = await props.searchParams;
   const initialLang = searchParams.lang || null;
 
-  // Fetch article and comments in parallel 
+  // Fetch article and comments in parallel
   const [article, comments] = await Promise.all([
     getArticleData(params.slug),
     getArticleComments(params.slug)
   ]);
 
   if (!article) {
-    return <ArticleNotFound />;
+    notFound();
   }
 
   return (
