@@ -1473,13 +1473,21 @@ def my_publications(r, solr):
         print(colored("Invalid selection.", "red"))
 
 def generate_sitemap(r):
-        """Generates sitemap.xml by pulling slugs or hex IDs directly from Redis."""
+        """Generates sitemap.xml. Includes homepage, wiki directives, articles, library.
+        Excludes visibility=private articles (mirrors main.py /api/sitemap filter)."""
         import xml.etree.ElementTree as ET
+        import json
+        import re
         import requests
         from datetime import datetime
         print(colored("\n[!] Scanning Redis for published intelligence...", "yellow"))
 
         output_path = "/home/www/arc_stack/frontend/public/sitemap.xml"
+        directives_path = "/home/www/arc_stack/frontend/public/directives.json"
+
+        def _slugify(name):
+            s = re.sub(r'[^a-z0-9]+', '-', name.lower())
+            return re.sub(r'^-|-$', '', s)
 
         try:
             keys = r.keys("article:*")
@@ -1490,9 +1498,38 @@ def generate_sitemap(r):
             ET.SubElement(url_node, "loc").text = "https://arc-codex.com/"
             ET.SubElement(url_node, "priority").text = "1.0"
 
+            # Wiki index + per-directive pages (source of truth: directives.json)
+            wiki_count = 0
+            try:
+                with open(directives_path, 'r', encoding='utf-8') as f:
+                    groups = json.load(f)
+                url_node = ET.SubElement(root, "url")
+                ET.SubElement(url_node, "loc").text = "https://arc-codex.com/wiki"
+                ET.SubElement(url_node, "priority").text = "0.8"
+                wiki_count += 1
+                for group in groups:
+                    if group.get('topic') == 'System Directives':
+                        continue
+                    for d in group.get('directives', []):
+                        name = d.get('name', '')
+                        if not name:
+                            continue
+                        url_node = ET.SubElement(root, "url")
+                        ET.SubElement(url_node, "loc").text = f"https://arc-codex.com/wiki/{_slugify(name)}"
+                        ET.SubElement(url_node, "priority").text = "0.7"
+                        wiki_count += 1
+            except Exception as e:
+                print(colored(f"[!] Wiki section skipped: {e}", "yellow"))
+
             count = 0
             for key in keys:
                 article = r.hgetall(key)
+
+                vis_raw = article.get(b'visibility') or article.get('visibility')
+                vis = vis_raw.decode('utf-8') if isinstance(vis_raw, bytes) else vis_raw
+                if vis == 'private':
+                    continue
+
                 slug_raw = article.get(b'slug') or article.get('slug')
                 ts_raw = article.get(b'timestamp') or article.get('timestamp')
 
@@ -1507,8 +1544,6 @@ def generate_sitemap(r):
 
                 if ts_raw:
                     ts = ts_raw.decode('utf-8') if isinstance(ts_raw, bytes) else ts_raw
-                    # W3C Datetime per sitemaps.org spec — accept both epoch-ms and ISO inputs.
-                    # No-op for Arc today (all timestamps are ISO); guards against future format drift.
                     if ts.isdigit():
                         lastmod = datetime.fromtimestamp(int(ts) / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
                     else:
@@ -1566,7 +1601,7 @@ def generate_sitemap(r):
                 f.write(b'<?xml version="1.0" encoding="UTF-8"?>\n')
                 tree.write(f, encoding='utf-8', xml_declaration=False)
 
-            print(colored(f"[✓] Success: {count} articles + {lib_count} library URLs synced to {output_path}", "green"))
+            print(colored(f"[✓] Success: {count} articles + {wiki_count} wiki + {lib_count} library URLs synced to {output_path}", "green"))
 
             # Search Engine Pings
             print(colored("[!] Notifying search engines of sitemap update...", "cyan"))
@@ -1599,6 +1634,10 @@ def generate_rss(r):
             articles = []
             for key in keys:
                 data = r.hgetall(key)
+                vis_raw = data.get(b'visibility') or data.get('visibility')
+                vis = vis_raw.decode('utf-8') if isinstance(vis_raw, bytes) else vis_raw
+                if vis == 'private':
+                    continue
                 ts_raw = data.get(b'timestamp') or data.get('timestamp', '')
                 ts = ts_raw.decode('utf-8') if isinstance(ts_raw, bytes) else ts_raw
                 articles.append((ts, key, data))
@@ -1648,6 +1687,12 @@ def generate_news_sitemap(r):
             count = 0
             for key in keys:
                 article = r.hgetall(key)
+
+                vis_raw = article.get(b'visibility') or article.get('visibility')
+                vis = vis_raw.decode('utf-8') if isinstance(vis_raw, bytes) else vis_raw
+                if vis == 'private':
+                    continue
+
                 ts_raw = article.get(b'timestamp') or article.get('timestamp')
 
                 if ts_raw:
@@ -1663,7 +1708,11 @@ def generate_news_sitemap(r):
                     slug_raw = article.get(b'slug') or article.get('slug')
                     title_raw = article.get(b'title') or article.get('title', 'Untitled Intel')
 
-                    slug = slug_raw.decode('utf-8') if isinstance(slug_raw, bytes) else slug_raw
+                    if slug_raw:
+                        slug = slug_raw.decode('utf-8') if isinstance(slug_raw, bytes) else slug_raw
+                    else:
+                        key_str = key.decode('utf-8') if isinstance(key, bytes) else key
+                        slug = key_str.split(':')[-1]
                     title = title_raw.decode('utf-8') if isinstance(title_raw, bytes) else title_raw
 
                     url_node = ET.SubElement(root, "url")
