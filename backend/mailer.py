@@ -55,7 +55,11 @@ ALERT_PATTERNS = [
     (r"manual intervention needed",   "watchdog_manual",      "Watchdog: manual intervention needed"),
     (r"Too many open files",           "fd_exhaustion",        "File descriptor exhaustion"),
     (r"MAIN LOOP ERROR",               "scribe_loop_error",    "Scribe main loop crashed"),
-    (r"All Ollama models failed",      "ollama_all_failed",    "All Ollama models failed"),
+    # Cluster escalation only — individual "All Ollama models failed" lines
+    # are transient and get downgraded to WARNING in the analyzer log. The
+    # analyzer emits this specific line after N consecutive total-failures
+    # (see analyzer.py _record_analysis_failure).
+    (r"CLUSTER FAILURE:.*consecutive analysis-total-failures", "ollama_cluster_failure", "Analysis pipeline cluster failure"),
     (r"Redis connection failed",       "redis_conn_failed",    "Redis connection failed"),
     (r"OSError.*sources\.json",        "sources_json_error",   "sources.json OS error"),
 ]

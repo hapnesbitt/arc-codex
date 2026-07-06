@@ -153,6 +153,39 @@ def parse_unified_response(response_text: str) -> dict:
     return analyses
 
 
+# --- CLUSTER-FAILURE DETECTION ---
+# A single article can fail for legitimate content reasons (empty scrape,
+# oversized prompt, model timeout on a specific piece). We do NOT want to page
+# on those. But a run of consecutive failures means the analysis pipeline is
+# systemically broken (model unavailable, config bug, network partition) —
+# that's page-worthy. Reset on any success.
+
+CLUSTER_FAILURE_COUNTER_KEY = "arc:analyzer:consecutive_total_failures"
+CLUSTER_FAILURE_THRESHOLD   = 5   # N consecutive analysis-total-failures → alert
+
+def _record_analysis_failure(article_id: str, reason: str) -> None:
+    """Increment the consecutive-failure counter, escalate if past threshold."""
+    try:
+        count = r.incr(CLUSTER_FAILURE_COUNTER_KEY)
+        # 6h TTL so the counter self-clears if the analyzer is idle overnight
+        r.expire(CLUSTER_FAILURE_COUNTER_KEY, 21600)
+    except Exception:
+        return
+    if count == CLUSTER_FAILURE_THRESHOLD:
+        # Log the ONE escalation line the mailer will match. Distinct wording
+        # so the mailer regex doesn't false-positive on individual failures.
+        logger.error(
+            f"🚨 CLUSTER FAILURE: {count} consecutive analysis-total-failures "
+            f"(last: {article_id}, reason: {reason}) — pipeline unhealthy"
+        )
+
+def _reset_analysis_failure_counter() -> None:
+    try:
+        r.delete(CLUSTER_FAILURE_COUNTER_KEY)
+    except Exception:
+        pass
+
+
 def analyze_article(article_id: str) -> bool:
     """Run full red/blue/purple analysis on an article.
     
@@ -216,7 +249,8 @@ def analyze_article(article_id: str) -> bool:
             analyses = parse_unified_response(raw_response)
 
         except Exception as e:
-            logger.error(f"🔥 Analysis failed for {article_id}: {e}")
+            logger.warning(f"⚠️  Analysis skipped for {article_id}: {e}")
+            _record_analysis_failure(article_id, reason=str(e))
             return False
 
     # Publish results via stream → stream_consumer applies them to Redis
@@ -228,6 +262,10 @@ def analyze_article(article_id: str) -> bool:
 
     total_ms = (time.perf_counter() - analysis_start) * 1000
     logger.info(f"✅ Published {published}/3 analyses for {article_id} in {total_ms:.0f}ms")
+    if published > 0:
+        _reset_analysis_failure_counter()
+    else:
+        _record_analysis_failure(article_id, reason="published 0/3 sections")
     return published > 0
 
 
