@@ -20,7 +20,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 OLLAMA_URL            = os.environ.get("OLLAMA_URL", "http://192.168.1.185:11434")
-OLLAMA_CLOUD_MODEL    = os.environ.get("OLLAMA_CLOUD_MODEL", "devstral-2:123b-cloud")
+OLLAMA_CLOUD_MODEL    = os.environ.get("OLLAMA_CLOUD_MODEL", "qwen3-coder:480b-cloud")
 OLLAMA_LOCAL_FALLBACK  = os.environ.get("OLLAMA_LOCAL_FALLBACK", "gemma4:e2b")
 
 TRANSLATION_LOCK_KEY      = "translation:active"

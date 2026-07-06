@@ -234,7 +234,7 @@ stack:
 
 ollama:
   host: "http://192.168.1.185:11434"
-  primary_model: "devstral"
+  primary_model: "qwen3-coder"
   fallback_model: "gemma3:4b"
   translation_model: "MedAIBase/TranslateGemma:4b"
   translation_fields: "pro"

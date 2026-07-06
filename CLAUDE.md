@@ -105,7 +105,7 @@ DB 5 is shared auth across all stacks (`arc:users` SET, `arc:user:{username}` HA
 
 ### AI Inference
 - **Primary**: Ollama on MacBook Air M1 at `192.168.1.185:11434`
-- **Cloud model**: `devstral-2:123b-cloud` (weekly credit limit)
+- **Cloud model**: `qwen3-coder:480b-cloud` (weekly credit limit; devstral-2:123b-cloud retired 2026-07-15)
 - **Local fallback**: `gemma4:e2b` — the only local model; no local-to-local fallback (fleet policy 2026-07-01)
 - **Translation**: routes through `call_ollama_with_fallback` (the dedicated TranslateGemma endpoint was retired 2026-05-06; the model was removed from the M1 2026-07-01)
 

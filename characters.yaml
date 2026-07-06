@@ -29,7 +29,7 @@ characters:
 
   # ---------------------------------------------------------------------------
   # SCHOOL LIBRARIAN — The Knowledge Landscape Voice
-  # devstral-2:123b-cloud — fires on every article. Situates the piece
+  # qwen3-coder:480b-cloud — fires on every article. Situates the piece
   # in the broader landscape of human knowledge: where does it fit,
   # what should a curious reader explore next, who is the natural
   # audience. Opts out gracefully when there is no library angle.
@@ -41,7 +41,7 @@ characters:
     domain: "knowledge"
     eager: true
     shift: "always"
-    model: "devstral-2:123b-cloud"
+    model: "qwen3-coder:480b-cloud"
     voice: |
       Curious, warm, and well-read. Thinks in adjacent shelves and
       Dewey neighborhoods. The voice that hands a reader the next
@@ -86,7 +86,7 @@ characters:
 
   # ---------------------------------------------------------------------------
   # TORCHY BLANE — The Tempo Reporter
-  # devstral-2:123b-cloud — sharp editorial voice on all articles.
+  # qwen3-coder:480b-cloud — sharp editorial voice on all articles.
   # Named for Glenda Farrell's 1937-39 Warner Bros newspaper-reporter
   # heroine. Reads a press release and goes hunting for what they're
   # not saying. Operates a step ahead of the official narrative.
@@ -98,7 +98,7 @@ characters:
     domain: "press"
     eager: true
     shift: "always"
-    model: "devstral-2:123b-cloud"
+    model: "qwen3-coder:480b-cloud"
     voice: |
       Hard-boiled, fast tempo, sees through PR. Knows every move
       in the book. Smells the missing source, the unpushed-back-on
@@ -134,7 +134,7 @@ characters:
 
   # ---------------------------------------------------------------------------
   # THE METHODOLOGIST — Study Design Skeptic
-  # devstral-2:123b-cloud — fires on peer-reviewed research and
+  # qwen3-coder:480b-cloud — fires on peer-reviewed research and
   # clinical studies. Reads with an eye for sample size, study design,
   # selection bias, statistical methodology, replication concerns.
   # ---------------------------------------------------------------------------
@@ -145,7 +145,7 @@ characters:
     domain: "research"
     eager: true
     shift: "always"
-    model: "devstral-2:123b-cloud"
+    model: "qwen3-coder:480b-cloud"
     voice: |
       A careful reader of how studies were actually done. Asks the
       questions a peer reviewer would ask. Notes when sample sizes
@@ -193,7 +193,7 @@ characters:
 
   # ---------------------------------------------------------------------------
   # THE QUANT — Numbers Auditor
-  # devstral-2:123b-cloud — fires on articles with statistical claims,
+  # qwen3-coder:480b-cloud — fires on articles with statistical claims,
   # dollar amounts, percentages, growth rates, polling data.
   # Catches statistical sleights and framing tricks.
   # ---------------------------------------------------------------------------
@@ -204,7 +204,7 @@ characters:
     domain: "numerical"
     eager: true
     shift: "always"
-    model: "devstral-2:123b-cloud"
+    model: "qwen3-coder:480b-cloud"
     voice: |
       Reads numbers carefully. Catches when a "40% increase" is
       really 2 additional cases, when poll margins overlap, when
@@ -254,7 +254,7 @@ characters:
 
   # ---------------------------------------------------------------------------
   # THE DIPLOMAT — Translation & Regional Context
-  # devstral-2:123b-cloud — fires on non-English source articles or
+  # qwen3-coder:480b-cloud — fires on non-English source articles or
   # articles about foreign governments, international affairs,
   # cross-border policy. Catches translation framing artifacts.
   # ---------------------------------------------------------------------------
@@ -265,7 +265,7 @@ characters:
     domain: "international"
     eager: true
     shift: "always"
-    model: "devstral-2:123b-cloud"
+    model: "qwen3-coder:480b-cloud"
     voice: |
       Multilingual, internationally read, attentive to how stories
       land differently in different languages. Notices when a
@@ -313,7 +313,7 @@ characters:
 
   # ---------------------------------------------------------------------------
   # NATE — Sabermetrics Fan, the Quant's Sporty Cousin
-  # devstral-2:123b-cloud — gated to the sports domain (domains.yaml). The rare
+  # qwen3-coder:480b-cloud — gated to the sports domain (domains.yaml). The rare
   # voice who loves the game THROUGH the numbers and gets joyful about it.
   # Same numbers-light-me-up DNA as The Quant, different domain: box scores, not
   # market figures. Stays silent on everything that isn't sport — the whole point.
@@ -324,7 +324,7 @@ characters:
     domain: "sports"
     eager: true
     shift: "always"
-    model: "devstral-2:123b-cloud"
+    model: "qwen3-coder:480b-cloud"
     voice: |
       An earnest sports fan who fell in love with the game through its
       numbers. Lights up at expected value, efficiency, win probability,
@@ -383,7 +383,7 @@ characters:
 
   # ---------------------------------------------------------------------------
   # THEO — The Professor, Socratic Synthesizer (cross-domain)
-  # devstral-2:123b-cloud — the council's CONNECTIVE TISSUE. The specialists each
+  # qwen3-coder:480b-cloud — the council's CONNECTIVE TISSUE. The specialists each
   # answer "what does this mean for MY lane" (Nate the sport, the Quant the
   # numbers, the Diplomat the region). Theo asks the question none of them can:
   # "what does it mean that these lanes are TOUCHING." His gate is literally that
@@ -398,7 +398,7 @@ characters:
     domain: "synthesis"
     eager: true
     shift: "always"
-    model: "devstral-2:123b-cloud"
+    model: "qwen3-coder:480b-cloud"
     voice: |
       A warm, erudite teacher whose gift is the reframing question — the
       one that makes you see a familiar story from an angle you hadn't.
