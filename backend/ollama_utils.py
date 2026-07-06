@@ -42,6 +42,30 @@ except Exception:
     _redis = None
 
 
+def _apply_spec_following_options(payload: dict) -> None:
+    """
+    Merge in the spec-following options for local (gemma4-family) calls.
+
+    gemma4:e2b is a thinking model — with default options it exhausts its
+    output-token budget inside the (hidden) thinking phase and returns HTTP 200
+    with an empty response body and done_reason=length. That silently looked
+    like "local model failed" and caused the "All Ollama models failed" pages
+    plus a 12-day character_builder freeze while base analyses never completed.
+
+    Fix (validated 2026-07-06 against previously-failing article
+    8ed0bf56b5ed263873771e0d8f883855 and others):
+      - think=false          → skip the thinking phase, emit directly
+      - options.num_predict=-1 → remove output-length ceiling
+      - options.num_ctx=32768 → generous context for ~4-5K-token analyzer prompts
+
+    Reference implementation for future spec-following calls fleet-wide.
+    """
+    payload["think"] = False
+    opts = payload.setdefault("options", {})
+    opts.setdefault("num_predict", -1)
+    opts.setdefault("num_ctx", 32768)
+
+
 def is_cloud_available() -> bool:
     """Returns True if the cloud circuit breaker is not tripped (key absent)."""
     if _redis is None:
@@ -125,18 +149,27 @@ def call_ollama_with_fallback(
                 payload["format"] = format_schema
             if temperature is not None:
                 payload["options"] = {"temperature": temperature}
+            if label == "local":
+                _apply_spec_following_options(payload)
 
             call_start = time.perf_counter()
             resp = ollama_client.post("/api/generate", json=payload, read_timeout=timeout)
             duration_ms = (time.perf_counter() - call_start) * 1000
 
             if resp.status_code == 200:
-                response_text = resp.json().get("response", "").strip()
+                body = resp.json()
+                response_text = body.get("response", "").strip()
                 # Strip reasoning blocks from thinking models (e.g. nemotron)
                 response_text = re.sub(r'^.*?</think>\s*', '', response_text, flags=re.DOTALL).strip()
+                done_reason = body.get("done_reason", "")
                 if response_text:
-                    logger.info(f"✅ {label.capitalize()} model response in {duration_ms:.0f}ms ({len(response_text)} chars)")
+                    if done_reason == "length":
+                        logger.warning(f"⚠️  {label.capitalize()} model TRUNCATED (done_reason=length) in {duration_ms:.0f}ms ({len(response_text)} chars) — output cap hit")
+                    else:
+                        logger.info(f"✅ {label.capitalize()} model response in {duration_ms:.0f}ms ({len(response_text)} chars)")
                     return (response_text, duration_ms, model)
+                if done_reason == "length":
+                    logger.warning(f"🔥 {label.capitalize()} model EMPTY (done_reason=length) — thinking-phase token exhaustion; check think=false + num_predict for {model}")
 
             if resp.status_code == 429 and label == "cloud":
                 _trip_cloud_breaker()
@@ -168,17 +201,25 @@ def call_ollama_local_only(prompt_text: str, timeout: int = 900):
         try:
             logger.info(f"🖥️  Trying {label} model: {model}")
             payload = {"model": model, "prompt": prompt_text, "stream": False}
+            _apply_spec_following_options(payload)
 
             call_start = time.perf_counter()
             resp = ollama_client.post("/api/generate", json=payload, read_timeout=timeout)
             duration_ms = (time.perf_counter() - call_start) * 1000
 
             if resp.status_code == 200:
-                response_text = resp.json().get("response", "").strip()
+                body = resp.json()
+                response_text = body.get("response", "").strip()
                 response_text = re.sub(r'^.*?</think>\s*', '', response_text, flags=re.DOTALL).strip()
+                done_reason = body.get("done_reason", "")
                 if response_text:
-                    logger.info(f"✅ {label.capitalize()} model response in {duration_ms:.0f}ms ({len(response_text)} chars)")
+                    if done_reason == "length":
+                        logger.warning(f"⚠️  {label.capitalize()} model TRUNCATED (done_reason=length) in {duration_ms:.0f}ms ({len(response_text)} chars) — output cap hit")
+                    else:
+                        logger.info(f"✅ {label.capitalize()} model response in {duration_ms:.0f}ms ({len(response_text)} chars)")
                     return (response_text, duration_ms, model)
+                if done_reason == "length":
+                    logger.warning(f"🔥 {label.capitalize()} model EMPTY (done_reason=length) — thinking-phase token exhaustion; check think=false + num_predict for {model}")
 
             logger.warning(f"{label.capitalize()} model failed (status {resp.status_code}), trying next")
 
