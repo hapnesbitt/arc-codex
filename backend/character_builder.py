@@ -156,6 +156,11 @@ def call_ollama(system_prompt: str, dossier: str, model: str | None = None) -> s
     log.info("Calling Ollama model=%s for character", actual_model)
     prompt = f"{dossier}\n\n---\n\nBased on the above, write your comment now."
     try:
+        # think=false is critical for gemma4-family models. Without it, thinking
+        # models silently burn the entire num_predict budget on hidden reasoning
+        # and return an empty response — same root cause as the analyzer local-
+        # path bug fixed in ollama_utils._apply_spec_following_options.
+        # See that helper's docstring for the full diagnosis.
         resp = ollama_client.post(
             "/api/generate",
             json={
@@ -163,7 +168,12 @@ def call_ollama(system_prompt: str, dossier: str, model: str | None = None) -> s
                 "prompt": prompt,
                 "system": system_prompt,
                 "stream": False,
-                "options": {"temperature": 0.7, "num_predict": 300},
+                "think":  False,
+                "options": {
+                    "temperature": 0.7,
+                    "num_predict": 1024,
+                    "num_ctx":     32768,
+                },
             },
             read_timeout=120,
         )
