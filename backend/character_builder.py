@@ -175,7 +175,7 @@ def call_ollama(system_prompt: str, dossier: str, model: str | None = None) -> s
                     "num_ctx":     32768,
                 },
             },
-            read_timeout=120,
+            read_timeout=180,
         )
         resp.raise_for_status()
         text = resp.json().get("response", "").strip()
