@@ -134,14 +134,22 @@ def sanitize_text(text: str) -> str:
 
 
 def parse_unified_response(response_text: str) -> dict:
-    """Parse <BLUE>, <RED>, <PURPLE> tagged response into dict."""
+    """Parse <BLUE>, <RED>, <PURPLE> tagged response into dict.
+
+    Accepts open-ended sections: `<TAG>...</TAG>` OR `<TAG>...<end of string>`.
+    gemma4:e2b (and similar local models) sometimes stop mid-generation without
+    emitting a closing tag — usually on PURPLE, since it's the last section.
+    The section content IS there; the old regex just discarded it because it
+    required </TAG>. Accepting `$` as an alternative terminator recovers those
+    analyses without changing behavior on well-formed responses.
+    """
     analyses = {'blue': '', 'red': '', 'purple': ''}
     if not response_text:
         return analyses
 
-    blue_match = re.search(r'<BLUE>(.*?)</BLUE>', response_text, re.DOTALL | re.IGNORECASE)
-    red_match = re.search(r'<RED>(.*?)</RED>', response_text, re.DOTALL | re.IGNORECASE)
-    purple_match = re.search(r'<PURPLE>(.*?)</PURPLE>', response_text, re.DOTALL | re.IGNORECASE)
+    blue_match = re.search(r'<BLUE>(.*?)(?:</BLUE>|$)', response_text, re.DOTALL | re.IGNORECASE)
+    red_match = re.search(r'<RED>(.*?)(?:</RED>|$)', response_text, re.DOTALL | re.IGNORECASE)
+    purple_match = re.search(r'<PURPLE>(.*?)(?:</PURPLE>|$)', response_text, re.DOTALL | re.IGNORECASE)
 
     if blue_match:
         analyses['blue'] = sanitize_text(blue_match.group(1))
