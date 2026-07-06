@@ -17,8 +17,10 @@
 #
 # CHANGELOG:
 #   v6.4 (2026-07-05): Purple team PATTERN SCAN restraint threshold
-#     - Landed with the devstral-2:123b-cloud → qwen3-coder:480b-cloud
-#       cloud model migration (devstral-2 retires 2026-07-15)
+#     - Landed with the devstral-2:123b-cloud → gpt-oss:20b-cloud cloud
+#       model migration (both devstral-2 and qwen3-coder:480b retire
+#       2026-07-15; also chose 20b over 480b for headroom — qwen3-coder
+#       burned the session limit fast)
 #     - PATTERN SCAN now requires patterns to be LOAD-BEARING (removing
 #       the pattern would materially weaken the piece's persuasive push)
 #     - Restraint rules: routine sourcing is not Appeal to Authority,
