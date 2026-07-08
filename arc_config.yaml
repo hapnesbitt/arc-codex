@@ -67,6 +67,23 @@ backups:
   ssd_cron: "0 3 * * *"
   cold_cron: "0 2 * * 0"
 
+# ── Cloud escalation gate (Option A-tightened) ────────────────────────────────
+# Analyzer runs local first; article escalates to cloud only when one of
+# escalation.py's three triggers fires. Cloud characters (council) fire on
+# cloud only when the article's escalation_score meets council_escalation_score.
+#
+# weekly_cap is a HARD backstop against the ~82% projected burn — when hit
+# mid-week, everything falls to local (labelled local_full or local_partial)
+# instead of failing loudly. Counter: arc:cloud_calls:weekly:<isoweek>.
+#
+# advertorial-prone sources are MEASURED (auto-promoted from rolling stats),
+# never hand-curated — no pre-emptive editorial judgment on sources.
+escalation:
+  heuristic_threshold: 4          # vendor-signal score in article to trigger T2
+  new_source_cold_start_n: 10     # articles before source_stats stabilize
+  weekly_cap: 400                 # cloud calls per ISO week (hard backstop)
+  council_escalation_score: 2     # article escalation_score gate for cloud council
+
 services:
   # name: enabled
   gunicorn: true

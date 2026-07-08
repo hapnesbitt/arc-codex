@@ -35,6 +35,8 @@ from dotenv import load_dotenv
 
 import ollama_client  # transport-layer primary/fallback host failover (owns requests)
 from domain_registry import domain_matches, matching_domains  # domain predicates (domains.yaml)
+from escalation import resolve_character_model, record_cloud_call
+from ollama_utils import is_cloud_reachable
 
 # ── env ────────────────────────────────────────────────────────────────────────
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -360,10 +362,31 @@ def main():
                         log.warning("Empty dossier for %s — skipping", article_id)
                         continue
 
+                    # Council gate — cloud characters downgrade to local unless
+                    # the article's escalation_score meets the council threshold
+                    # AND the weekly cloud cap has capacity. Council still runs
+                    # locally; only the voice weakens on non-escalated articles.
+                    resolved_model = resolve_character_model(
+                        character,
+                        {'id': article_id},
+                        r,
+                    )
+                    if resolved_model.endswith('-cloud'):
+                        # Reachability BEFORE record — an unreachable cloud
+                        # host must never increment the weekly cap counter.
+                        if is_cloud_reachable():
+                            record_cloud_call(r)
+                        else:
+                            log.warning("Council gate: cloud host unreachable — "
+                                        "downgrading %s to local", resolved_model)
+                            resolved_model = OLLAMA_MODEL
+                    if resolved_model != character.get("model"):
+                        log.info("Council gate: %s → %s for article %s",
+                                 character.get("model"), resolved_model, article_id)
                     comment_text = call_ollama(
                         character["instruction"],
                         dossier,
-                        model=character.get("model"),  # None -> OLLAMA_MODEL
+                        model=resolved_model,
                     )
                     if not comment_text:
                         log.error("No comment generated for %s by %s", article_id, handle)

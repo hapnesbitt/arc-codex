@@ -26,8 +26,22 @@ import redis
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from stream_utils import publish_analysis, ensure_stream_group
-from ollama_utils import call_ollama_with_fallback, OLLAMA_CLOUD_MODEL, OLLAMA_LOCAL_FALLBACK
-from ollama_utils import call_ollama_with_fallback, OLLAMA_CLOUD_MODEL, OLLAMA_LOCAL_FALLBACK
+from ollama_utils import (
+    call_ollama_with_fallback,
+    call_ollama_local_only,
+    is_cloud_available,
+    is_cloud_reachable,
+    OLLAMA_CLOUD_MODEL,
+    OLLAMA_LOCAL_FALLBACK,
+)
+from escalation import (
+    decide_escalate,
+    get_source_stats,
+    update_source_stats,
+    cloud_capacity_available,
+    record_cloud_call,
+    label_local_analyses,
+)
 
 # Try ensemble import — graceful if not available
 try:
@@ -234,32 +248,121 @@ def analyze_article(article_id: str) -> bool:
     analysis_start = time.perf_counter()
 
     analyses = {'blue': None, 'red': None, 'purple': None}
+    analysis_source = None
+    escalation_score = 0
+    escalation_reason = ''
 
-    # Try ensemble first if available
+    # Try ensemble first if available (unchanged — ensemble is opt-in and owns
+    # its own model selection). Local-first Option A-tightened applies to the
+    # single-model path below.
     if ENSEMBLE_AVAILABLE and is_ensemble_enabled():
         try:
             analyses = run_ensemble_analysis(article_text, PROMPTS)
             analyses.pop('_ensemble_meta', None)
+            analysis_source = 'ensemble'
             logger.info(f"🧬 Ensemble analysis complete for {article_id}")
         except Exception as e:
             logger.error(f"🔥 Ensemble failed: {e} — falling back to single model")
             analyses = {'blue': None, 'red': None, 'purple': None}
 
-    # Single-model fallback
+    # Single-model path — Option A-tightened: local first, escalate to cloud
+    # only when decide_escalate flags a signal (parser-fail, vendor advertorial
+    # heuristics, or local pattern flag). Weekly cloud cap is a hard backstop:
+    # once hit, escalation degrades gracefully to local (labelled local_full
+    # or local_partial) instead of failing.
     if not any(analyses.values()):
         try:
             unified_instruction = build_unified_prompt()
             final_prompt = f"--- ARTICLE TEXT ---\n{article_text}\n\n--- ANALYSIS INSTRUCTIONS ---\n{unified_instruction}"
 
-            raw_response, duration, model_used = call_ollama_with_fallback(final_prompt, timeout=900)
-            logger.info(f"Analysis complete using {model_used} in {duration:.0f}ms")
+            # Phase 1 — local run (call_ollama_local_only skips cloud entirely)
+            local_analyses = {'blue': '', 'red': '', 'purple': ''}
+            try:
+                raw_local, dur_local, model_local = call_ollama_local_only(final_prompt, timeout=900)
+                local_analyses = parse_unified_response(raw_local)
+                logger.info(
+                    f"🖥️  Local analysis {article_id} via {model_local} in {dur_local:.0f}ms "
+                    f"(sections: {sum(1 for v in local_analyses.values() if v)}/3)"
+                )
+            except Exception as e:
+                logger.warning(f"⚠️  Local model failed for {article_id}: {e} — will attempt cloud via escalation")
 
-            analyses = parse_unified_response(raw_response)
+            # Phase 2 — decide whether to escalate
+            article_data = r.hgetall(redis_key)
+            article_data['id'] = article_id
+            source_stats = get_source_stats(r, article_data)
+            decision = decide_escalate(local_analyses, article_data, source_stats=source_stats)
+            escalation_score = decision.score
+            escalation_reason = decision.reason
+
+            # Order matters: capacity → breaker → REACHABILITY → record → HTTP.
+            # Reachability must precede record_cloud_call so an unreachable
+            # cloud host never increments the cap (2026-07-07: 2,755 doomed
+            # escalations recorded against a dead M1).
+            if (decision.escalate and cloud_capacity_available(r)
+                    and is_cloud_available() and is_cloud_reachable()):
+                logger.info(
+                    f"⬆️  Escalating {article_id} to cloud "
+                    f"(score={decision.score}, reason={decision.reason})"
+                )
+                # Record BEFORE the call so a mid-flight crash can't under-count.
+                # Over-counting a failed call is safer than under-counting a
+                # successful one when the counter is the cap-enforcing signal.
+                record_cloud_call(r)
+                try:
+                    raw_cloud, dur_cloud, model_cloud = call_ollama_with_fallback(
+                        final_prompt,
+                        timeout=900,
+                        models=[(OLLAMA_CLOUD_MODEL, "cloud")],
+                    )
+                    cloud_analyses = parse_unified_response(raw_cloud)
+                    if any(cloud_analyses.values()):
+                        analyses = cloud_analyses
+                        analysis_source = 'cloud'
+                        logger.info(f"☁️  Cloud analysis {article_id} via {model_cloud} in {dur_cloud:.0f}ms")
+                except Exception as e:
+                    logger.warning(f"⚠️  Cloud escalation failed for {article_id}: {e} — keeping local")
+            elif decision.escalate:
+                # A-relaxed graceful degradation: signal fired but capacity,
+                # circuit breaker, or reachability blocked the cloud call.
+                # Continue with local, honestly labelled — never page.
+                logger.warning(
+                    f"🛑 {article_id} escalation triggered (score={decision.score}, "
+                    f"reason={decision.reason}) but cloud unavailable (cap, breaker, "
+                    f"or unreachable) — degrading to local"
+                )
+
+            # If cloud didn't take over, use local. Label according to shape.
+            if analysis_source is None:
+                analyses = local_analyses
+                analysis_source = label_local_analyses(local_analyses)
+
+            # Update rolling source stats (best-effort — never breaks analysis)
+            update_source_stats(
+                r,
+                article_data,
+                escalated=(analysis_source == 'cloud'),
+                reasons=escalation_reason,
+            )
 
         except Exception as e:
             logger.warning(f"⚠️  Analysis skipped for {article_id}: {e}")
             _record_analysis_failure(article_id, reason=str(e))
             return False
+
+    # Persist escalation metadata alongside the article. Frontend keys off
+    # analysis_source='local_partial' to render a transparency badge; 'cloud'
+    # and 'local_full' are silent (publication-quality doesn't invite doubt).
+    try:
+        meta = {
+            'analysis_source': analysis_source or 'unknown',
+            'escalation_score': str(escalation_score),
+        }
+        if escalation_reason:
+            meta['escalation_reason'] = escalation_reason
+        r.hset(redis_key, mapping=meta)
+    except Exception:
+        pass
 
     # Publish results via stream → stream_consumer applies them to Redis
     published = 0
@@ -269,7 +372,10 @@ def analyze_article(article_id: str) -> bool:
             published += 1
 
     total_ms = (time.perf_counter() - analysis_start) * 1000
-    logger.info(f"✅ Published {published}/3 analyses for {article_id} in {total_ms:.0f}ms")
+    logger.info(
+        f"✅ Published {published}/3 analyses for {article_id} in {total_ms:.0f}ms "
+        f"(source={analysis_source or 'unknown'})"
+    )
     if published > 0:
         _reset_analysis_failure_counter()
     else:

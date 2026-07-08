@@ -11,6 +11,7 @@ import re
 import time
 import logging
 import redis as redis_lib
+import requests
 from dotenv import load_dotenv
 
 import ollama_client  # transport-layer primary/fallback host failover (owns requests)
@@ -71,6 +72,24 @@ def is_cloud_available() -> bool:
     if _redis is None:
         return True
     return not bool(_redis.exists(CLOUD_UNAVAILABLE_KEY))
+
+
+def is_cloud_reachable(timeout: float = 5.0) -> bool:
+    """True if the host that serves -cloud models answers /api/tags.
+
+    Distinct from is_cloud_available(): the circuit breaker only trips on
+    HTTP 429 — an *unreachable* host never trips it. During the 2026-07-07
+    M1 outage, 2,755 doomed escalations were recorded against a dead host
+    because reachability was never checked before record_cloud_call().
+    Callers must check this BEFORE incrementing the weekly cap counter.
+    """
+    try:
+        resp = requests.get(
+            f"{ollama_client.CLOUD_HOST.rstrip('/')}/api/tags", timeout=timeout
+        )
+        return resp.status_code == 200
+    except requests.RequestException:
+        return False
 
 
 def _trip_cloud_breaker() -> None:
