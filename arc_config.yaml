@@ -50,6 +50,7 @@ mailer:
   stall_threshold_hours: 2                 # Alert if no new articles in N hours
   log_scan_interval_seconds: 60
   log_lookback_minutes: 2
+  alert_cooldown_seconds: 14400            # 4h — per-incident dedup (was module const)
 
 translation:
   cache_ttl_hours: 24

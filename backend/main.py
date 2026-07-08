@@ -105,7 +105,7 @@ try:
     NLP_PROCESSOR = spacy.load("en_core_web_sm")
     try:
         nltk.data.find('sentiment/vader_lexicon.zip')
-    except:
+    except Exception:
         nltk.download('vader_lexicon', quiet=True)
     SENTIMENT_ANALYZER = SentimentIntensityAnalyzer()
     AI_BACKEND = "ollama"

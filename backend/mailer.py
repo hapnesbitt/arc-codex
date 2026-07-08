@@ -28,6 +28,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 import redis
+import yaml
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -36,11 +37,21 @@ load_dotenv()
 # Configuration
 # ---------------------------------------------------------------------------
 
+def _load_mailer_cfg() -> dict:
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'arc_config.yaml')
+    try:
+        with open(path) as f:
+            return (yaml.safe_load(f) or {}).get('mailer', {}) or {}
+    except Exception:
+        return {}
+
+_CFG = _load_mailer_cfg()
+
 ALERT_FROM    = "ross@arc-codex.com"
 ALERT_TO      = "rossnesbitt@gmail.com"
 DIGEST_HOUR   = 7       # 7am local time
 CHECK_INTERVAL = 60     # seconds between alert checks
-ALERT_COOLDOWN = 14400   # seconds before re-alerting on same issue (4 hours)
+ALERT_COOLDOWN = int(_CFG.get('alert_cooldown_seconds', 14400))   # seconds; yaml overrides default 4h
 
 LOG_FILES = {
     "scribe":    "/home/www/arc_stack/logs/scribe.log",
@@ -71,10 +82,7 @@ ALERT_PATTERNS = [
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - [MAILER] - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("/home/www/arc_stack/logs/mailer.log"),
-        logging.StreamHandler(),
-    ],
+    handlers=[logging.FileHandler("/home/www/arc_stack/logs/mailer.log")],
 )
 logger = logging.getLogger(__name__)
 
@@ -110,7 +118,7 @@ def send_email(subject: str, body_text: str, body_html: str = None) -> bool:
         logger.info("✅ Email sent: %s", subject)
         return True
     except Exception as e:
-        logger.error("❌ Failed to send email '%s': %s", subject, e)
+        logger.warning("❌ Failed to send email '%s': %s", subject, e)
         return False
 
 # ---------------------------------------------------------------------------
@@ -361,14 +369,11 @@ def send_digest(r: redis.Redis):
 # ---------------------------------------------------------------------------
 
 def main():
-    logger.info("🚀 Arc Codex Mailer starting...")
+    logger.info("🚀 Arc Codex Mailer starting... (ALERT_COOLDOWN=%ds)", ALERT_COOLDOWN)
     r = get_redis()
 
-    # Send startup notification
-    send_email(
-        "✅ Arc Codex Mailer Started",
-        f"Mailer daemon started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\nMonitoring: logs, pipeline stall\nDaily digest: {DIGEST_HOUR}:00 local time",
-    )
+    # No startup email — boot notices were noise (watchdog restarts, reboots).
+    # The log line above is the record that the daemon came up.
 
     while True:
         try:

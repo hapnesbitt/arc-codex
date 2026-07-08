@@ -1706,7 +1706,7 @@ def generate_news_sitemap(r):
                         article_date = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
                         if article_date.replace(tzinfo=None) < cutoff:
                             continue
-                    except:
+                    except Exception:
                         continue
 
                     slug_raw = article.get(b'slug') or article.get('slug')

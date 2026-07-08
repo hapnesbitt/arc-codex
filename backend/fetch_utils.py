@@ -209,7 +209,7 @@ def fetch_with_anti_bot_handling(url, headers, playwright_browser=None):
         if session:
             try:
                 session.close()
-            except:
+            except Exception:
                 pass
     
     # Tier 2: Playwright with stealth anti-detection
@@ -293,12 +293,12 @@ def fetch_with_anti_bot_handling(url, headers, playwright_browser=None):
         if page:
             try:
                 page.close()
-            except:
+            except Exception:
                 pass
         if context:
             try:
                 context.close()
-            except:
+            except Exception:
                 pass
 
 def create_default_headers():

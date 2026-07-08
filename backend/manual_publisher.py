@@ -362,7 +362,7 @@ def parse_upload_file(filepath):
             # Try UTF-8 first, fallback to latin-1
             try:
                 full_content = content.decode('utf-8', errors='replace').strip()
-            except:
+            except Exception:
                 full_content = content.decode('latin-1', errors='replace').strip()
         
         # Split by --- separator
