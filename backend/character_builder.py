@@ -174,7 +174,7 @@ def call_ollama(system_prompt: str, dossier: str, model: str | None = None) -> s
                 "options": {
                     "temperature": 0.7,
                     "num_predict": 1024,
-                    "num_ctx":     32768,
+                    "num_ctx":     8192,
                 },
             },
             read_timeout=180,

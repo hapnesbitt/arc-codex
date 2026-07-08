@@ -124,6 +124,7 @@ def call_ollama_with_fallback(
     format_schema: dict | str | None = None,
     temperature: float | None = None,
     models: list[tuple[str, str]] | None = None,
+    num_ctx: int | None = None,
 ):
     """
     Call Ollama API with cloud model first, fallback to local if cloud fails.
@@ -137,6 +138,10 @@ def call_ollama_with_fallback(
         models         — [(model_name, label), …] override of the default
                          cloud→local cascade. Labels are free-form for logs;
                          the literal label "cloud" still trips the 429 breaker.
+        num_ctx        — override the local-path context window. Judgment tasks
+                         (R/B/P, sentinel, grading) get 32768 via the spec-
+                         following defaults; voice/reaction tasks should pass
+                         8192 to free GPU memory. Only affects local-path calls.
 
     Returns:
         tuple: (response_text, duration_ms, model_used)
@@ -169,6 +174,9 @@ def call_ollama_with_fallback(
             if temperature is not None:
                 payload["options"] = {"temperature": temperature}
             if label == "local":
+                if num_ctx is not None:
+                    # Seed before spec-following defaults — its .setdefault will honor us.
+                    payload.setdefault("options", {})["num_ctx"] = num_ctx
                 _apply_spec_following_options(payload)
 
             call_start = time.perf_counter()

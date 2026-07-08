@@ -430,7 +430,7 @@ Do NOT start with "Great question" or any generic praise.
 
     try:
         logger.info(f"🤖 Generating AI reply for article {article_id}...")
-        raw_response, duration, model_used = call_ollama_with_fallback(reply_prompt, timeout=600)
+        raw_response, duration, model_used = call_ollama_with_fallback(reply_prompt, timeout=600, num_ctx=8192)
         logger.info(f"🤖 AI reply generated via {model_used} in {duration:.0f}ms")
 
         reply_text = raw_response.strip()
