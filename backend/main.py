@@ -62,6 +62,30 @@ SCRIBE_SECRET_KEY = os.getenv("SCRIBE_SECRET_KEY")
 REDIS_URL = os.getenv("REDIS_URL")
 MAX_CONTENT_CHARS = 60000  # Unified truncation limit for stored article text
 DEFAULT_IMAGE_URL = "https://arc-codex.com/information-warfare.jpg"
+
+# --- Bot UA gate ---
+# Substring markers for known scraper / crawler / SEO-bot User-Agents. Match
+# is lower-case substring against the raw UA header. Real browsers ("Mozilla…")
+# and Next.js SSR ("node", "undici") pass through. Kept broad because the
+# cost of a false positive is one missed lazy-analysis (recoverable on next
+# real view) while the cost of a false negative is a full R/B/P job on the M1.
+_BOT_UA_MARKERS = (
+    'python-requests', 'python-httpx', 'httpx/', 'aiohttp',
+    'curl/', 'wget/', 'go-http-client', 'okhttp', 'java/', 'apache-httpclient',
+    'ruby', 'perl', 'urllib', 'libwww',
+    'bot', 'spider', 'crawl', 'slurp',
+    'googlebot', 'bingbot', 'yandex', 'baiduspider', 'duckduckbot',
+    'facebookexternalhit', 'twitterbot', 'linkedinbot', 'slackbot', 'whatsapp',
+    'semrushbot', 'ahrefsbot', 'mj12bot', 'dotbot', 'petalbot', 'gptbot',
+    'headlesschrome', 'phantomjs', 'scrapy',
+)
+
+def _is_bot_ua(ua: str) -> bool:
+    """True when the User-Agent looks like a scraper/crawler. Empty/'-' UA counts."""
+    if not ua or ua.strip() in ('', '-'):
+        return True
+    u = ua.lower()
+    return any(m in u for m in _BOT_UA_MARKERS)
 PROMPTS = {}
 
 try:
@@ -442,16 +466,23 @@ def get_single_article(article_id):
         red_analysis = article_data.get('red_team_analysis', '')
         purple_analysis = article_data.get('purple_team_analysis', '')
         if not (len(blue_analysis) > 10 and len(red_analysis) > 10 and len(purple_analysis) > 10):
-            actual_id = article_data.get('id', article_id)
-            try:
-                # Only queue if not already queued recently (simple dedup)
-                queue_key = f"analyzer:queued:{actual_id}"
-                if not r.exists(queue_key):
-                    r.lpush('analyzer:queue', actual_id)
-                    r.setex(queue_key, 300, '1')  # 5-minute dedup window
-                    app.logger.info(f"📋 Queued {actual_id} for on-demand analysis")
-            except Exception as e:
-                app.logger.warning(f"⚠️  Failed to queue analysis trigger: {e}")
+            # Gate: 99.8% of /api/article/* hits over the last 48h were python-requests
+            # bot traffic scraping the API directly (2026-07-08 access-log audit). Skip
+            # enqueue for known scraper UAs so analyzer:queue tracks real reader intent.
+            # Next.js SSR uses node/undici UA — passed through. Real browsers pass through.
+            if _is_bot_ua(request.headers.get('User-Agent', '')):
+                app.logger.info(f"🤖 Skipping enqueue for {article_data.get('id', article_id)} — bot UA")
+            else:
+                actual_id = article_data.get('id', article_id)
+                try:
+                    # Only queue if not already queued recently (simple dedup)
+                    queue_key = f"analyzer:queued:{actual_id}"
+                    if not r.exists(queue_key):
+                        r.lpush('analyzer:queue', actual_id)
+                        r.setex(queue_key, 300, '1')  # 5-minute dedup window
+                        app.logger.info(f"📋 Queued {actual_id} for on-demand analysis")
+                except Exception as e:
+                    app.logger.warning(f"⚠️  Failed to queue analysis trigger: {e}")
         
         actual_id = article_data.get('id', article_id)
         article_data['cached_langs'] = list(r.smembers(f"translation:langs:{actual_id}"))
