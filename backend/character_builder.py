@@ -277,19 +277,18 @@ def get_active_characters(cfg: dict) -> list[str]:
 def seed_posted_sets(cfg: dict):
     """Mark all existing articles as already posted for each character."""
     try:
-        keys = r.keys("article:*")
-        if not keys:
+        article_ids = r.zrange('feed', 0, -1)
+        if not article_ids:
             return
         characters = cfg.get("characters", {})
         for handle in characters:
             posted_key = f"characters:posted:{handle}"
             pipe = r.pipeline()
-            for k in keys:
-                article_id = k.split(":", 1)[1]
+            for article_id in article_ids:
                 pipe.sadd(posted_key, article_id)
             pipe.execute()
         log.info("Seeded posted sets for %d characters, %d articles",
-                 len(characters), len(keys))
+                 len(characters), len(article_ids))
     except Exception as e:
         log.error("Seed failed: %s", e)
 
@@ -311,7 +310,7 @@ def main():
                 time.sleep(POLL_INTERVAL)
                 continue
 
-            all_ids    = set(k.split(":", 1)[1] for k in r.keys("article:*"))
+            all_ids    = set(r.zrange('feed', 0, -1))
             characters = cfg.get("characters", {})
 
             # Find articles not yet processed by any active character

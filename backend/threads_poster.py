@@ -153,23 +153,21 @@ def build_post_text(article: dict) -> str:
 
 def seed_posted_set():
     try:
-        keys = r.keys("article:*")
-        if not keys:
+        article_ids = r.zrange('feed', 0, -1)
+        if not article_ids:
             return
         pipe = r.pipeline()
-        for k in keys:
-            article_id = k.split(":", 1)[1]
+        for article_id in article_ids:
             pipe.sadd(POSTED_SET, article_id)
         pipe.execute()
-        log.info("Seeded threads:posted with %d existing articles", len(keys))
+        log.info("Seeded threads:posted with %d existing articles", len(article_ids))
     except Exception as exc:
         log.error("Seed failed: %s", exc)
 
 
 def all_article_ids() -> list[str]:
     try:
-        keys = r.keys("article:*")
-        return [k.split(":", 1)[1] for k in keys]
+        return list(r.zrange('feed', 0, -1))
     except Exception:
         return []
 
