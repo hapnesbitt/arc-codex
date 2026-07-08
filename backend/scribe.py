@@ -68,7 +68,7 @@ logger = logging.getLogger(__name__)
 # --- CONFIGURATION ---
 manual_upload_event = threading.Event()
 REDIS_PRIORITY_QUEUE_KEY = "arc:priority_uploads"
-CYCLE_MINUTES = 3  # Deliberate aggressive ingest cadence (chosen 2026-06) —
+CYCLE_MINUTES = 1  # Deliberate aggressive ingest cadence (chosen 2026-06) —
                    # faster than the prime-spacing default; still prime.
                    # Raise to 19, 23, 29 etc. for prime-spacing if adding more stacks.
 
