@@ -732,42 +732,52 @@ def trim_database(r, solr):
         print(colored("Invalid format. Use: method value", "red"))
         return
 
-    ids_to_delete = []
     if method == 'count':
         total = r.zcard("feed")
         if value >= total:
             print(f"Feed has {total} articles — nothing to trim.")
             return
         ids_to_delete = r.zrange("feed", 0, total - value - 1)
-    elif method in ('days', 'hours'):
-        cutoff = time.time() - (value * 86400 if method == 'days' else value * 3600)
-        ids_to_delete = r.zrangebyscore("feed", "-inf", cutoff)
-    else:
-        print(colored(f"Unknown method: {method}", "red"))
+        if not ids_to_delete:
+            print("No articles matched the trim criteria.")
+            return
+        print(colored(f"\nDRY RUN — {len(ids_to_delete)} article(s) would be deleted.", "yellow"))
+        if input("Proceed? (yes/no): ").lower() != 'yes':
+            print("Aborted.")
+            return
+        deleted = 0
+        for aid in ids_to_delete:
+            pipe = r.pipeline()
+            pipe.delete(f"article:{aid}")
+            pipe.zrem("feed", aid)
+            pipe.srem("processed_hashes", aid)
+            pipe.execute()
+            deleted += 1
+            if deleted % 500 == 0:
+                print(f"  Redis: {deleted}/{len(ids_to_delete)} removed...", end='\r')
+        print(f"  Redis: {deleted} articles removed.           ")
+        solr_delete_batch(solr, list(ids_to_delete))
+        print(colored(f"✅ Trim complete. Deleted {deleted} article(s) from Redis and Solr.", "green"))
         return
 
-    if not ids_to_delete:
-        print("No articles matched the trim criteria.")
+    if method in ('days', 'hours'):
+        # Delegate to shared library so scribe's automated pruner and the
+        # interactive menu share one code path (retention.py).
+        from retention import trim_by_hours
+        hours = value * 24 if method == 'days' else value
+        preview = trim_by_hours(r, solr, hours, dry_run=True)
+        if preview['found'] == 0:
+            print("No articles matched the trim criteria.")
+            return
+        print(colored(f"\nDRY RUN — {preview['found']} article(s) would be deleted.", "yellow"))
+        if input("Proceed? (yes/no): ").lower() != 'yes':
+            print("Aborted.")
+            return
+        result = trim_by_hours(r, solr, hours, dry_run=False)
+        print(colored(f"✅ Trim complete. Deleted {result['deleted']} article(s) from Redis and Solr.", "green"))
         return
 
-    print(colored(f"\nDRY RUN — {len(ids_to_delete)} article(s) would be deleted.", "yellow"))
-
-    if input("Proceed? (yes/no): ").lower() != 'yes':
-        print("Aborted.")
-        return
-
-    deleted = 0
-    for aid in ids_to_delete:
-        r.delete(f"article:{aid}")
-        r.zrem("feed", aid)
-        r.srem("processed_hashes", aid)
-        deleted += 1
-        if deleted % 500 == 0:
-            print(f"  Redis: {deleted}/{len(ids_to_delete)} removed...", end='\r')
-
-    print(f"  Redis: {deleted} articles removed.           ")
-    solr_delete_batch(solr, list(ids_to_delete))
-    print(colored(f"✅ Trim complete. Deleted {deleted} article(s) from Redis and Solr.", "green"))
+    print(colored(f"Unknown method: {method}", "red"))
 
 
 # ==============================================================================

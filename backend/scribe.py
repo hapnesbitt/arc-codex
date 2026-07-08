@@ -36,6 +36,7 @@ import random
 import gc
 from stream_utils import publish_analysis, ensure_stream_group
 from ollama_utils import call_ollama_local_only, OLLAMA_LOCAL_FALLBACK
+from retention import run_retention_pass
 from datetime import datetime, timezone
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
@@ -71,6 +72,18 @@ REDIS_PRIORITY_QUEUE_KEY = "arc:priority_uploads"
 CYCLE_MINUTES = 1  # Deliberate aggressive ingest cadence (chosen 2026-06) —
                    # faster than the prime-spacing default; still prime.
                    # Raise to 19, 23, 29 etc. for prime-spacing if adding more stacks.
+
+# Retention (arc_config.yaml -> retention:). 0 or missing disables the pass.
+def _load_retention_hours() -> int:
+    try:
+        cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'arc_config.yaml')
+        with open(cfg_path) as f:
+            cfg = yaml.safe_load(f) or {}
+        return int((cfg.get('retention') or {}).get('retention_hours', 0))
+    except Exception:
+        return 0
+
+RETENTION_HOURS = _load_retention_hours()
 
 # --- Instrumentation Redis keys ---
 STATS_FETCH          = "arc:stats:fetch"
@@ -1757,6 +1770,17 @@ def main():
 
             del candidates
             gc.collect()
+
+            # --- RETENTION PASS ---
+            # Best-effort — any failure logs but never breaks the ingest loop.
+            # trim_by_hours is O(candidates); regen only fires on real deletes.
+            if RETENTION_HOURS > 0:
+                try:
+                    result = run_retention_pass(r, solr, RETENTION_HOURS)
+                    if result.get('deleted', 0) > 0:
+                        logger.info(f"🗑️  Retention: pruned {result['deleted']} article(s) > {RETENTION_HOURS}h; regen={result.get('regen', {})}")
+                except Exception as e:
+                    logger.warning(f"Retention pass failed (non-fatal): {e}")
 
             logger.info(f"💤 Cycle complete. Sleeping {CYCLE_MINUTES} minutes ...")
             for _ in range(CYCLE_MINUTES * 60):

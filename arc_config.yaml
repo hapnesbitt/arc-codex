@@ -68,6 +68,14 @@ backups:
   ssd_cron: "0 3 * * *"
   cold_cron: "0 2 * * 0"
 
+# ── Retention pruning ────────────────────────────────────────────────────────
+# scribe end-of-cycle hook deletes articles older than retention_hours from
+# Redis (article: hash + feed zset + processed_hashes set) and Solr, then
+# regenerates sitemap.xml, rss.xml, news-sitemap.xml if anything was deleted.
+# Set to 0 to disable. Shared trim library: backend/retention.py.
+retention:
+  retention_hours: 48
+
 # ── Cloud escalation gate (Option A-tightened) ────────────────────────────────
 # Analyzer runs local first; article escalates to cloud only when one of
 # escalation.py's three triggers fires. Cloud characters (council) fire on
