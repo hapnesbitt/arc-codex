@@ -2,17 +2,18 @@
 """
 Arc Codex — score_library.py
 
-One-shot Chimera Difficulty scorer for the library:works zset.
+One-shot Chimera Difficulty scorer for the library works catalog
+(SQLite at /mnt/arcdata/library.db — moved out of Redis 2026-07-08).
 
 For each English-language work:
-  1. Read the full body from library:work:<id>:text
+  1. Read the full body from the work_texts table
   2. Compute Flesch-Kincaid grade, Coleman-Liau index, SMOG, and Dale-Chall
      on the first 30,000 characters (stable readability estimate, bounded
      memory — works like the CIA World Factbook are 9M+ chars).
   3. Synthesize the four grade metrics into the Chimera score (0-100) and
      map to a plain-language reading label, using the SAME formulas as
      main.py's pre_analyze (compute_chimera, chimera_reading_label).
-  4. Write back to library:work:<id> hash.
+  4. Write back to the work's row in the works table.
 
 For non-English works:
   Set chimera_score = "" and reading_label = "—" with chimera_skip_reason
@@ -32,16 +33,16 @@ import os
 import sys
 from datetime import datetime, timezone, timedelta
 
-import redis
 import textstat
 from dotenv import load_dotenv
+
+import library_db
 
 load_dotenv()
 
 # --- CONFIG ---
 SCORING_CHAR_LIMIT      = 30000          # First N chars used for readability
 RESCORE_AFTER_SECONDS   = 30 * 24 * 60 * 60
-REDIS_PASSWORD          = os.environ['REDIS_PASSWORD']
 FORCE_RESCORE           = os.environ.get("SCORE_LIBRARY_FORCE") == "1"
 
 logging.basicConfig(
@@ -74,17 +75,6 @@ def chimera_reading_label(score: int) -> str:
     return 'Quantum Electrodynamics'
 
 
-# ---------------------------------------------------------------------------
-# Redis helpers
-# ---------------------------------------------------------------------------
-
-def get_redis() -> redis.Redis:
-    redis_url = os.environ.get("REDIS_URL")
-    if redis_url:
-        return redis.from_url(redis_url, decode_responses=True)
-    return redis.Redis(decode_responses=True, password=REDIS_PASSWORD)
-
-
 def is_recently_scored(scored_at: str | None) -> bool:
     if FORCE_RESCORE or not scored_at:
         return False
@@ -100,15 +90,14 @@ def is_recently_scored(scored_at: str | None) -> bool:
 # Per-work scoring
 # ---------------------------------------------------------------------------
 
-def score_work(r: redis.Redis, gid: str) -> str:
+def score_work(conn, gid: int) -> str:
     """
     Returns one of: 'scored', 'skipped_non_english', 'skipped_recent',
     'failed', 'missing'.
     """
-    key = f"library:work:{gid}"
-    meta = r.hgetall(key)
+    meta = library_db.get_work(conn, gid)
     if not meta:
-        log.warning("[%s] no hash found", gid)
+        log.warning("[%s] no row found", gid)
         return 'missing'
 
     language = (meta.get('language') or '').strip().lower()
@@ -123,7 +112,7 @@ def score_work(r: redis.Redis, gid: str) -> str:
 
     # Non-English works: stamp with skip reason and move on.
     if language != 'en':
-        r.hset(key, mapping={
+        library_db.update_work_fields(conn, gid, {
             'chimera_score':        '',
             'reading_label':        '—',
             'fk_grade':             '',
@@ -137,7 +126,7 @@ def score_work(r: redis.Redis, gid: str) -> str:
         return 'skipped_non_english'
 
     # English work — score it.
-    body = r.get(f"{key}:text") or ""
+    body = library_db.get_text(conn, gid)
     if not body.strip():
         log.warning("[%s] %s — empty body, cannot score", gid, title[:48])
         return 'failed'
@@ -155,7 +144,7 @@ def score_work(r: redis.Redis, gid: str) -> str:
         log.error("[%s] %s — scoring failed: %s", gid, title[:48], e)
         return 'failed'
 
-    r.hset(key, mapping={
+    library_db.update_work_fields(conn, gid, {
         'chimera_score':       str(chimera_score),
         'reading_label':       reading_label,
         'fk_grade':            f"{fk_grade:.1f}",
@@ -163,9 +152,9 @@ def score_work(r: redis.Redis, gid: str) -> str:
         'smog':                str(smog),
         'dale_chall':          str(dale_chall),
         'scored_at':           now_iso,
+        # Clear any stale skip reason left over from a prior language detection.
+        'chimera_skip_reason': '',
     })
-    # Clear any stale skip reason left over from a prior language detection.
-    r.hdel(key, 'chimera_skip_reason')
 
     log.info(
         "[%s] %s — chimera=%d (%s) · fk=%.1f cl=%.1f smog=%.1f dc=%.1f",
@@ -180,16 +169,12 @@ def score_work(r: redis.Redis, gid: str) -> str:
 # ---------------------------------------------------------------------------
 
 def main() -> int:
-    r = get_redis()
-    try:
-        r.ping()
-    except redis.RedisError as e:
-        log.error("Redis ping failed: %s", e)
-        return 1
+    conn = library_db.connect()
+    library_db.init_schema(conn)
 
-    ids = r.zrange('library:works', 0, -1)
+    ids = library_db.all_work_ids_by_downloads(conn)
     if not ids:
-        log.warning("library:works zset is empty — run library_fetcher.py first")
+        log.warning("works table is empty — run library_fetcher.py first")
         return 0
 
     log.info("Scoring %d works (char_limit=%d, force=%s)", len(ids), SCORING_CHAR_LIMIT, FORCE_RESCORE)
@@ -203,10 +188,13 @@ def main() -> int:
     }
 
     for i, gid in enumerate(ids, 1):
-        outcome = score_work(r, gid)
+        outcome = score_work(conn, gid)
         counts[outcome] = counts.get(outcome, 0) + 1
         if i % 25 == 0:
+            conn.commit()
             log.info("Progress: %d/%d", i, len(ids))
+    conn.commit()
+    conn.close()
 
     log.info(
         "Done. scored=%d skipped_non_english=%d skipped_recent=%d failed=%d missing=%d",

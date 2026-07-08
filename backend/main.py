@@ -33,6 +33,7 @@ import html2text
 import trafilatura
 import yaml
 import pysolr
+import library_db
 from dotenv import load_dotenv
 
 # NEW: Import anti-bot utilities
@@ -1814,9 +1815,8 @@ def _slice_for_translation(body: str) -> int:
 @app.route('/api/library/<gutenberg_id>', methods=['GET'])
 def get_library_work(gutenberg_id):
     """Return a single work, including its full text body.
-    Optional ?lang=<code> translates and caches the entire book."""
-    if not r:
-        return jsonify({"error": "Database offline"}), 503
+    Optional ?lang=<code> translates and caches the entire book.
+    Served from SQLite (library_db) — moved out of Redis 2026-07-08."""
     if not re.match(r'^\d+$', gutenberg_id):
         return jsonify({"error": "Invalid id"}), 400
 
@@ -1825,10 +1825,13 @@ def get_library_work(gutenberg_id):
         return jsonify({"error": "Unsupported language"}), 400
 
     try:
-        meta = r.hgetall(f"library:work:{gutenberg_id}")
+        with library_db.db() as conn:
+            meta = library_db.get_work(conn, gutenberg_id)
+            body = library_db.get_text(conn, gutenberg_id) if meta else ""
         if not meta:
             return jsonify({"error": "Not found"}), 404
-        body = r.get(f"library:work:{gutenberg_id}:text") or ""
+        # Stringify to preserve the old Redis-hash semantics downstream.
+        meta = {k: '' if v is None else str(v) for k, v in meta.items()}
         try:
             subjects = json.loads(meta.get('subjects', '[]'))
         except (ValueError, TypeError):
@@ -1866,19 +1869,14 @@ def get_library_work(gutenberg_id):
             if work_lang and work_lang != 'en':
                 translation_error = "Translation only available for English-language works."
             else:
-                tx_key = f"library:work:{gutenberg_id}:translation:{lang}"
-                tx_meta_key = f"library:work:{gutenberg_id}:translation:{lang}:meta"
-                cached = r.get(tx_key)
-                if cached is not None:
-                    text_out = cached
+                with library_db.db() as conn:
+                    cached_tx = library_db.get_translation(conn, gutenberg_id, lang)
+                if cached_tx is not None:
+                    text_out = cached_tx['body']
                     is_translated = True
-                    cached_meta = r.hgetall(tx_meta_key) or {}
-                    if cached_meta.get('is_preview') == '1':
+                    if cached_tx['is_preview']:
                         is_preview = True
-                        try:
-                            preview_chars = int(cached_meta.get('preview_chars') or 0) or None
-                        except (ValueError, TypeError):
-                            preview_chars = None
+                        preview_chars = cached_tx['preview_chars'] or None
                 else:
                     try:
                         from translation import _call_translation_model
@@ -1892,13 +1890,14 @@ def get_library_work(gutenberg_id):
                             is_preview = True
                             preview_chars = cut
                             try:
-                                r.set(tx_key, text_out)
-                                r.hset(tx_meta_key, mapping={
-                                    'is_preview': '1',
-                                    'preview_chars': str(cut),
-                                })
+                                with library_db.db() as conn:
+                                    library_db.set_translation(
+                                        conn, gutenberg_id, lang, text_out,
+                                        is_preview=True, preview_chars=cut,
+                                        created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                                    )
                             except Exception as ex:
-                                app.logger.warning(f"Failed to cache library translation {tx_key}: {ex}")
+                                app.logger.warning(f"Failed to cache library translation {gutenberg_id}/{lang}: {ex}")
                         else:
                             translation_error = "Translation model returned empty result"
                     except Exception as ex:
@@ -1950,43 +1949,32 @@ def get_library_work(gutenberg_id):
 def library_search():
     """Substring search across title + author. Public, no auth.
     Returns up to 50 matches sorted by download_count desc."""
-    if not r:
-        return jsonify([]), 503
     q = (request.args.get('q', '') or '').strip().lower()
     if len(q) < 2:
         return jsonify([])
     try:
-        gids = r.zrevrange('library:works', 0, -1)
-        if not gids:
-            return jsonify([])
-
-        pipe = r.pipeline()
-        for gid in gids:
-            pipe.hmget(
-                f"library:work:{gid}",
+        results = []
+        with library_db.db() as conn:
+            for row in library_db.iter_work_meta(conn, [
                 'gutenberg_id', 'title', 'author', 'language',
                 'download_count', 'year_published',
-            )
-        rows = pipe.execute()
-
-        results = []
-        for gid, row in zip(gids, rows):
-            gutenberg_id, title, author, language, download_count, year_published = row
-            if not title:
-                continue
-            haystack = f"{title or ''} {author or ''}".lower()
-            if q not in haystack:
-                continue
-            results.append({
-                'gutenberg_id':   gutenberg_id or gid,
-                'title':          title or '',
-                'author':         author or 'Unknown',
-                'language':       language or '',
-                'download_count': int(download_count) if download_count else 0,
-                'year_published': year_published or '',
-            })
-            if len(results) >= 50:
-                break
+            ]):
+                title, author = row['title'], row['author']
+                if not title:
+                    continue
+                haystack = f"{title or ''} {author or ''}".lower()
+                if q not in haystack:
+                    continue
+                results.append({
+                    'gutenberg_id':   str(row['gutenberg_id']),
+                    'title':          title or '',
+                    'author':         author or 'Unknown',
+                    'language':       row['language'] or '',
+                    'download_count': row['download_count'] or 0,
+                    'year_published': row['year_published'] or '',
+                })
+                if len(results) >= 50:
+                    break
 
         resp = jsonify(results)
         resp.headers['Cache-Control'] = 'public, max-age=300'
@@ -1999,33 +1987,17 @@ def library_search():
 @app.route('/api/library/shelves', methods=['GET'])
 def get_library_shelves():
     """Return the list of curated shelves with metadata. Public, no auth."""
-    if not r:
-        return jsonify([]), 503
     try:
-        slugs = sorted(r.smembers('library:shelves') or [])
-        if not slugs:
-            return jsonify([])
+        with library_db.db() as conn:
+            shelves = library_db.list_shelves(conn)
 
-        pipe = r.pipeline()
-        for slug in slugs:
-            pipe.hgetall(f"library:shelf:{slug}:meta")
-        metas = pipe.execute()
-
-        results = []
-        for slug, meta in zip(slugs, metas):
-            if not meta:
-                continue
-            try:
-                book_count = int(meta.get('book_count', '0'))
-            except (ValueError, TypeError):
-                book_count = 0
-            results.append({
-                'slug':                   meta.get('slug', slug),
-                'name':                   meta.get('name', slug),
-                'description':            meta.get('description', ''),
-                'gutenberg_bookshelf_id': meta.get('gutenberg_bookshelf_id', ''),
-                'book_count':             book_count,
-            })
+        results = [{
+            'slug':                   s['slug'],
+            'name':                   s['name'] or s['slug'],
+            'description':            s['description'] or '',
+            'gutenberg_bookshelf_id': s['gutenberg_bookshelf_id'] or '',
+            'book_count':             s['book_count'] or 0,
+        } for s in shelves]
 
         resp = jsonify(results)
         resp.headers['Cache-Control'] = 'public, max-age=3600'
@@ -2038,71 +2010,54 @@ def get_library_shelves():
 @app.route('/api/library/shelf/<slug>', methods=['GET'])
 def get_library_shelf(slug):
     """Return a single shelf's metadata + member works (no body text)."""
-    if not r:
-        return jsonify({"error": "Database offline"}), 503
     if not re.match(r'^[a-z0-9_-]+$', slug):
         return jsonify({"error": "Invalid slug"}), 400
     try:
-        meta = r.hgetall(f"library:shelf:{slug}:meta")
-        if not meta:
-            return jsonify({"error": "Not found"}), 404
+        with library_db.db() as conn:
+            meta = library_db.get_shelf(conn, slug)
+            if not meta:
+                return jsonify({"error": "Not found"}), 404
 
-        member_ids = list(r.smembers(f"library:shelf:{slug}") or [])
+            member_ids = library_db.get_shelf_member_ids(conn, slug)
+            rows = [library_db.get_work(conn, gid) for gid in member_ids]
 
         books = []
-        if member_ids:
-            pipe = r.pipeline()
-            for gid in member_ids:
-                pipe.hmget(
-                    f"library:work:{gid}",
-                    'gutenberg_id', 'title', 'author', 'language',
-                    'download_count', 'year_published', 'subjects',
-                    'chimera_score', 'reading_label', 'chimera_skip_reason',
-                )
-            rows = pipe.execute()
-
-            for gid, row in zip(member_ids, rows):
-                (gutenberg_id, title, author, language, download_count,
-                 year_published, subjects_raw,
-                 chimera_score, reading_label, chimera_skip_reason) = row
-                # Skip ids that aren't in our catalog (fetch failure, pruned).
-                if not title:
-                    continue
-                try:
-                    subjects = json.loads(subjects_raw) if subjects_raw else []
-                except (ValueError, TypeError):
-                    subjects = []
-                try:
-                    chimera_int = int(chimera_score) if chimera_score not in (None, '') else None
-                except (ValueError, TypeError):
-                    chimera_int = None
-                books.append({
-                    'gutenberg_id':        gutenberg_id or gid,
-                    'title':               title or '',
-                    'author':              author or 'Unknown',
-                    'language':            language or '',
-                    'download_count':      int(download_count) if download_count else 0,
-                    'year_published':      year_published or '',
-                    'subjects':            subjects,
-                    'chimera_score':       chimera_int,
-                    'reading_label':       reading_label or '',
-                    'chimera_skip_reason': chimera_skip_reason or '',
-                })
+        for gid, row in zip(member_ids, rows):
+            # Skip ids that aren't in our catalog (fetch failure, pruned).
+            if not row or not row['title']:
+                continue
+            try:
+                subjects = json.loads(row['subjects']) if row['subjects'] else []
+            except (ValueError, TypeError):
+                subjects = []
+            try:
+                chimera_int = int(row['chimera_score']) if row['chimera_score'] not in (None, '') else None
+            except (ValueError, TypeError):
+                chimera_int = None
+            books.append({
+                'gutenberg_id':        str(row['gutenberg_id'] or gid),
+                'title':               row['title'] or '',
+                'author':              row['author'] or 'Unknown',
+                'language':            row['language'] or '',
+                'download_count':      row['download_count'] or 0,
+                'year_published':      row['year_published'] or '',
+                'subjects':            subjects,
+                'chimera_score':       chimera_int,
+                'reading_label':       row['reading_label'] or '',
+                'chimera_skip_reason': row['chimera_skip_reason'] or '',
+            })
 
         # Stable proxy for Gutenberg's own ranking: most-downloaded first.
         books.sort(key=lambda b: (-b['download_count'], b['title'].lower()))
 
-        try:
-            book_count = int(meta.get('book_count', str(len(books))))
-        except (ValueError, TypeError):
-            book_count = len(books)
+        book_count = meta['book_count'] or len(books)
 
         resp = jsonify({
-            'slug':                   meta.get('slug', slug),
-            'name':                   meta.get('name', slug),
-            'description':            meta.get('description', ''),
-            'gutenberg_bookshelf_id': meta.get('gutenberg_bookshelf_id', ''),
-            'fetched_at':             meta.get('fetched_at', ''),
+            'slug':                   meta['slug'],
+            'name':                   meta['name'] or slug,
+            'description':            meta['description'] or '',
+            'gutenberg_bookshelf_id': meta['gutenberg_bookshelf_id'] or '',
+            'fetched_at':             meta['fetched_at'] or '',
             'book_count':             book_count,
             'books':                  books,
         })

@@ -1571,29 +1571,22 @@ def generate_sitemap(r):
                 ET.SubElement(url_node, "priority").text = "0.6"
                 lib_count += 1
 
-            # Per-shelf pages
-            shelf_slugs = r.smembers("library:shelves") or set()
-            for slug in sorted(shelf_slugs):
-                slug_str = slug.decode('utf-8') if isinstance(slug, bytes) else slug
-                meta = r.hgetall(f"library:shelf:{slug_str}:meta") or {}
-                fetched_at = meta.get(b'fetched_at') or meta.get('fetched_at')
-                url_node = ET.SubElement(root, "url")
-                ET.SubElement(url_node, "loc").text = f"https://arc-codex.com/library/shelf/{slug_str}"
-                ET.SubElement(url_node, "lastmod").text = _lastmod(fetched_at)
-                ET.SubElement(url_node, "priority").text = "0.6"
-                lib_count += 1
+            # Shelf + work pages from SQLite (library moved out of Redis 2026-07-08)
+            import library_db
+            with library_db.db() as lib_conn:
+                for shelf in library_db.list_shelves(lib_conn):
+                    url_node = ET.SubElement(root, "url")
+                    ET.SubElement(url_node, "loc").text = f"https://arc-codex.com/library/shelf/{shelf['slug']}"
+                    ET.SubElement(url_node, "lastmod").text = _lastmod(shelf['fetched_at'])
+                    ET.SubElement(url_node, "priority").text = "0.6"
+                    lib_count += 1
 
-            # Individual work pages
-            work_ids = r.zrange("library:works", 0, -1) or []
-            for gid in work_ids:
-                gid_str = gid.decode('utf-8') if isinstance(gid, bytes) else gid
-                work = r.hgetall(f"library:work:{gid_str}") or {}
-                fetched_at = work.get(b'fetched_at') or work.get('fetched_at')
-                url_node = ET.SubElement(root, "url")
-                ET.SubElement(url_node, "loc").text = f"https://arc-codex.com/library/{gid_str}"
-                ET.SubElement(url_node, "lastmod").text = _lastmod(fetched_at)
-                ET.SubElement(url_node, "priority").text = "0.4"
-                lib_count += 1
+                for row in library_db.iter_work_meta(lib_conn, ["gutenberg_id", "fetched_at"]):
+                    url_node = ET.SubElement(root, "url")
+                    ET.SubElement(url_node, "loc").text = f"https://arc-codex.com/library/{row['gutenberg_id']}"
+                    ET.SubElement(url_node, "lastmod").text = _lastmod(row['fetched_at'])
+                    ET.SubElement(url_node, "priority").text = "0.4"
+                    lib_count += 1
 
             tree = ET.ElementTree(root)
             with open(output_path, "wb") as f:

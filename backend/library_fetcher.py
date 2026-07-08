@@ -3,13 +3,22 @@
 Arc Codex — library_fetcher.py
 
 One-shot (or cron) ingestion of the Project Gutenberg "Top 100, last 30 days"
-list. For each book:
+list plus the curated shelves in shelves.yaml. For each book:
   1. Parse the top-100 list page for ebook IDs.
   2. Fetch RDF metadata (title, author, language, subjects, downloads, year).
   3. Fetch the plain-text body (UTF-8 first, Latin-1 fallback, then encoding
      detection via charset-normalizer).
   4. Strip the Project Gutenberg boilerplate header/footer.
-  5. Write to Redis under the library: namespace.
+  5. Write to SQLite at /mnt/arcdata/library.db (see library_db.py).
+     Moved out of Redis 2026-07-08 — the text corpus had grown to ~12.7 GB
+     of Redis memory and drove the 2026-07-07 OOM incident.
+
+Scope: the corpus is the CURRENT top-100 + current shelf membership
+(~1,800 works). Because both lists churn weekly, works accumulate beyond
+that scope over time; LIBRARY_MAX_WORKS is the hard bound — after each run,
+oldest-fetched works no longer referenced by any shelf are pruned until the
+bound holds. (The pre-2026-07-08 behavior had no bound and hoarded ~29K
+works in Redis.)
 
 Idempotent: a work fetched within the last 7 days is skipped.
 
@@ -18,12 +27,11 @@ Usage:
     python3 library_fetcher.py
 
 All deps already in requirements.txt: requests, beautifulsoup4, lxml,
-charset-normalizer, redis, python-dotenv.
+charset-normalizer, python-dotenv. Storage is stdlib sqlite3 via library_db.
 """
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import os
 import re
@@ -33,12 +41,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import redis
 import requests
 import yaml
 from bs4 import BeautifulSoup
 from charset_normalizer import from_bytes
 from dotenv import load_dotenv
+
+import library_db
 
 load_dotenv()
 
@@ -57,8 +66,10 @@ REQUEST_TIMEOUT = 30
 SECTION_HEADING = "Top 100 EBooks last 30 days"
 RECHECK_AFTER_SECONDS = 7 * 24 * 60 * 60  # 7 days
 SHELVES_CONFIG_PATH = Path(__file__).resolve().parent.parent / "shelves.yaml"
-
-REDIS_PASSWORD = os.environ['REDIS_PASSWORD']
+# Hard bound on corpus size: current top-100 + 34 shelves × 50 ≈ 1,800
+# referenced works; the rest is churn history. Above this, oldest-fetched
+# unreferenced works are pruned after each run.
+LIBRARY_MAX_WORKS = int(os.environ.get("LIBRARY_MAX_WORKS", "5000"))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -317,87 +328,64 @@ def strip_gutenberg_boilerplate(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Redis writes
+# SQLite writes
 # ---------------------------------------------------------------------------
 
-def get_redis() -> redis.Redis:
-    return redis.Redis(decode_responses=True, password=REDIS_PASSWORD)
-
-
-def is_fresh(r: redis.Redis, gid: int) -> bool:
+def is_fresh(conn, gid: int) -> bool:
     """Return True if this work was fetched within RECHECK_AFTER_SECONDS."""
-    fetched_at = r.hget(f"library:work:{gid}", "fetched_at")
-    if not fetched_at:
+    row = conn.execute(
+        "SELECT fetched_at FROM works WHERE gutenberg_id = ?", (gid,)
+    ).fetchone()
+    if not row or not row["fetched_at"]:
         return False
     try:
-        ts = datetime.fromisoformat(fetched_at)
+        ts = datetime.fromisoformat(row["fetched_at"])
     except ValueError:
         return False
     age = (datetime.now(timezone.utc) - ts).total_seconds()
     return age < RECHECK_AFTER_SECONDS
 
 
-def _invalidate_derived_caches(r: redis.Redis, gid: int) -> None:
-    """Drop pagination boundaries and on-demand translations when the source
-    text changes. Uses SCAN MATCH (never KEYS) for pattern deletes."""
-    patterns = [
-        f"library:work:{gid}:pagination:*",
-        f"library:work:{gid}:de:*",
-        f"library:work:{gid}:fr:*",
-        f"library:work:{gid}:es:*",
-        f"library:work:{gid}:pt-br:*",
-    ]
-    deleted = 0
-    for pat in patterns:
-        for k in r.scan_iter(match=pat, count=200):
-            r.delete(k)
-            deleted += 1
-    if deleted:
-        log.info("library #%d — invalidated %d derived cache key(s) after text change", gid, deleted)
-
-
-def write_work(r: redis.Redis, gid: int, meta: dict, text: str, encoding: str, source_url: str) -> None:
-    key = f"library:work:{gid}"
+def write_work(conn, gid: int, meta: dict, text: str, encoding: str, source_url: str) -> None:
     new_text_md5 = hashlib.md5(text.encode("utf-8", errors="replace")).hexdigest()
-    old_text = r.get(f"{key}:text")
-    old_text_md5 = (
-        hashlib.md5(old_text.encode("utf-8", errors="replace")).hexdigest()
-        if old_text else None
-    )
+    old = conn.execute(
+        "SELECT text_md5 FROM works WHERE gutenberg_id = ?", (gid,)
+    ).fetchone()
+    old_text_md5 = old["text_md5"] if old else None
 
-    r.hset(key, mapping={
-        "gutenberg_id":   str(gid),
+    library_db.upsert_work(conn, gid, {
         "title":          meta["title"],
         "author":         meta["author"],
         "language":       meta["language"],
-        "subjects":       json.dumps(meta["subjects"]),
+        "subjects":       meta["subjects"],
         "year_published": meta["year_published"],
-        "download_count": str(meta["download_count"]),
+        "download_count": meta["download_count"],
         "encoding":       encoding,
         "source_url":     source_url,
         "fetched_at":     datetime.now(timezone.utc).isoformat(),
         "text_md5":       new_text_md5,
-    })
-    r.set(f"{key}:text", text)
-    # ZSET sorted by download_count — ZREVRANGE for desc display.
-    r.zadd("library:works", {str(gid): float(meta["download_count"])})
+    }, text)
 
-    if old_text_md5 is not None and old_text_md5 != new_text_md5:
-        _invalidate_derived_caches(r, gid)
+    if old_text_md5 and old_text_md5 != new_text_md5:
+        # Source text changed — cached translations are stale.
+        deleted = library_db.delete_translations(conn, gid)
+        if deleted:
+            log.info("library #%d — invalidated %d cached translation(s) after text change", gid, deleted)
+    conn.commit()
 
 
 # ---------------------------------------------------------------------------
 # Per-work ingest (shared by top-100 and shelves)
 # ---------------------------------------------------------------------------
 
-def ensure_work_exists(r: redis.Redis, gid: int, label: str = "") -> str:
+def ensure_work_exists(conn, gid: int, label: str = "") -> str:
     """Fetch + write a single Gutenberg work if it isn't already fresh.
 
     Returns one of: 'fresh', 'fetched', 'failed'. Idempotent — running twice
     on the same id within RECHECK_AFTER_SECONDS performs no network I/O on the
     second call. Failures are logged and swallowed so callers can keep going.
     """
-    if is_fresh(r, gid):
+    if is_fresh(conn, gid):
         log.info("%s%d — fresh, skipping", label, gid)
         return "fresh"
 
@@ -411,7 +399,7 @@ def ensure_work_exists(r: redis.Redis, gid: int, label: str = "") -> str:
         return "failed"
 
     cleaned = strip_gutenberg_boilerplate(text)
-    write_work(r, gid, meta, cleaned, encoding or "unknown", source_url or "")
+    write_work(conn, gid, meta, cleaned, encoding or "unknown", source_url or "")
     log.info(
         "%s%d — %s · %s · %s · %d chars · enc=%s",
         label, gid,
@@ -446,11 +434,10 @@ def load_shelves_config() -> Optional[dict]:
     return cfg
 
 
-def fetch_all_shelves(r: redis.Redis, shelves_config: dict) -> None:
-    """Fetch every configured shelf and populate library:shelf:<slug>."""
+def fetch_all_shelves(conn, shelves_config: dict) -> None:
+    """Fetch every configured shelf and rebuild its membership."""
     limit = int(shelves_config.get("books_per_shelf", 50))
     shelves = shelves_config.get("shelves", {})
-    slugs: list[str] = []
 
     for slug, cfg in shelves.items():
         if not isinstance(cfg, dict):
@@ -468,27 +455,18 @@ def fetch_all_shelves(r: redis.Redis, shelves_config: dict) -> None:
             continue
 
         for i, gid in enumerate(ids, 1):
-            ensure_work_exists(r, gid, label=f"[{slug} {i}/{len(ids)}] ")
+            ensure_work_exists(conn, gid, label=f"[{slug} {i}/{len(ids)}] ")
 
         # Rebuild membership fresh so removed books drop out.
-        shelf_key = f"library:shelf:{slug}"
-        r.delete(shelf_key)
-        r.sadd(shelf_key, *[str(g) for g in ids])
-        r.hset(f"{shelf_key}:meta", mapping={
-            "slug":                    slug,
+        library_db.replace_shelf(conn, slug, {
             "name":                    cfg.get("name", slug),
             "description":             cfg.get("description", ""),
             "gutenberg_bookshelf_id":  str(bookshelf_id),
             "fetched_at":              datetime.now(timezone.utc).isoformat(),
-            "book_count":              str(len(ids)),
-        })
-        slugs.append(slug)
+            "book_count":              len(ids),
+        }, ids)
+        conn.commit()
         log.info("Shelf '%s': %d works", slug, len(ids))
-
-    # Maintain a registry of known shelf slugs so the API can enumerate them.
-    if slugs:
-        r.delete("library:shelves")
-        r.sadd("library:shelves", *slugs)
 
 
 # ---------------------------------------------------------------------------
@@ -496,12 +474,8 @@ def fetch_all_shelves(r: redis.Redis, shelves_config: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> int:
-    r = get_redis()
-    try:
-        r.ping()
-    except redis.RedisError as e:
-        log.error("Redis ping failed: %s", e)
-        return 1
+    conn = library_db.connect()
+    library_db.init_schema(conn)
 
     try:
         ids = fetch_top_100_ids()
@@ -511,7 +485,7 @@ def main() -> int:
 
     fetched = skipped = failed = 0
     for i, gid in enumerate(ids, 1):
-        status = ensure_work_exists(r, gid, label=f"[top100 {i}/{len(ids)}] ")
+        status = ensure_work_exists(conn, gid, label=f"[top100 {i}/{len(ids)}] ")
         if status == "fresh":
             skipped += 1
         elif status == "fetched":
@@ -524,29 +498,29 @@ def main() -> int:
     # Surface the Top-100 list as a shelf so the /library landing page
     # picks it up alongside the curated thematic shelves. Membership is
     # rebuilt fresh each run so works that fall off the list drop out.
-    try:
-        top_key = "library:shelf:top100"
-        r.delete(top_key)
-        r.sadd(top_key, *[str(g) for g in ids])
-        r.hset(f"{top_key}:meta", mapping={
-            "slug":         "top100",
-            "name":         "Top 100 (Last 30 Days)",
-            "description":  "Most-downloaded works on Project Gutenberg over the past month.",
-            "fetched_at":   datetime.now(timezone.utc).isoformat(),
-            "book_count":   str(len(ids)),
-        })
-        r.sadd("library:shelves", "top100")
-        log.info("Shelf 'top100': %d works", len(ids))
-    except redis.RedisError as e:
-        log.error("Failed to write top100 shelf: %s", e)
+    library_db.replace_shelf(conn, "top100", {
+        "name":         "Top 100 (Last 30 Days)",
+        "description":  "Most-downloaded works on Project Gutenberg over the past month.",
+        "fetched_at":   datetime.now(timezone.utc).isoformat(),
+        "book_count":   len(ids),
+    }, ids)
+    conn.commit()
+    log.info("Shelf 'top100': %d works", len(ids))
 
     shelves_config = load_shelves_config()
     if shelves_config is not None:
         try:
-            fetch_all_shelves(r, shelves_config)
+            fetch_all_shelves(conn, shelves_config)
         except Exception as e:
             log.error("Shelf fetch failed: %s", e, exc_info=True)
             return 2
+
+    # Hard bound — prune oldest-fetched works not on any current shelf.
+    pruned = library_db.prune_unreferenced_works(conn, LIBRARY_MAX_WORKS)
+    conn.commit()
+    if pruned:
+        log.info("Pruned %d unreferenced work(s) — corpus bound %d", pruned, LIBRARY_MAX_WORKS)
+    conn.close()
 
     return 0 if failed == 0 else 2
 
