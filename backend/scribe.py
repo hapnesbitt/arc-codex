@@ -1622,6 +1622,13 @@ def main():
         cycle_count += 1
 
         try:
+            # Heartbeat: liveness signal for corpus_exporter/Grafana. TTL is
+            # 15 min so a wedged scribe reads as key-absent, not just stale.
+            try:
+                r.setex('arc:scribe:last_cycle', 900, str(int(time.time())))
+            except Exception:
+                pass
+
             # --- PRIORITY QUEUE FIRST ---
             # User-submitted URLs, prompts, and manual text are always processed
             # before RSS scanning so the user gets fast feedback.

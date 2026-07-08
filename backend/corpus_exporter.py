@@ -216,6 +216,19 @@ g_rss            = Gauge('arc_rss_total',             'RSS feed parse outcome co
 g_publish        = Gauge('arc_publish_total',         'Publish pipeline outcome count',          ['outcome'])
 g_priority       = Gauge('arc_priority_total',        'Priority queue items processed by origin',['origin'])
 
+# =============================================================================
+# Prometheus metrics — v2.1 heartbeats + resource guards (fast loop, 60s)
+# =============================================================================
+g_scribe_heartbeat     = Gauge('arc_scribe_heartbeat_timestamp',
+                               'Unix ts of the scribe heartbeat key (0 = absent/expired)', ['stack'])
+g_scribe_heartbeat_age = Gauge('arc_scribe_heartbeat_age_seconds',
+                               'Seconds since the scribe heartbeat (-1 = absent/expired)', ['stack'])
+g_cloud_calls_weekly   = Gauge('arc_cloud_calls_weekly',
+                               "This ISO week's cloud escalation call count (arc:cloud_calls:weekly:*)")
+g_redis_used_memory    = Gauge('arc_redis_used_memory_bytes', 'Redis used_memory (shared instance)')
+g_redis_maxmemory      = Gauge('arc_redis_maxmemory_bytes',   'Redis maxmemory (0 = uncapped)')
+g_redis_memory_ratio   = Gauge('arc_redis_memory_ratio',      'used_memory / maxmemory (0 if uncapped)')
+
 
 # =============================================================================
 # Helpers
@@ -544,6 +557,46 @@ def scrape_loop(r, interval):
         time.sleep(interval)
 
 
+# =============================================================================
+# Fast loop (60s) — heartbeats, weekly cloud counter, Redis memory
+# =============================================================================
+
+def scrape_fast(r_arc, r_hnt):
+    now = time.time()
+    for stack, client, key in (
+        ("arc", r_arc, "arc:scribe:last_cycle"),
+        ("huntaegis", r_hnt, "huntaegis:scribe:last_cycle"),
+    ):
+        ts = 0
+        try:
+            ts = int(client.get(key) or 0)
+        except (ValueError, TypeError, redis.RedisError):
+            pass
+        g_scribe_heartbeat.labels(stack=stack).set(ts)
+        g_scribe_heartbeat_age.labels(stack=stack).set(round(now - ts, 1) if ts else -1)
+
+    # Weekly cloud escalation counter — same key shape as escalation._weekly_key
+    iso_year, iso_week, _ = datetime.now().isocalendar()
+    weekly_key = f"arc:cloud_calls:weekly:{iso_year}-W{iso_week:02d}"
+    g_cloud_calls_weekly.set(int(r_arc.get(weekly_key) or 0))
+
+    # Redis memory pressure (instance-wide, shared across stacks)
+    info = r_arc.info('memory')
+    used, maxm = info.get('used_memory', 0), info.get('maxmemory', 0)
+    g_redis_used_memory.set(used)
+    g_redis_maxmemory.set(maxm)
+    g_redis_memory_ratio.set(round(used / maxm, 4) if maxm else 0)
+
+
+def fast_loop(r_arc, r_hnt, interval=60):
+    while True:
+        try:
+            scrape_fast(r_arc, r_hnt)
+        except Exception as e:
+            log.warning(f"Fast scrape failed (non-fatal): {e}")
+        time.sleep(interval)
+
+
 def main():
     log.info(f"Arc Codex Corpus Exporter v2.0 — port {EXPORTER_PORT}")
     log.info(f"Scrape interval: {INTERVAL_SEC//60} minutes")
@@ -562,6 +615,12 @@ def main():
 
     t = threading.Thread(target=scrape_loop, args=(r, INTERVAL_SEC), daemon=True)
     t.start()
+
+    # Huntaegis heartbeat lives in its own DB (1) — read-only client.
+    r_hnt = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD,
+                        db=1, decode_responses=True)
+    t_fast = threading.Thread(target=fast_loop, args=(r, r_hnt), daemon=True)
+    t_fast.start()
 
     try:
         while True:
