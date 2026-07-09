@@ -53,3 +53,16 @@ Status: **PENDING** — commands prepared 2026-07-08, awaiting a root shell.
 (cold-archive data, weekly cron, read-mostly — belongs on the archive SSD).
 Pre-purge RDB backup: `/mnt/arcdata/redis-pre-library-purge-2026-07-08.rdb`.
 See git history of `backend/library_fetcher.py` / `backend/score_library.py`.
+
+## Archive registry — `/mnt/arcdata/`
+
+Long-term RDB snapshots kept alongside the working corpus. Each entry lists
+the window the snapshot represents and its md5 for tamper detection.
+
+| File | Window covered | md5 | Notes |
+|------|----------------|-----|-------|
+| `redis-full-archive-2026-03-to-07.rdb` | 2026-03 → 2026-07-08 (pre-library-purge) | `2caa3966656474c50e8c3302c972781f` | Promoted 2026-07-08 from `redis-pre-library-purge-2026-07-08.rdb` — identical bytes, renamed to reflect the window it actually represents. Both files coexist; the promoted name is the durable reference. |
+| `redis-pre-library-purge-2026-07-08.rdb` | 2026-03 → 2026-07-08 (pre-library-purge) | `2caa3966656474c50e8c3302c972781f` | Source snapshot from the OOM remediation above. Retained as a byte-identical twin so historical references keep resolving. |
+
+Verify integrity after any host restore: `md5sum /mnt/arcdata/*.rdb` and
+compare against the table.
