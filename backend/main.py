@@ -46,6 +46,13 @@ from fetch_utils import (
 )
 from catalog_loader import load_catalog
 
+# Rate-limiter singleton lives in auth.py; import at module scope so its
+# @limiter.limit decorators can attach to routes here regardless of whether
+# the Redis-init try block below runs to completion (limiter falls back to
+# in-memory storage until init_auth() rebinds it to Redis).
+from auth import limiter
+from flask_limiter.util import get_remote_address
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -853,6 +860,12 @@ def get_article_comments(article_id):
         return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/submit_comment', methods=['POST'])
+# Per-user, not per-IP: every /api/submit_comment arrives via loopback from
+# the Next.js proxy, so keying on request.remote_addr would collapse every
+# authenticated user under 127.0.0.1 and defeat the throttle. Fall back to
+# get_remote_address for the anonymous case so the 401 path is still
+# throttled per-IP, not globally.
+@limiter.limit("30/hour;5/minute", key_func=lambda: _client_user_id() or get_remote_address())
 def submit_comment():
     if not r or not SENTIMENT_ANALYZER:
         app.logger.error("🔥 System unavailable for submit_comment")
@@ -868,11 +881,14 @@ def submit_comment():
     data = request.get_json()
     article_id = data.get('article_id')
     comment_text = data.get('comment_text')
-    # Author is derived server-side from the session/user id — closes the
-    # impersonation vector where the client could POST as "A.R.C.
-    # Counter-Analyst" or any other name. The Next.js proxy sets `author`
-    # from session.user.name; if that's absent, fall back to user_id.
-    author = (data.get('author') or user_id).strip() or user_id
+    # Author is derived server-side from the authenticated identity. The
+    # Next.js proxy is now defense-in-depth only — any 'author' key in the
+    # request body is ignored, closing the impersonation vector where a
+    # loopback caller (or a proxy bug) could POST as
+    # "A.R.C. Counter-Analyst" or as another user's name. The
+    # counter-analyst comment is server-seeded on a different code path,
+    # never through /api/submit_comment.
+    author = user_id
     parent_id = data.get('parent_id', '')
 
     if not article_id or not comment_text:
