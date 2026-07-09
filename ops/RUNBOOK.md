@@ -3,6 +3,77 @@
 Records host-level changes that live outside git (redis.conf, fstab, sysctl),
 so the repo history stays the single narrative of what changed and why.
 
+## 2026-07-09 — Cecil retired (audit findings #1, #2)
+
+**Motivation**: 2026-07-09 security audit found the Cecil email-to-publish
+daemon's sender check was trivially spoofable — Postfix `check_sender_access`
+runs against the SMTP envelope MAIL FROM (unverified) and OpenDKIM's
+`milter_default_action = accept` means DKIM failure does not reject. No
+DMARC enforcement was in place. Anyone on the internet could publish
+articles attributed to `ross` by connecting to port 25. Cecil also accepted
+`image/*` attachments with no SVG filter → stored XSS in the arc-codex.com
+origin.
+
+### Actions taken
+
+- `systemctl stop cecil && systemctl disable cecil` — service was
+  `active/enabled` at time of the audit, now `inactive/disabled`.
+- `backend/cecil.py` archived (git mv) to
+  `backend/archive/cecil.py.disabled` — history preserved via
+  `git log --follow`. The systemd unit was copied to
+  `backend/archive/cecil.service.disabled` alongside it.
+- Cecil-user ACLs on `frontend/public/uploads` and `logs` removed (see
+  `scratchpad/step1_cecil_remove.sh`, run as root).
+- Postfix wiring removed: the `cecil_sender_check` restriction class,
+  its `check_sender_access pcre:/etc/postfix/cecil_senders.pcre` line,
+  and the `check_recipient_access hash:/etc/postfix/cecil_recipients`
+  entry inside `smtpd_recipient_restrictions`. Backup at
+  `/etc/postfix/main.cf.bak-cecil-remove-<ts>`.
+- `/etc/postfix/cecil_senders.pcre` and `/etc/postfix/cecil_recipients{,.db}`
+  deleted.
+- `/home/cecil/Maildir` archived to `/home/cecil/Maildir.retired-<date>`
+  (kept for forensics; three prior failed-mail messages sit in
+  `.Failed/cur/` from earlier rejected sender tests).
+- Cecil system account locked (`usermod -L cecil`,
+  `-s /usr/sbin/nologin`). User + group left present so ACL removal
+  doesn't orphan any leftover file.
+
+### Port 25 decision — LEAVE inbound open on 0.0.0.0
+
+Investigated whether `inet_interfaces` could drop to `loopback-only`.
+It cannot without a follow-up:
+
+- `mydestination` still contains `arc-codex.com`, and
+  `/etc/postfix/virtual` forwards eight aliases (`hap@`, `info@`,
+  `hello@`, `press@`, `legal@`, `edu@`, `support@`, `abuse@`) to
+  `ross@arc-codex.com` via local delivery.
+- The MX for `arc-codex.com` currently points at this host, so external
+  senders reach these aliases only via inbound port 25.
+
+If the mail-alias forwarding is intentional (support/abuse/legal are
+real inboxes), leave port 25 open. If those aliases are decorative and
+Ross's real mail lives on Gmail with no expectation of receiving mail
+here, switch `inet_interfaces = loopback-only` and update DNS to point
+the MX elsewhere (or drop MX).
+
+**Left as-is for now.** Local processes still submit outbound via
+`smtplib.SMTP("localhost", 25)` — `arc/mailer.py`, `hnt/mailer.py`,
+`arc/auth.py` password-reset — which continues to work either way
+(outbound uses `smtp_*` config, not `smtpd_*`).
+
+### Verification
+
+- `systemctl is-active cecil` → `inactive`
+- `systemctl is-enabled cecil` → `disabled`
+- `postfix check` → clean
+- `systemctl reload postfix` → OK
+- Attempting `MAIL FROM: rossnesbitt@gmail.com; RCPT TO: cecil@arc-codex.com`
+  now returns `550 relay not permitted` (recipient no longer accepted).
+- Local mailer.py outbound path unchanged — 7am digest cron and password
+  reset emails still work.
+
+
+
 ## 2026-07-08 — Redis OOM incident remediation
 
 **Incident**: Redis (shared instance, DB 0 = arc) was OOM-killed 18× between

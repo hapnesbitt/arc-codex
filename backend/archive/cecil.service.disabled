@@ -1,0 +1,19 @@
+[Unit]
+Description=Cecil — Arc Codex email publish daemon
+After=network.target redis.service postfix.service
+Wants=network.target
+
+[Service]
+User=cecil
+Group=cecil
+WorkingDirectory=/home/www/arc_stack/backend
+EnvironmentFile=/home/www/arc_stack/backend/.env
+ExecStart=/home/www/arc_stack/backend/venv/bin/python3 /home/www/arc_stack/backend/cecil.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cecil
+
+[Install]
+WantedBy=multi-user.target
