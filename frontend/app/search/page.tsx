@@ -16,6 +16,21 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Search, ArrowLeft, Clock, Newspaper, Zap, Shield, TrendingUp, Radio, Database, CalendarDays, Terminal, Globe, Tag, X } from 'lucide-react';
 import PageWrapper from '@/components/layout/PageWrapper';
 import LANG_LIST from '@/lib/languages.json';
+import { escapeHtml } from '@/lib/textUtils';
+
+// Solr highlighter wraps matched terms in these sentinels, not raw <mark>
+// tags. Backend (main.py, /api/search route) sets hl.simple.pre/post to
+// these exact strings. If either side changes, update the other.
+const HL_PRE  = '⟪HL⟫';
+const HL_POST = '⟪/HL⟫';
+const HL_MARK_OPEN  = '<mark class="bg-amber-400/30 text-slate-100 px-0.5 rounded">';
+const HL_MARK_CLOSE = '</mark>';
+
+// Order matters: ALWAYS escape the raw snippet first, THEN restore the
+// sentinels back to <mark> markup. Restoring first would allow any HTML
+// in the article content to reach the DOM live.
+const renderSnippet = (snippet: string): string =>
+  escapeHtml(snippet).split(HL_PRE).join(HL_MARK_OPEN).split(HL_POST).join(HL_MARK_CLOSE);
 
 // ── Reduced motion ────────────────────────────────────────────────────────────
 const reducedMotion = typeof window !== 'undefined'
@@ -136,7 +151,7 @@ function ResultCard({ result }: { result: SearchResult; index: number }) {
           {result.snippet && (
             <p
               className="font-serif text-base text-slate-300 leading-relaxed line-clamp-2 arc-snippet"
-              dangerouslySetInnerHTML={{ __html: result.snippet }}
+              dangerouslySetInnerHTML={{ __html: renderSnippet(result.snippet) }}
             />
           )}
 

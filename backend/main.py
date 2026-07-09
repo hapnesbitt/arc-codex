@@ -566,13 +566,21 @@ def search_articles():
         if fq:
             search_kwargs['fq'] = fq
         if query:
+            # Highlight terms are wrapped in Unicode sentinel markers rather than
+            # raw <mark> tags. The frontend (app/search/page.tsx) escapeHtml's
+            # the snippet first, THEN restores the sentinels to real <mark>
+            # markup. This keeps the mark styling while ensuring any HTML that
+            # slipped into the indexed content — a poisoned article's <meta>,
+            # <script>, etc — renders as inert escaped text in search results.
+            # ⟪⟫ = U+27EA/U+27EB (math double-angle brackets); if this ever
+            # changes, update the sentinel constants in search/page.tsx too.
             search_kwargs.update({
                 'hl': 'true',
                 'hl.fl': 'content,title',
                 'hl.snippets': '1',
                 'hl.fragsize': '250',
-                'hl.simple.pre': '<mark class="bg-amber-400/30 text-slate-100 px-0.5 rounded">',
-                'hl.simple.post': '</mark>',
+                'hl.simple.pre': '⟪HL⟫',
+                'hl.simple.post': '⟪/HL⟫',
             })
 
         results = solr.search(solr_query, **search_kwargs)
