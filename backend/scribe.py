@@ -538,6 +538,36 @@ def _resolves_to_private_ip(url):
         return True
 
 
+class _SSRFBlocked(Exception):
+    """Raised when a fetch target fails the SSRF guard."""
+
+
+def _get_with_ssrf_guard(session, url, timeout, max_redirects=5):
+    """session.get() with manual redirect chasing so every hop passes
+    _resolves_to_private_ip. Rejects non-http(s) schemes at every hop.
+    Raises _SSRFBlocked on a rejected target; propagates network errors
+    unchanged.
+
+    Closes the guard against a crafted feed/submit URL that 302-redirects
+    to internal targets (Ollama, Solr, the M1 at 192.168.1.185, AWS/GCE
+    metadata endpoints).
+    """
+    current = url
+    for hop in range(max_redirects + 1):
+        parsed = urlparse(current)
+        if parsed.scheme not in ('http', 'https'):
+            raise _SSRFBlocked(f"non-http(s) scheme at hop {hop}: {parsed.scheme!r}")
+        if _resolves_to_private_ip(current):
+            raise _SSRFBlocked(f"private/loopback/reserved address at hop {hop}: {current}")
+        resp = session.get(current, timeout=timeout, allow_redirects=False)
+        loc = resp.headers.get('location')
+        if 300 <= resp.status_code < 400 and loc:
+            current = urljoin(current, loc)
+            continue
+        return resp
+    raise _SSRFBlocked(f"too many redirects (>{max_redirects})")
+
+
 def rehost_article_image(article_id, image_url):
     """Fetch an external hero image, normalize to 1200x675 JPEG (center-crop,
     same PIL pattern as the manual-upload resize in main.py), save as
@@ -774,7 +804,11 @@ def fetch_with_requests(url, headers, stealth=False):
             headers = {**headers, **extra}
 
         session = _make_session(headers, referer=referer)
-        response = session.get(url, timeout=NETWORK_TIMEOUT_SECONDS, allow_redirects=True)
+        try:
+            response = _get_with_ssrf_guard(session, url, NETWORK_TIMEOUT_SECONDS)
+        except _SSRFBlocked as e:
+            logger.warning(f"🛡️  SSRF guard blocked {url}: {e}")
+            return None
 
         if response.status_code == 403:
             logger.info(f"🚫 403 on {'stealth ' if stealth else ''}request for {url} — skipping")
