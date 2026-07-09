@@ -32,7 +32,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { MessageSquare, Send, AlertCircle, Reply, ChevronDown, ChevronRight } from 'lucide-react';
 import type { Comment } from '@/lib/types';
-import { linkifyText } from '@/lib/textUtils';
+import { linkifyText, escapeHtml } from '@/lib/textUtils';
 
 // --- TYPE DEFINITIONS ---
 interface CommentSectionProps {
@@ -315,10 +315,13 @@ function CommentSection({ comments = [], articleId }: CommentSectionProps): Reac
                     </time>
                   </div>
 
-                  {/* Comment body */}
+                  {/* Comment body — escape first, then linkify, so any raw
+                       HTML a user pasted into their comment renders as text,
+                       not as live markup. Same class of gap as the article
+                       plainTextToHtml fix from 2026-07-09. */}
                   <div
                     className="text-slate-200 leading-relaxed mb-2 whitespace-pre-wrap text-sm prose prose-invert max-w-none"
-                    dangerouslySetInnerHTML={{ __html: linkifyText(comment.text) }}
+                    dangerouslySetInnerHTML={{ __html: linkifyText(escapeHtml(comment.text)) }}
                   />
 
                   {/* Action row */}

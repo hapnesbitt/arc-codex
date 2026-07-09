@@ -29,7 +29,7 @@ export const linkifyText = (text: string): string => {
 };
 
 // Escapes HTML special characters for safe insertion into HTML content
-const escapeHtml = (text: string): string =>
+export const escapeHtml = (text: string): string =>
     text
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')

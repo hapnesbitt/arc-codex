@@ -330,7 +330,11 @@ const VideoList: React.FC<{ text: string }> = ({ text }) => {
                         </a>
                     );
                 } else if (line.trim()) {
-                    const linkedLine = linkifyText(line);
+                    // Escape first, then linkify — mirrors plainTextToHtml.
+                    // Article original_text can carry raw HTML from RSS sources
+                    // (2026-07-09 Hak5 incident); this ensures the video-list
+                    // non-Video lines can't render live markup either.
+                    const linkedLine = linkifyText(escapeHtml(line));
                     return (
                         <div
                             key={index}
