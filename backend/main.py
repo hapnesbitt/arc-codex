@@ -475,11 +475,13 @@ def get_single_article(article_id):
             else:
                 actual_id = article_data.get('id', article_id)
                 try:
-                    # Only queue if not already queued recently (simple dedup)
+                    # Atomic dedup via SET NX EX. 1h window comfortably covers
+                    # slow analyzer runs (cloud escalation can take minutes);
+                    # analyzer clears this key on pickup so a fresh view during
+                    # processing re-enqueues cleanly.
                     queue_key = f"analyzer:queued:{actual_id}"
-                    if not r.exists(queue_key):
+                    if r.set(queue_key, '1', ex=3600, nx=True):
                         r.lpush('analyzer:queue', actual_id)
-                        r.setex(queue_key, 300, '1')  # 5-minute dedup window
                         app.logger.info(f"📋 Queued {actual_id} for on-demand analysis")
                 except Exception as e:
                     app.logger.warning(f"⚠️  Failed to queue analysis trigger: {e}")

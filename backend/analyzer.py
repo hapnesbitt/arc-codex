@@ -504,6 +504,9 @@ def main():
                 # Article analysis request
                 article_id = payload.strip()
                 if article_id:
+                    # Clear dedup flag on pickup so a fresh view arriving during
+                    # this run re-enqueues the next pass (latest view wins).
+                    r.delete(f"analyzer:queued:{article_id}")
                     logger.info(f"📥 Received article {article_id} from analysis queue")
                     try:
                         analyze_article(article_id)
