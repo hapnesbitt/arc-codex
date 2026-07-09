@@ -5,6 +5,7 @@
 import random
 import logging
 from bs4 import BeautifulSoup
+import bleach
 import requests
 import trafilatura
 import charset_normalizer
@@ -12,6 +13,45 @@ import gzip
 import zlib
 
 logger = logging.getLogger(__name__)
+
+# ── Active-content sanitizer for article original_text ──────────────────────
+# Defense in depth alongside the frontend escape-then-linkify fixes. Any
+# consumer that skips render-time escaping (Solr search, RSS feeds, JSON-LD
+# embeds, LLM inputs) stays safe. Applied at every writer of
+# article['original_text'] — see scribe.py, manual_publisher.py, main.py.
+#
+# Keeps benign inline formatting (em/strong/a/code/etc), strips active tags
+# with their content, drops on*= handlers, allowlists http/https/mailto
+# protocols so javascript: URLs get stripped.
+_SANITIZE_ALLOWED_TAGS = sorted(set(bleach.sanitizer.ALLOWED_TAGS) | {
+    'p', 'br', 'div', 'span', 'pre',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr',
+})
+_SANITIZE_ALLOWED_ATTRS = {
+    'a': ['href', 'title'],
+    'abbr': ['title'],
+    'acronym': ['title'],
+}
+
+def sanitize_active_content(text: str) -> str:
+    """Strip active-content HTML from an article body while preserving text.
+
+    <script>, <meta>, <iframe>, <object>, <embed>, <style>, <form>, <input>
+    (and any other tag not in the safe allowlist) are removed as markup —
+    text content between opening/closing tags survives. on*= event handlers
+    are removed by attribute allowlist. Non-http(s)/mailto URL schemes
+    (including javascript:) are stripped from href/src.
+    """
+    if not text:
+        return text
+    return bleach.clean(
+        text,
+        tags=_SANITIZE_ALLOWED_TAGS,
+        attributes=_SANITIZE_ALLOWED_ATTRS,
+        protocols=['http', 'https', 'mailto'],
+        strip=True,
+        strip_comments=True,
+    )
 
 USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

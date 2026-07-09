@@ -19,6 +19,7 @@ import re
 from bs4 import BeautifulSoup
 from stream_utils import publish_analysis, get_redis_connection, ensure_stream_group
 from ollama_utils import call_ollama_with_fallback, OLLAMA_CLOUD_MODEL, OLLAMA_LOCAL_FALLBACK
+from fetch_utils import sanitize_active_content
 import yaml
 from datetime import datetime, timezone
 from dotenv import load_dotenv
@@ -439,7 +440,7 @@ def process_manual_upload(filepath, api_client):
             "sourceUrl": source_url,
             "imageUrl": image_url,
             "dossier": json.dumps(dossier),
-            "original_text": article_text,
+            "original_text": sanitize_active_content(article_text),
             "directive": metadata.get('category', 'Manual Publish'),
             "category": category,
             "blue_team_analysis": "",

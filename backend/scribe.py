@@ -37,6 +37,7 @@ import gc
 from stream_utils import publish_analysis, ensure_stream_group
 from ollama_utils import call_ollama_local_only, OLLAMA_LOCAL_FALLBACK
 from retention import run_retention_pass
+from fetch_utils import sanitize_active_content
 from datetime import datetime, timezone
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
@@ -1512,12 +1513,17 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
             article['image_source_url'] = hero_url
             article['imageUrl'] = local_path
 
+    # Ingest-side XSS defense: sanitize once, reuse for both Redis publish and
+    # Solr indexing below. Strips active HTML (script/meta/iframe/etc) so any
+    # consumer that skips render-time escaping stays safe (2026-07-09 fix).
+    sanitized_body = sanitize_active_content(article.get('article_text', ''))
+
     publish_payload = {
         k: v for k, v in article.items()
         if k not in ['article_text', 'article_hash', 'dossier', 'filename', 'processing_path', 'origin', 'html_content', 'source_category']
     }
     publish_payload.update({
-        'original_text': article.get('article_text', ''),
+        'original_text': sanitized_body,
         'id': article_id,
         'timestamp': datetime.now(timezone.utc).isoformat(),
         'dossier': json.dumps(article.get('dossier', {})),
@@ -1568,7 +1574,7 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
         solr_doc = {
             'id': article_id,
             'title': article.get('title', ''),
-            'content': article.get('article_text', ''),
+            'content': sanitized_body,
             'source': article.get('source_name', 'Unknown'),
             'url': article.get('sourceUrl', ''),
             'timestamp': publish_payload['timestamp'],
@@ -1577,7 +1583,7 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
             'chimera_score': dossier_data.get('chimera_score', 0.0),
             'category': publish_payload.get('category', ''),
             'source_lang': publish_payload.get('source_lang', 'English'),
-            'original_text': article.get('article_text', ''),
+            'original_text': sanitized_body,
             'imageUrl': article.get('imageUrl', ''),
         }
         try:

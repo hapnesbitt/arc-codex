@@ -41,6 +41,7 @@ from fetch_utils import (
     fetch_with_anti_bot_handling,
     is_problematic_news_site,
     create_default_headers,
+    sanitize_active_content,
     DEFAULT_IMAGE_URL as FETCH_UTILS_DEFAULT_IMAGE
 )
 from catalog_loader import load_catalog
@@ -1220,7 +1221,7 @@ def submit():
             'sourceUrl':    url_content,
             'title':        title,
             'description':  description,
-            'original_text': description,
+            'original_text': sanitize_active_content(description),
             'timestamp':    now_iso,
             'created_at':   now_iso,
             'owner':        owner,
