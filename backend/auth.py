@@ -418,7 +418,19 @@ def login():
                         session.permanent = True
                         log.info("User logged in: %s", username)
                         next_url = request.args.get("next", "/")
-                        return redirect(next_url if next_url.startswith("/") else "/")
+                        # ?next=//evil.com/ passes a naive startswith("/") but
+                        # browsers treat protocol-relative URLs as absolute —
+                        # an open-redirect bounce. Parse and require an empty
+                        # scheme AND empty netloc, so only same-origin paths
+                        # are accepted. Backslash normalisation defends
+                        # against '/\evil.com' quirks in older UAs.
+                        from urllib.parse import urlparse
+                        parsed = urlparse(next_url.replace("\\", "/"))
+                        if (parsed.scheme or parsed.netloc
+                                or not next_url.startswith("/")
+                                or next_url.startswith("//")):
+                            next_url = "/"
+                        return redirect(next_url)
             except redis.exceptions.RedisError as e:
                 log.error("Redis error login %s: %s", username, e)
                 flash("Login error — please try again.", "danger")
