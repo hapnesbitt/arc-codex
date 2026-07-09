@@ -82,15 +82,30 @@ SUBMIT_QUOTAS = {
 PRIORITY_QUEUE_MAX_DEPTH = 500
 
 
-def _require_authed_user_id():
-    """Extract X-User-Id (set by the Next.js proxy) or the Flask session
-    username. Returns the user id, or None to signal the caller to
-    return 401.
+def _client_user_id():
+    """Return the authenticated user id, or '' if the caller is anonymous.
+
+    X-User-Id is trusted ONLY when the request arrives from the loopback
+    interface — i.e., from the Next.js server-side proxy running on the
+    same host. Non-loopback callers cannot spoof identity via header;
+    they must present a Flask session cookie. This makes identity
+    enforcement code-level rather than depending on Flask's socket
+    binding, so a future dev bind on 0.0.0.0 does not open a spoof hole.
+    Mirrors the pattern in user_prefs._require_user_id().
     """
-    uid = request.headers.get('X-User-Id', '').strip()
+    uid = ''
+    if request.remote_addr in ('127.0.0.1', '::1'):
+        uid = request.headers.get('X-User-Id', '').strip()
     if not uid:
         uid = session.get('username', '').strip()
-    return uid or None
+    return uid
+
+
+def _require_authed_user_id():
+    """Same as _client_user_id, but returns None (→ caller should 401)
+    for anonymous requests.
+    """
+    return _client_user_id() or None
 
 
 def _quota_check_and_increment(user_id, endpoint):
@@ -468,7 +483,7 @@ def get_feed():
         
         redis_duration = (time.perf_counter() - redis_start) * 1000
         
-        requesting_user = request.headers.get('X-User-Id') or session.get('username', '')
+        requesting_user = _client_user_id()
         formatted_feed = []
         for item, langs in zip(feed_data, langs_data):
             if item:
@@ -1281,7 +1296,7 @@ def submit():
         title       = (data.get('title') or '').strip()
         description = (data.get('description') or '').strip()
         visibility  = (data.get('visibility') or 'public')
-        owner       = request.headers.get('X-User-Id') or session.get('username', '')
+        owner       = _client_user_id()
 
         if not title:
             return jsonify({'error': 'title is required for video submissions'}), 400
@@ -1359,7 +1374,7 @@ def submit():
         'title':  title,
         'image_url': (data.get('image_url') or '').strip() or None,
         'visibility': (data.get('visibility') or 'public'),
-        'owner': request.headers.get('X-User-Id') or session.get('username', ''),
+        'owner': _client_user_id(),
         'job_id': job_id,
     }
 
@@ -1447,7 +1462,7 @@ def submit_doc():
         'title':  title or stem,
         'image_url': None,
         'visibility': visibility,
-        'owner': request.headers.get('X-User-Id') or session.get('username', ''),
+        'owner': _client_user_id(),
         'job_id': job_id,
     }
 
@@ -1546,7 +1561,7 @@ def submit_prompt():
         'title':  title,
         'image_url': image_url,
         'visibility': (data.get('visibility') or 'public'),
-        'owner': request.headers.get('X-User-Id') or session.get('username', ''),
+        'owner': _client_user_id(),
     }
 
     try:
