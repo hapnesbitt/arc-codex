@@ -226,6 +226,37 @@ except Exception as e:
     solr = None
     app.logger.warning(f"⚠️  Solr connection failed — search disabled: {e}")
 
+# --- Solr query hardening (audit finding #5) ---
+# Lucene special chars per
+# https://solr.apache.org/guide/solr/latest/query-guide/standard-query-parser.html#escaping-special-characters
+# Backslash must be first so we don't double-escape.
+_LUCENE_SPECIALS = r'\+-&|!(){}[]^"~*?:/'
+_SOLR_MAX_OFFSET = 5000   # deep-paging DoS cap: (offset+limit) can't exceed this
+
+
+def _solr_escape(s: str) -> str:
+    """Escape Lucene special characters in a user-supplied query fragment.
+    Also escapes the two-char operators && and ||. Callers that reject a
+    leading '{!' (local-params) MUST do so BEFORE calling this — after
+    escaping, the '{' looks harmless."""
+    if not s:
+        return ""
+    out = []
+    i = 0
+    while i < len(s):
+        c = s[i]
+        # Two-char operators
+        if c in '&|' and i + 1 < len(s) and s[i + 1] == c:
+            out.append('\\' + c + '\\' + c)
+            i += 2
+            continue
+        if c in _LUCENE_SPECIALS:
+            out.append('\\' + c)
+        else:
+            out.append(c)
+        i += 1
+    return ''.join(out)
+
 # --- HELPER: safe truncation for logging ---
 def safe_truncate(text, max_len=200):
     """Safely truncate text for logging, handling unicode properly."""
@@ -589,6 +620,20 @@ def search_articles():
     if not query and not lang_filter and not directive_filter:
         return jsonify({"error": "Search query or filter is required."}), 400
 
+    # Deep-paging DoS cap. Solr will happily walk a distributed cursor
+    # to arbitrary depth; we don't paginate that far anywhere in the UI.
+    if offset < 0 or (offset + limit) > _SOLR_MAX_OFFSET:
+        return jsonify({"error": "Pagination out of range."}), 400
+
+    # Local-params ({!parser ...}) are Solr's syntax for switching query
+    # parser mid-query and can reach handlers like join, terms, and — on
+    # older Solrs — xmlparser. Reject a leading '{!' on any user-supplied
+    # fragment; after escaping below the brace is inert, but this is
+    # cheaper and clearer as a boundary check.
+    for _label, _val in (("q", query), ("lang", lang_filter), ("directive", directive_filter)):
+        if _val.lstrip().startswith("{!"):
+            return jsonify({"error": f"Local-params syntax not permitted in '{_label}'."}), 400
+
     try:
         search_start = time.perf_counter()
 
@@ -605,27 +650,32 @@ def search_articles():
             'score_asc':  'chimera_score asc, timestamp desc',
         }.get(sort_param, 'timestamp desc, score desc')
 
-        # Build Solr filter queries for language and directive
+        # Build Solr filter queries for language and directive. Filter
+        # values are user-supplied — Lucene-escape each fragment so that
+        # e.g. lang='" OR *:*' can't break out of the phrase and match
+        # everything. Backslashes must be escaped BEFORE we wrap in
+        # phrase quotes; escaping the value protects backslashes inside.
         fq = []
         if lang_filter:
-            fq.append(f'source_lang:"{lang_filter}"')
+            fq.append(f'source_lang:"{_solr_escape(lang_filter)}"')
         if directive_filter:
-            fq.append(f'directive:"{directive_filter}"')
+            fq.append(f'directive:"{_solr_escape(directive_filter)}"')
 
         # Search title and content with smart query construction:
         # Multi-word queries: phrase match (exact) boosted highest, then AND (all words), then OR fallback
         # Empty query = browse mode (all docs matching filters)
         if query:
-            words = query.split()
-            if len(words) > 1:
-                phrase = f'"{query}"'
-                and_terms = ' AND '.join(words)
+            escaped_query = _solr_escape(query)
+            escaped_words = [_solr_escape(w) for w in query.split() if w]
+            if len(escaped_words) > 1:
+                phrase = f'"{escaped_query}"'
+                and_terms = ' AND '.join(escaped_words)
                 solr_query = (
                     f'title:{phrase}^10 OR content:{phrase}^5 '
                     f'OR title:({and_terms})^3 OR content:({and_terms})'
                 )
             else:
-                solr_query = f'title:({query})^3 OR content:({query})'
+                solr_query = f'title:({escaped_query})^3 OR content:({escaped_query})'
         else:
             solr_query = '*:*'
 
