@@ -66,3 +66,26 @@ the window the snapshot represents and its md5 for tamper detection.
 
 Verify integrity after any host restore: `md5sum /mnt/arcdata/*.rdb` and
 compare against the table.
+
+## 2026-07-09 — Stored-XSS via ingested article HTML (arc)
+
+**Incident**: arc-codex.com root began redirecting every visitor to
+`/%3Ca%20href=` at approximately 00:04–00:37 UTC on 2026-07-09. Cause was
+a `<meta http-equiv="refresh" content="1;url=<a href=…">` inside the
+`original_text` of one RSS-ingested article, rendered unescaped by the
+`plainTextToHtml` branch of `IntelligenceCard.tsx`. Because IntelligenceCard
+uses `dangerouslySetInnerHTML`, the meta tag reached the DOM live and the
+browser followed it, producing the malformed Location.
+
+**Poisoned article** (removed 2026-07-09 during recovery):
+- `article:ff75cdbb1acdf0bf8cf8ac7287e9e7cc`
+- title: "What is the best security awareness payload for the Rubber Ducky"
+- source: shop.hak5.org
+- ingested: 2026-07-09T00:04:41 UTC
+- also carried a raw `<script>window.location.href = "…"</script>`.
+
+Removed from `feed` (ZSET), `article:*` HASH, `processed_hashes` SET, and
+Solr (committed). Recoverable if ever needed from
+`/mnt/arcdata/redis-full-archive-2026-03-to-07.rdb`.
+
+Root-cause fix landing separately — see commits following this entry.
