@@ -34,15 +34,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
-    const body = await req.json().catch(() => ({}));
+    const formData = await req.formData();
 
-    const res = await fetch(`${BACKEND}/api/submit`, {
+    const res = await fetch(`${BACKEND}/api/submit_content`, {
         method: "POST",
         headers: {
-            "Content-Type": "application/json",
             "X-User-Id": userId,
         },
-        body: JSON.stringify(body),
+        body: formData,
     });
 
     const data = await res.json().catch(() => ({}));

@@ -25,6 +25,7 @@ async function getLocalAuthUserId(): Promise<string> {
 export async function POST(req: NextRequest): Promise<NextResponse> {
     const session = await auth();
     let userId = session?.user?.id ?? "";
+    const sessionName = session?.user?.name ?? "";
 
     if (!userId) {
         userId = await getLocalAuthUserId();
@@ -34,9 +35,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
+    // Author is derived from the session, never from the request body — this
+    // closes the impersonation vector where an anon POST could claim to be
+    // "A.R.C. Counter-Analyst" or another user. Body's `author` (if any) is
+    // ignored; sessionName wins.
     const body = await req.json().catch(() => ({}));
+    body.author = sessionName || userId;
 
-    const res = await fetch(`${BACKEND}/api/submit`, {
+    const res = await fetch(`${BACKEND}/api/submit_comment`, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",

@@ -64,6 +64,62 @@ REDIS_URL = os.getenv("REDIS_URL")
 MAX_CONTENT_CHARS = 60000  # Unified truncation limit for stored article text
 DEFAULT_IMAGE_URL = "https://arc-codex.com/information-warfare.jpg"
 
+# --- Submit-endpoint auth + quota (audit finding #4) ---
+# Every submit endpoint requires an authenticated user via X-User-Id set by
+# the Next.js proxy. Anonymous callers are 401'd here (Next.js already 401s
+# before proxying, this is defense-in-depth). Per-user daily quotas throttle
+# resource abuse — Ollama generation, URL fetches, disk churn from PDFs.
+SUBMIT_QUOTAS = {
+    'submit':          100,   # URL/text ingest — cheap
+    'submit_prompt':    20,   # Ollama full-article generation — heaviest
+    'submit_doc':       30,   # PDF/DOCX/ODT text extract
+    'submit_content':   50,   # legacy multipart submit
+    'submit_comment':  100,   # user comments
+}
+# System-wide queue depth ceiling. If arc:priority_uploads exceeds this,
+# further submissions 429 regardless of per-user quota — protects the M1
+# from being buried behind hours of backlog by a bulk-authed user.
+PRIORITY_QUEUE_MAX_DEPTH = 500
+
+
+def _require_authed_user_id():
+    """Extract X-User-Id (set by the Next.js proxy) or the Flask session
+    username. Returns the user id, or None to signal the caller to
+    return 401.
+    """
+    uid = request.headers.get('X-User-Id', '').strip()
+    if not uid:
+        uid = session.get('username', '').strip()
+    return uid or None
+
+
+def _quota_check_and_increment(user_id, endpoint):
+    """INCR arc:quota:submit:<endpoint>:<userId>:<YYYY-MM-DD> with a 24h TTL.
+    Returns (ok, count, cap). ok=False means the user is over the daily cap
+    for this endpoint.
+    """
+    cap = SUBMIT_QUOTAS.get(endpoint, 100)
+    day = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
+    key = f"arc:quota:submit:{endpoint}:{user_id}:{day}"
+    try:
+        pipe = r.pipeline()
+        pipe.incr(key)
+        pipe.expire(key, 86400)
+        count, _ = pipe.execute()
+    except Exception as e:
+        app.logger.warning(f"⚠️  Quota INCR failed for {key}: {e} — allowing through")
+        return True, 0, cap
+    return count <= cap, count, cap
+
+
+def _queue_depth_ok():
+    """Return True if arc:priority_uploads has room for another job."""
+    try:
+        depth = r.llen(REDIS_PRIORITY_QUEUE_KEY)
+    except Exception:
+        return True
+    return depth < PRIORITY_QUEUE_MAX_DEPTH
+
 # --- Bot UA gate ---
 # Substring markers for known scraper / crawler / SEO-bot User-Agents. Match
 # is lower-case substring against the raw UA header. Real browsers ("Mozilla…")
@@ -722,17 +778,28 @@ def get_article_comments(article_id):
 
 @app.route('/api/submit_comment', methods=['POST'])
 def submit_comment():
-    if not r or not SENTIMENT_ANALYZER: 
+    if not r or not SENTIMENT_ANALYZER:
         app.logger.error("🔥 System unavailable for submit_comment")
         return jsonify({"error": "System is offline."}), 503
-    
+
+    user_id = _require_authed_user_id()
+    if not user_id:
+        return jsonify({'error': 'Not authenticated'}), 401
+    ok, count, cap = _quota_check_and_increment(user_id, 'submit_comment')
+    if not ok:
+        return jsonify({'error': f'Daily submit_comment quota exceeded ({count}/{cap})'}), 429
+
     data = request.get_json()
     article_id = data.get('article_id')
     comment_text = data.get('comment_text')
-    author = data.get('author', 'User')
+    # Author is derived server-side from the session/user id — closes the
+    # impersonation vector where the client could POST as "A.R.C.
+    # Counter-Analyst" or any other name. The Next.js proxy sets `author`
+    # from session.user.name; if that's absent, fall back to user_id.
+    author = (data.get('author') or user_id).strip() or user_id
     parent_id = data.get('parent_id', '')
-    
-    if not article_id or not comment_text: 
+
+    if not article_id or not comment_text:
         app.logger.warning("⚠️  Missing required fields in submit_comment")
         return jsonify({'error': 'Missing required fields'}), 400
     
@@ -1092,6 +1159,13 @@ def submit_content():
     """
     Content submission endpoint - handles text, URLs, and file uploads
     """
+    user_id = _require_authed_user_id()
+    if not user_id:
+        return jsonify({'error': 'Not authenticated'}), 401
+    ok, count, cap = _quota_check_and_increment(user_id, 'submit_content')
+    if not ok:
+        return jsonify({'error': f'Daily submit_content quota exceeded ({count}/{cap})'}), 429
+
     try:
         data = request.form
         title = data.get('title')
@@ -1188,6 +1262,15 @@ def submit():
     if not r:
         app.logger.error("🔥 Redis unavailable for submit")
         return jsonify({"error": "Database connection is offline."}), 503
+
+    user_id = _require_authed_user_id()
+    if not user_id:
+        return jsonify({'error': 'Not authenticated'}), 401
+    ok, count, cap = _quota_check_and_increment(user_id, 'submit')
+    if not ok:
+        return jsonify({'error': f'Daily submit quota exceeded ({count}/{cap})'}), 429
+    if not _queue_depth_ok():
+        return jsonify({'error': 'Submit queue is full, please retry later'}), 429
 
     data = request.get_json(force=True, silent=True) or {}
     origin_param = (data.get('origin') or '').strip()
@@ -1314,6 +1397,15 @@ def submit_doc():
         app.logger.error("🔥 Redis unavailable for submit_doc")
         return jsonify({"error": "Database connection is offline."}), 503
 
+    user_id = _require_authed_user_id()
+    if not user_id:
+        return jsonify({'error': 'Not authenticated'}), 401
+    ok, count, cap = _quota_check_and_increment(user_id, 'submit_doc')
+    if not ok:
+        return jsonify({'error': f'Daily submit_doc quota exceeded ({count}/{cap})'}), 429
+    if not _queue_depth_ok():
+        return jsonify({'error': 'Submit queue is full, please retry later'}), 429
+
     file = request.files.get('file')
     if not file or file.filename == '':
         return jsonify({'error': 'No file provided.'}), 400
@@ -1426,6 +1518,15 @@ def submit_prompt():
     if not r:
         app.logger.error("🔥 Redis unavailable for submit_prompt")
         return jsonify({"error": "Database connection is offline."}), 503
+
+    user_id = _require_authed_user_id()
+    if not user_id:
+        return jsonify({'error': 'Not authenticated'}), 401
+    ok, count, cap = _quota_check_and_increment(user_id, 'submit_prompt')
+    if not ok:
+        return jsonify({'error': f'Daily submit_prompt quota exceeded ({count}/{cap})'}), 429
+    if not _queue_depth_ok():
+        return jsonify({'error': 'Submit queue is full, please retry later'}), 429
 
     data   = request.get_json(force=True, silent=True) or {}
     prompt = (data.get('prompt') or '').strip()

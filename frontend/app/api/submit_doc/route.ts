@@ -30,6 +30,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         userId = await getLocalAuthUserId();
     }
 
+    if (!userId) {
+        return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
     // Forward the multipart form data as-is
     const formData = await req.formData();
 

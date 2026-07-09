@@ -30,6 +30,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         userId = await getLocalAuthUserId();
     }
 
+    if (!userId) {
+        return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
     const body = await req.json().catch(() => ({}));
 
     const res = await fetch(`${BACKEND}/api/submit_prompt`, {
