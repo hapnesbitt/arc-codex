@@ -115,14 +115,18 @@ const extractDomain = (url: string): string => {
 };
 
 // --- Helper: Convert plain text with newlines to HTML paragraphs ---
+// Each line is escapeHtml'd BEFORE linkifyText, mirroring the escape-then-
+// linkify pattern markdownToHtml uses (via inlineFormat) so any raw HTML in
+// the source (a <meta http-equiv="refresh"> smuggled through an RSS body,
+// e.g. the 2026-07-09 incident) renders as literal text, not live markup.
 const plainTextToHtml = (text: string): string => {
-    if (!text.includes('\n')) return linkifyText(text);
+    if (!text.includes('\n')) return linkifyText(escapeHtml(text));
     const paragraphs = text.split(/\n{2,}/);
     return paragraphs
         .map(para => {
             const trimmed = para.trim();
             if (!trimmed) return '';
-            const withBreaks = trimmed.split('\n').map(line => linkifyText(line)).join('<br>');
+            const withBreaks = trimmed.split('\n').map(line => linkifyText(escapeHtml(line))).join('<br>');
             return `<p class="mb-3 text-slate-300 leading-relaxed">${withBreaks}</p>`;
         })
         .filter(Boolean)
