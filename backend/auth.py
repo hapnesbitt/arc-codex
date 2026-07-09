@@ -29,6 +29,7 @@ Routes added:
 """
 
 import os
+import re
 import secrets
 import logging
 from datetime import datetime, timezone
@@ -38,6 +39,15 @@ import redis
 from flask import (Blueprint, current_app, flash, redirect, render_template_string,
                    request, session, url_for, jsonify)
 from werkzeug.security import check_password_hash, generate_password_hash
+
+# Defense-in-depth against Jinja template metacharacters landing in
+# user-controlled fields that are later rendered. The real fix is the
+# structured-template rewrite of admin_users/reset (never build HTML by
+# f-string then hand it to Jinja), but rejecting these characters at
+# registration means an attacker can't sneak template payloads into
+# usernames/emails even if a future edit accidentally reintroduces the
+# unsafe rendering pattern.
+_TEMPLATE_META = re.compile(r'\{\{|\}\}|\{%|%\}')
 
 log = logging.getLogger("auth")
 
@@ -302,6 +312,8 @@ def register():
                 flash("Password must be at least 8 characters.", "danger")
             elif password != confirm:
                 flash("Passwords do not match.", "danger")
+            elif _TEMPLATE_META.search(username) or _TEMPLATE_META.search(email):
+                flash("Username and email cannot contain '{{', '}}', '{%', or '%}'.", "danger")
             elif r.sismember(USER_SET, username):
                 flash("Username already taken.", "danger")
             elif r.exists(f"arc:email:{email}"):
@@ -463,9 +475,12 @@ def reset(token):
             flash("Password updated! Please log in.", "success")
             return redirect("/")
 
-    content = f"""
+    # username comes from the arc:reset:<token> lookup (i.e., it was
+    # user-supplied at registration). Pass as a Jinja variable so autoescape
+    # HTML-escapes any markup that slipped past the register-time filter.
+    _RESET_FORM = """
 <h1>&gt; New Password</h1>
-<p class="sub">// resetting password for: {username}</p>
+<p class="sub">// resetting password for: {{ username }}</p>
 <form method="post">
   <label>New Password</label>
   <div class="pw-wrap">
@@ -480,10 +495,64 @@ def reset(token):
   <button type="submit" class="btn">Set Password</button>
 </form>
 """
+    content = render_template_string(_RESET_FORM, username=username)
     return _render("Reset Password", content)
 
 
 # ── Admin routes ──────────────────────────────────────────────────────────────
+
+# Admin dashboard template. User-supplied fields (username, email) are
+# expanded as Jinja variables — NEVER built into HTML by f-string — so
+# Jinja autoescape turns any {{...}} / {%...%} / <script>… payloads into
+# inert text. If you edit this template, do not switch any user-derived
+# value to |safe.
+_ADMIN_USERS_TMPL = """
+<h1 class="page-title">&gt; User Admin</h1>
+<p class="sub">// {{ users|length }} registered users — {{ domain }}</p>
+<table>
+  <thead><tr>
+    <th>Username</th><th>Email</th><th>Role</th><th>Created</th><th>Actions</th>
+  </tr></thead>
+  <tbody>
+  {% for u in users %}
+    <tr>
+      <td>{{ u.username }}</td>
+      <td>{{ u.email or '—' }}</td>
+      <td>
+        {% if u.is_admin %}
+          <span class="badge badge-admin">admin</span>
+        {% else %}
+          <span class="badge badge-user">user</span>
+        {% endif %}
+      </td>
+      <td>{{ (u.created or '—')[:10] }}</td>
+      <td>
+        <form method="post" action="{{ url_for('auth.admin_change_password') }}" style="display:inline">
+          <div class="row-form">
+            <input type="hidden" name="username" value="{{ u.username }}">
+            <input type="password" class="input-sm" name="new_password" placeholder="new password" minlength="8" required style="width:160px">
+            <button type="submit" class="btn btn-sm">&gt; set</button>
+          </div>
+        </form>
+        &nbsp;
+        <form method="post" action="{{ url_for('auth.admin_toggle_admin') }}" style="display:inline">
+          <input type="hidden" name="username" value="{{ u.username }}">
+          <button type="submit" class="btn btn-sm">{{ 'revoke admin' if u.is_admin else 'make admin' }}</button>
+        </form>
+        &nbsp;
+        <form method="post" action="{{ url_for('auth.admin_delete_user') }}" style="display:inline"
+              onsubmit="return confirm('Delete user?')">
+          <input type="hidden" name="username" value="{{ u.username }}">
+          <button type="submit" class="btn btn-sm btn-danger">&gt; delete</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<div class="links" style="margin-top:24px"><a href="/">← back to feed</a></div>
+"""
+
 
 @auth_bp.route("/admin/users")
 @login_required
@@ -498,53 +567,14 @@ def admin_users():
     users = []
     for uname in usernames:
         info = r.hgetall(f"arc:user:{uname}")
-        info["username"] = uname
-        users.append(info)
+        users.append({
+            "username": uname,
+            "email": info.get("email", ""),
+            "is_admin": info.get("is_admin") == "1",
+            "created": info.get("created", ""),
+        })
 
-    rows = ""
-    for u in users:
-        is_admin = u.get("is_admin") == "1"
-        badge = '<span class="badge badge-admin">admin</span>' if is_admin else '<span class="badge badge-user">user</span>'
-        email = u.get("email", "—")
-        created = u.get("created", "—")[:10]
-        rows += f"""<tr>
-          <td>{u['username']}</td>
-          <td>{email}</td>
-          <td>{badge}</td>
-          <td>{created}</td>
-          <td>
-            <form method="post" action="{url_for('auth.admin_change_password')}" style="display:inline">
-              <div class="row-form">
-                <input type="hidden" name="username" value="{u['username']}">
-                <input type="password" class="input-sm" name="new_password" placeholder="new password" minlength="8" required style="width:160px">
-                <button type="submit" class="btn btn-sm">&gt; set</button>
-              </div>
-            </form>
-            &nbsp;
-            <form method="post" action="{url_for('auth.admin_toggle_admin')}" style="display:inline">
-              <input type="hidden" name="username" value="{u['username']}">
-              <button type="submit" class="btn btn-sm">{'revoke admin' if is_admin else 'make admin'}</button>
-            </form>
-            &nbsp;
-            <form method="post" action="{url_for('auth.admin_delete_user')}" style="display:inline"
-                  onsubmit="return confirm('Delete user?')">
-              <input type="hidden" name="username" value="{u['username']}">
-              <button type="submit" class="btn btn-sm btn-danger">&gt; delete</button>
-            </form>
-          </td>
-        </tr>"""
-
-    content = f"""
-<h1 class="page-title">&gt; User Admin</h1>
-<p class="sub">// {len(users)} registered users — {_domain}</p>
-<table>
-  <thead><tr>
-    <th>Username</th><th>Email</th><th>Role</th><th>Created</th><th>Actions</th>
-  </tr></thead>
-  <tbody>{rows}</tbody>
-</table>
-<div class="links" style="margin-top:24px"><a href="/">← back to feed</a></div>
-"""
+    content = render_template_string(_ADMIN_USERS_TMPL, users=users, domain=_domain)
     return _render("User Admin", content, extra_class="admin-card",
                    chrome_label=f"{_domain}://auth/admin")
 
