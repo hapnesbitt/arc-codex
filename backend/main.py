@@ -56,7 +56,15 @@ from flask_limiter.util import get_remote_address
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)
+# Explicit same-origin CORS allowlist. Previously CORS(app) accepted any
+# Origin, which is low-risk today (SameSite=Lax + HttpOnly session cookies,
+# no supports_credentials) but would silently open up credentialed cross-
+# origin fetches the moment anyone flipped that switch. Locking down now
+# so we don't have to remember later.
+CORS(app, origins=[
+    "https://arc-codex.com",
+    "https://www.arc-codex.com",
+])
 # Caddy terminates TLS and reverse_proxies to localhost:5005 (one hop). In
 # its default config (no `trusted_proxies` block) Caddy resets X-Forwarded-*
 # from clients and repopulates them itself, so the RIGHTMOST XFF entry is
