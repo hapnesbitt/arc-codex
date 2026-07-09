@@ -50,6 +50,17 @@ load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
+# Caddy terminates TLS and reverse_proxies to localhost:5005 (one hop). In
+# its default config (no `trusted_proxies` block) Caddy resets X-Forwarded-*
+# from clients and repopulates them itself, so the RIGHTMOST XFF entry is
+# always the real client IP. ProxyFix(x_for=1) trusts one proxy hop, which
+# makes request.remote_addr reflect the real client — required both by the
+# Flask-Limiter rate-limits in auth.py and by any per-IP audit logging.
+# Loopback callers (Next.js → Flask on localhost) don't send XFF, so
+# remote_addr stays 127.0.0.1 for those requests — the loopback X-User-Id
+# trust check in _client_user_id() is unaffected.
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.secret_key = os.getenv('SECRET_KEY', os.urandom(32))
 # Shared session cookie — must match LightBox (vid.arc-codex.com) config
 # app.config['SESSION_COOKIE_DOMAIN'] = '.arc-codex.com'  # removed 2026-05-16 — Safari ITP rejects parent-domain cookies

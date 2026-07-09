@@ -40,6 +40,26 @@ from flask import (Blueprint, current_app, flash, redirect, render_template_stri
                    request, session, url_for, jsonify)
 from werkzeug.security import check_password_hash, generate_password_hash
 
+# --- Rate limiting (audit finding #9) ---
+# Flask-Limiter, Redis-backed, keyed on the real client IP. ProxyFix
+# (installed in main.py) rewrites request.remote_addr to the rightmost
+# XFF entry, which Caddy — with no `trusted_proxies` block — repopulates
+# authoritatively from the direct TCP peer. That means the client cannot
+# spoof identity by sending X-Forwarded-For themselves.
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+# Storage URI is read at init_auth() time via app.config, not here — the
+# limiter is instantiated with an in-memory fallback so decorators can
+# attach at import time; init_auth() rebinds it to Redis before the app
+# serves any requests.
+limiter = Limiter(
+    key_func=get_remote_address,
+    storage_uri="memory://",
+    default_limits=[],
+    headers_enabled=True,
+)
+
 # Defense-in-depth against Jinja template metacharacters landing in
 # user-controlled fields that are later rendered. The real fix is the
 # structured-template rewrite of admin_users/reset (never build HTML by
@@ -64,10 +84,29 @@ USER_SET = "arc:users"
 def init_auth(app, redis_password: str = None, redis_host: str = "localhost",
               redis_port: int = 6379, domain: str = "arc-codex.com",
               from_addr: str = None):
-    """Call once after app creation to wire up shared auth Redis."""
+    """Call once after app creation to wire up shared auth Redis + limiter."""
     global _auth_redis, _domain, _from_addr
     _domain = domain
     _from_addr = from_addr or f"ross@{domain}"
+
+    # Bind Flask-Limiter to this app. Use the same Redis instance as the
+    # auth store (DB 5) so limiter state lives with the credentials it
+    # protects and gets included in the shared-auth backup path. If Redis
+    # is unreachable, Flask-Limiter falls back to in-memory storage — auth
+    # rate limits still apply per-worker, just aren't shared across the
+    # gunicorn pool. That's a degraded state, not an open door.
+    if redis_password:
+        auth_redis_uri = f"redis://:{redis_password}@{redis_host}:{redis_port}/{AUTH_DB}"
+    else:
+        auth_redis_uri = f"redis://{redis_host}:{redis_port}/{AUTH_DB}"
+    app.config.setdefault("RATELIMIT_STORAGE_URI", auth_redis_uri)
+    app.config.setdefault("RATELIMIT_KEY_PREFIX", "arc:auth:limiter")
+    try:
+        limiter.init_app(app)
+        log.info("✅ Auth rate-limiter attached (Redis DB %d)", AUTH_DB)
+    except Exception as e:
+        log.error("❌ Rate-limiter init failed, using in-memory fallback: %s", e)
+
     try:
         _auth_redis = redis.Redis(
             host=redis_host, port=redis_port,
@@ -292,6 +331,7 @@ def _render(title, content, chrome_label=None, extra_class="", domain=None):
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @auth_bp.route("/register", methods=["GET", "POST"])
+@limiter.limit("10/hour;3/minute", methods=["POST"])
 def register():
     if session.get("username"):
         return redirect("/")
@@ -354,6 +394,7 @@ def register():
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
+@limiter.limit("5/minute", methods=["POST"])
 def login():
     if session.get("username"):
         return redirect("/")
@@ -420,6 +461,7 @@ def logout():
 
 
 @auth_bp.route("/forgot", methods=["GET", "POST"])
+@limiter.limit("3/hour", methods=["POST"])
 def forgot():
     if request.method == "POST":
         r = _r()
