@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
 facebook_poster.py — Arc Codex auto-poster for Facebook Pages
-v1.1 — automatic token refresh on OAuthException 190/463
+v1.2 — 368 rate-limit cooldown; automatic token refresh on OAuthException 190/463
 
 On/off:  redis-cli set facebook:autopost 1|0
 Posted set: facebook:posted (SET of article IDs, prevents duplicates)
+Rate-limit cooldown: facebook:rate_limit_cooldown (STRING, TTL) — when set,
+  the main loop skips all posting until it expires. Set on OAuthException 368
+  ("We limit how often you can post..."). Prevents burning a photo upload
+  per new article into a live block.
 
 Post format:
   {title}
@@ -57,6 +61,8 @@ JITTER_MAX    = 180
 CA_WAIT       = 60          # seconds to wait for counter-analyst comment
 POLL_KEY      = "facebook:autopost"
 POSTED_SET    = "facebook:posted"
+COOLDOWN_KEY  = "facebook:rate_limit_cooldown"
+COOLDOWN_TTL  = 6 * 60 * 60   # 6h — matches typical FB 368 block windows
 
 GRAPH_API     = "https://graph.facebook.com/v19.0"
 
@@ -90,6 +96,31 @@ def _is_oauth_error(resp: requests.Response) -> bool:
     try:
         err = resp.json().get("error", {})
         return err.get("type") == "OAuthException" and err.get("code") in (190, 463)
+    except Exception:
+        return False
+
+
+def _is_rate_limit_error(resp: requests.Response) -> bool:
+    """Return True if the response is a Facebook OAuthException 368 (spam/rate block)."""
+    try:
+        err = resp.json().get("error", {})
+        return err.get("type") == "OAuthException" and err.get("code") == 368
+    except Exception:
+        return False
+
+
+def _engage_rate_limit_cooldown() -> None:
+    """Set the multi-hour cooldown key so the main loop stops posting."""
+    try:
+        r.setex(COOLDOWN_KEY, COOLDOWN_TTL, str(int(time.time())))
+    except Exception as exc:
+        log.warning("Could not persist rate-limit cooldown: %s", exc)
+    log.warning("Facebook rate-limit (code 368) — cooling down for %ds", COOLDOWN_TTL)
+
+
+def rate_limit_active() -> bool:
+    try:
+        return bool(r.exists(COOLDOWN_KEY))
     except Exception:
         return False
 
@@ -248,6 +279,9 @@ def post_to_page(message: str, article_url: str, image_url: str) -> bool:
                 if not refresh_access_token():
                     return False
                 continue
+            if resp.status_code == 400 and _is_rate_limit_error(resp):
+                _engage_rate_limit_cooldown()
+                return False
             resp.raise_for_status()
             post_id = resp.json().get("id", "unknown")
             log.info("Posted to Facebook Page: %s", post_id)
@@ -345,7 +379,7 @@ def autopost_enabled() -> bool:
 
 # ── main loop ──────────────────────────────────────────────────────────────────
 def main():
-    log.info("facebook_poster v1.1 starting — page_id: %s  app_id: %s",
+    log.info("facebook_poster v1.2 starting — page_id: %s  app_id: %s",
              PAGE_ID or "(not set)", APP_ID or "(not set)")
     if not PAGE_ID or not ACCESS_TOKEN:
         log.error("FACEBOOK_PAGE_ID and FACEBOOK_ACCESS_TOKEN must be set in .env — exiting")
@@ -358,6 +392,10 @@ def main():
     while True:
         try:
             if not autopost_enabled():
+                time.sleep(POLL_INTERVAL)
+                continue
+
+            if rate_limit_active():
                 time.sleep(POLL_INTERVAL)
                 continue
 
@@ -389,11 +427,16 @@ def main():
 
                 if success:
                     log.info("Posted article %s to Facebook", article_id)
+                    r.sadd(POSTED_SET, article_id)
+                elif rate_limit_active():
+                    # 368 tripped inside post_to_page — stop processing new_ids
+                    # this cycle; the outer-loop cooldown gate handles the wait.
+                    log.warning("Rate-limit cooldown active — deferring article %s and skipping remaining new IDs",
+                                article_id)
+                    break
                 else:
                     log.error("Failed to post article %s — will retry next cycle", article_id)
                     continue
-
-                r.sadd(POSTED_SET, article_id)
 
         except Exception as exc:
             log.exception("Outer loop error: %s", exc)
