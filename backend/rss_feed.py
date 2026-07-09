@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 import time
 import logging
 
+from fetch_utils import sanitize_active_content
+
 logger = logging.getLogger(__name__)
 
 rss_blueprint = Blueprint('rss', __name__)
@@ -30,13 +32,22 @@ def init_rss(redis_conn):
 
 
 def build_analysis_html(article):
-    """Build HTML content from Red/Blue/Purple analysis for the RSS description."""
+    """Build HTML content from Red/Blue/Purple analysis for the RSS description.
+
+    Model output (red/blue/purple_team_analysis) is only lightly regex-cleaned
+    upstream, and a prompt-injected or malformed analysis could contain
+    <script>, <meta http-equiv=refresh>, or on*= handlers that ElementTree
+    would escape into the XML — then a downstream RSS reader unescapes back
+    to markup and executes. Run each analysis string through the same
+    bleach-based sanitizer used at article ingest so script/meta/iframe are
+    stripped as markup while <h3>/<p>/<ul>/<li>/<em> survive.
+    """
     sections = []
-    
-    red = article.get('red_team_analysis', '').strip()
-    blue = article.get('blue_team_analysis', '').strip()
-    purple = article.get('purple_team_analysis', '').strip()
-    
+
+    red = sanitize_active_content(article.get('red_team_analysis', '').strip())
+    blue = sanitize_active_content(article.get('blue_team_analysis', '').strip())
+    purple = sanitize_active_content(article.get('purple_team_analysis', '').strip())
+
     if blue:
         sections.append(f"<h3>📋 Executive Summary</h3><p>{blue}</p>")
     if red:
@@ -47,7 +58,7 @@ def build_analysis_html(article):
             sections.append(f"<h3>🎯 Facts Only</h3><ul>{items}</ul>")
     if purple:
         sections.append(f"<h3>🔮 Full Take</h3><p>{purple}</p>")
-    
+
     # Add chimera score if available
     dossier = article.get('dossier', '')
     if dossier:
@@ -59,14 +70,15 @@ def build_analysis_html(article):
                 sections.append(f"<p><em>Chimera Score: {score:.2f}</em></p>")
         except (json.JSONDecodeError, TypeError):
             pass
-    
+
     if not sections:
-        # Fall back to original text snippet
-        original = article.get('original_text', '')
+        # Fall back to original text snippet (also sanitized — original_text
+        # is already scrubbed at ingest, but re-run defensively).
+        original = sanitize_active_content(article.get('original_text', ''))
         if original:
             snippet = original[:500] + ('...' if len(original) > 500 else '')
             sections.append(f"<p>{snippet}</p>")
-    
+
     return '\n'.join(sections)
 
 
