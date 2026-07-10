@@ -160,7 +160,7 @@ function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JS
           <span className="text-slate-400">Filtering by: <strong className="text-slate-300 font-semibold">{directiveFilter}</strong></span>
           <button
             onClick={() => router.push('/')}
-            className="ml-auto inline-flex items-center gap-1 px-2 py-1.5 -my-1 rounded-sm text-slate-500 hover:text-slate-200 hover:bg-slate-800/40 transition-colors ring-focus"
+            className="ml-auto inline-flex items-center gap-1 px-2 py-1.5 -my-1 rounded-sm text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 transition-colors ring-focus"
             aria-label="Clear directive filter"
           >
             <X className="h-3.5 w-3.5" aria-hidden="true" />
