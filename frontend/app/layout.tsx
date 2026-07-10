@@ -1,14 +1,23 @@
 // File: app/layout.tsx
 import type { Metadata, Viewport } from 'next';
-import { Ubuntu } from 'next/font/google';
+import { Literata, Public_Sans } from 'next/font/google';
 import './globals.css';
 import ClientLayout from './ClientLayout';
 import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration';
 
-const fontUbuntu = Ubuntu({
+const fontSerif = Literata({
   subsets: ["latin"],
-  weight: ["400", "700"],
-  variable: "--font-sans"
+  weight: ["400", "500", "600", "700"],
+  style: ["normal", "italic"],
+  variable: "--font-serif",
+  display: "swap",
+});
+
+const fontSans = Public_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-sans",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -48,8 +57,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
-      <body className={fontUbuntu.variable}>
+    <html lang="en" className={`dark ${fontSerif.variable} ${fontSans.variable}`}>
+      <body>
         <ClientLayout>
           {children}
         </ClientLayout>

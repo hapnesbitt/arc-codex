@@ -30,12 +30,6 @@
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
     --radius: 0.5rem;
-    
-    /* ✅ FONT FIX: Specifies Ubuntu font 
-      - This sets the --font-sans variable to use Ubuntu.
-      - It includes fallbacks for system-ui and sans-serif fonts.
-    */
-    --font-sans: 'Ubuntu', system-ui, sans-serif;
   }
   .dark {
     --background: 222.2 84% 4.9%;
@@ -75,22 +69,8 @@
       - This forces the body to never have its own scrollbar.
       - It resolves the cross-browser issue in Microsoft Edge.
       - All scrolling is now correctly handled by the <main> element in layout.js.
-      - ✅ FONT FIX: Uses font-sans variable for proper Ubuntu
     */
     @apply bg-background text-foreground overflow-hidden font-sans;
-  }
-  
-  /* Ensure prose uses our custom serif font */
-  .prose {
-    font-family: var(--font-sans);
-  }
-  
-  .prose p {
-    font-family: var(--font-sans);
-  }
-  
-  .prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
-    font-family: var(--font-sans);
   }
 }
 
