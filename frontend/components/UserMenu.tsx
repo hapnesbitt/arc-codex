@@ -199,7 +199,7 @@ export default function UserMenu() {
 
                     <div className="p-4 border-b border-white/10">
                         <div className="flex items-center gap-2 mb-3">
-                            <Globe className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
+                            <Globe className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
                             <span className="text-[11px] font-bold text-slate-300 uppercase tracking-tighter">
                                 Native Protocol
                             </span>
@@ -226,7 +226,7 @@ export default function UserMenu() {
                                 className={cn(
                                     "h-8 min-w-[60px] flex items-center justify-center rounded-lg text-[10px] font-black uppercase tracking-widest",
                                     "border transition-all active:scale-95 ring-focus disabled:opacity-20 disabled:cursor-not-allowed",
-                                    saved
+                                    saved || saving
                                         ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
                                         : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10 hover:text-white"
                                 )}
