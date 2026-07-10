@@ -996,17 +996,37 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                         aria-hidden="true"
                     >
                         <div className="w-full aspect-video sm:aspect-auto sm:h-80 bg-slate-950 overflow-hidden border-b border-slate-800/60">
-                            <img
-                                src={card.imageUrl!.startsWith('/uploads/') ? `${process.env.NEXT_PUBLIC_BACKEND_URL ?? ''}${card.imageUrl}` : card.imageUrl}
-                                alt=""
-                                width={1200}
-                                height={675}
-                                decoding="async"
-                                loading={priority ? "eager" : "lazy"}
-                                fetchPriority={priority ? "high" : "auto"}
-                                onError={(e) => { (e.target as HTMLImageElement).src = '/uploads/arc-codex-default.jpg'; }}
-                                className="w-full h-full object-cover"
-                            />
+                            {(() => {
+                                const rawSrc = card.imageUrl!.startsWith('/uploads/')
+                                    ? `${process.env.NEXT_PUBLIC_BACKEND_URL ?? ''}${card.imageUrl}`
+                                    : card.imageUrl!;
+                                const isScrapedJpg =
+                                    card.imageUrl!.startsWith('/uploads/scraped/') && card.imageUrl!.endsWith('.jpg');
+                                const webpBase = isScrapedJpg ? rawSrc.slice(0, -4) : null;
+                                const jpegImg = (
+                                    <img
+                                        src={rawSrc}
+                                        alt=""
+                                        width={1200}
+                                        height={675}
+                                        decoding="async"
+                                        loading={priority ? "eager" : "lazy"}
+                                        fetchPriority={priority ? "high" : "auto"}
+                                        onError={(e) => { (e.target as HTMLImageElement).src = '/uploads/arc-codex-default.jpg'; }}
+                                        className="w-full h-full object-cover"
+                                    />
+                                );
+                                return webpBase ? (
+                                    <picture>
+                                        <source
+                                            type="image/webp"
+                                            srcSet={`${webpBase}-480.webp 480w, ${webpBase}-800.webp 800w, ${webpBase}-1200.webp 1200w`}
+                                            sizes="(min-width: 640px) 600px, 350px"
+                                        />
+                                        {jpegImg}
+                                    </picture>
+                                ) : jpegImg;
+                            })()}
                         </div>
                     </a>
                 )}
