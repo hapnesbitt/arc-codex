@@ -60,6 +60,8 @@ interface IntelligenceCardProps {
     defaultExpandedSection?: keyof ExpandedSections;
     /** Permalink mode: every section open, no accordion chrome, no read-more toggles. */
     fullyExpanded?: boolean;
+    /** Hero-image priority: first feed card + permalink pages set true (eager + fetchpriority=high). */
+    priority?: boolean;
 }
 
 interface AccordionTextProps {
@@ -767,6 +769,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
     initialLang = null,
     defaultExpandedSection,
     fullyExpanded = false,
+    priority = false,
 }) => {
     const [hasCopied, setHasCopied] = useState<boolean>(false);
     const [translatedFields, setTranslatedFields] = useState<TranslatedFields | null>(null);
@@ -996,6 +999,11 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             <img
                                 src={card.imageUrl!.startsWith('/uploads/') ? `${process.env.NEXT_PUBLIC_BACKEND_URL ?? ''}${card.imageUrl}` : card.imageUrl}
                                 alt=""
+                                width={1200}
+                                height={675}
+                                decoding="async"
+                                loading={priority ? "eager" : "lazy"}
+                                fetchPriority={priority ? "high" : "auto"}
                                 onError={(e) => { (e.target as HTMLImageElement).src = '/uploads/arc-codex-default.jpg'; }}
                                 className="w-full h-full object-cover"
                             />

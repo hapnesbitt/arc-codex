@@ -199,7 +199,7 @@ function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JS
                 }}
                 className="space-y-4 outline-none"
               >
-                <IntelligenceCard card={card} comments={cardComments} isCompact={true} />
+                <IntelligenceCard card={card} comments={cardComments} isCompact={true} priority={index === 0} />
               </motion.li>
             );
           })}

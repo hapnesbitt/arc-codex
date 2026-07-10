@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 
 async function getInitialFeed(userId: string) {
   try {
-    const feedRes = await fetch(`${BACKEND}/api/get_feed`, {
+    const feedRes = await fetch(`${BACKEND}/api/get_feed?limit=1`, {
       cache: 'no-store',
       headers: { 'X-User-Id': userId },
     });

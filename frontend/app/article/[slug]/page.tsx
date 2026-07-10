@@ -199,6 +199,7 @@ export default async function ArticlePage(props: PageProps) {
             initialLang={initialLang}
             defaultExpandedSection="purpleTeam"
             fullyExpanded
+            priority
           />
         </article>
 
