@@ -7,6 +7,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { headers } from 'next/headers';
 import type { Metadata } from 'next';
 import { ChevronLeft } from 'lucide-react';
 import LibraryReaderClient from './LibraryReaderClient';
@@ -60,7 +61,18 @@ async function getWork(id: string, lang: string): Promise<WorkResponse | null> {
     const url = lang && lang !== 'en'
       ? `${BACKEND}/api/library/${encodeURIComponent(id)}?lang=${encodeURIComponent(lang)}`
       : `${BACKEND}/api/library/${encodeURIComponent(id)}`;
-    const res = await fetch(url, { next: { revalidate: 3600 } });
+    // Forward edge UA so Flask's translation gate can skip the 120s M1 call
+    // for bot views. SSR currently only requests English, but the header is
+    // cheap and future-proofs any lang-aware SSR path.
+    let ua = '';
+    try {
+      const h = await headers();
+      ua = h.get('user-agent') || '';
+    } catch {}
+    const res = await fetch(url, {
+      next: { revalidate: 3600 },
+      headers: ua ? { 'X-Real-User-Agent': ua } : undefined,
+    });
     if (!res.ok) return null;
     return await res.json();
   } catch {

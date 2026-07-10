@@ -1,5 +1,6 @@
 import React from 'react';
 import { notFound } from 'next/navigation';
+import { headers } from 'next/headers';
 import { Play } from 'lucide-react';
 import IntelligenceCard from '@/components/IntelligenceCard';
 import CopyAllButton from '@/components/CopyAllButton';
@@ -17,11 +18,27 @@ interface PageProps {
 // --- DATA FETCHING ---
 const serverBackendUrl = process.env.BACKEND_INTERNAL_URL ?? process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://arc-codex.com';
 
+// Forward the edge UA to Flask so its bot-gate isn't defeated by our own
+// SSR UA ('node'). Flask reads X-Real-User-Agent before falling back to
+// User-Agent; without this every bot page view enqueued analysis.
+async function edgeUserAgent(): Promise<string> {
+  try {
+    const h = await headers();
+    return h.get('user-agent') || '';
+  } catch {
+    return '';
+  }
+}
+
 async function getArticleData(articleId: string): Promise<Article | null> {
   try {
+    const ua = await edgeUserAgent();
     const res = await fetch(
       `${serverBackendUrl}/api/article/${articleId}`,
-      { next: { revalidate: 300 } } // 5 min cache
+      {
+        next: { revalidate: 300 }, // 5 min cache
+        headers: ua ? { 'X-Real-User-Agent': ua } : undefined,
+      }
     );
     
     if (res.ok) {
@@ -43,9 +60,13 @@ async function getArticleData(articleId: string): Promise<Article | null> {
 
 async function getArticleComments(articleId: string): Promise<Comment[]> {
   try {
+    const ua = await edgeUserAgent();
     const res = await fetch(
       `${serverBackendUrl}/api/article/${articleId}/comments`,
-      { next: { revalidate: 60 } } // 1 min cache
+      {
+        next: { revalidate: 60 }, // 1 min cache
+        headers: ua ? { 'X-Real-User-Agent': ua } : undefined,
+      }
     );
     
     if (res.ok) {

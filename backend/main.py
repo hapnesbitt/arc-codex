@@ -184,6 +184,30 @@ def _is_bot_ua(ua: str) -> bool:
         return True
     u = ua.lower()
     return any(m in u for m in _BOT_UA_MARKERS)
+
+
+def _client_ua(req) -> str:
+    """Effective client User-Agent for gating.
+
+    Next.js SSR reaches this backend as UA='node', which defeats _is_bot_ua and
+    used to feed analyzer:queue with every bot-triggered page view. The frontend
+    now forwards the real edge UA in X-Real-User-Agent; prefer it when set.
+    Falls back to User-Agent for direct API callers.
+
+    TRUST BOUNDARY: X-Real-User-Agent is trusted BECAUSE two invariants hold —
+      1. gunicorn is bound to 127.0.0.1 only, so no off-box client can talk to
+         Flask directly; and
+      2. Caddy strips this header on every /api/* → :5005 hop (see request_header
+         -X-Real-User-Agent in /etc/caddy/Caddyfile), so a client cannot spoof
+         it through the public edge.
+    The only remaining setter is Next.js SSR on this box, which populates it
+    from its own incoming user-agent. Same topology invariant as X-User-Id.
+    If Flask is ever bound to 0.0.0.0 or that Caddy strip is removed, this
+    header becomes attacker-controlled and the bot-gate is trivially bypassed
+    — verify both invariants before changing either.
+    """
+    forwarded = (req.headers.get('X-Real-User-Agent', '') or '').strip()
+    return forwarded or req.headers.get('User-Agent', '') or ''
 PROMPTS = {}
 
 try:
@@ -595,21 +619,20 @@ def get_single_article(article_id):
         red_analysis = article_data.get('red_team_analysis', '')
         purple_analysis = article_data.get('purple_team_analysis', '')
         if not (len(blue_analysis) > 10 and len(red_analysis) > 10 and len(purple_analysis) > 10):
-            # Gate: 99.8% of /api/article/* hits over the last 48h were python-requests
-            # bot traffic scraping the API directly (2026-07-08 access-log audit). Skip
-            # enqueue for known scraper UAs so analyzer:queue tracks real reader intent.
-            # Next.js SSR uses node/undici UA — passed through. Real browsers pass through.
-            if _is_bot_ua(request.headers.get('User-Agent', '')):
+            # Gate: skip enqueue for scraper UAs so analyzer:queue tracks real reader
+            # intent. Uses _client_ua so Next.js SSR (UA='node') doesn't defeat the
+            # gate — the frontend forwards the edge UA via X-Real-User-Agent.
+            if _is_bot_ua(_client_ua(request)):
                 app.logger.info(f"🤖 Skipping enqueue for {article_data.get('id', article_id)} — bot UA")
             else:
                 actual_id = article_data.get('id', article_id)
                 try:
-                    # Atomic dedup via SET NX EX. 1h window comfortably covers
-                    # slow analyzer runs (cloud escalation can take minutes);
-                    # analyzer clears this key on pickup so a fresh view during
-                    # processing re-enqueues cleanly.
+                    # Atomic dedup via SET NX EX. 6h window absorbs deep backlogs
+                    # without letting the same article re-enqueue as duplicates when
+                    # the analyzer can't drain fast enough; analyzer clears this key
+                    # on pickup so a fresh view during processing re-enqueues cleanly.
                     queue_key = f"analyzer:queued:{actual_id}"
-                    if r.set(queue_key, '1', ex=3600, nx=True):
+                    if r.set(queue_key, '1', ex=21600, nx=True):
                         r.lpush('analyzer:queue', actual_id)
                         app.logger.info(f"📋 Queued {actual_id} for on-demand analysis")
                 except Exception as e:
@@ -2120,34 +2143,56 @@ def get_library_work(gutenberg_id):
                     if cached_tx['is_preview']:
                         is_preview = True
                         preview_chars = cached_tx['preview_chars'] or None
+                elif _is_bot_ua(_client_ua(request)):
+                    # Bots don't commission a 120s M1 translation. Serve English —
+                    # crawlers index English fine; this keeps the M1 for readers.
+                    translation_error = "Translation not generated for automated clients."
                 else:
+                    # Per-(work×lang) inflight lock. Under load, 5 concurrent readers
+                    # of the same book/lang would otherwise fire 5 parallel model
+                    # calls; the loser waits and re-reads the cache instead.
+                    inflight_key = f"library:tx:inflight:{gutenberg_id}:{lang}"
+                    lock_acquired = False
                     try:
-                        from translation import _call_translation_model
-                        cut = _slice_for_translation(body)
-                        snippet = body[:cut]
-                        lang_name = LIBRARY_LANG_CODE_TO_NAME.get(lang, lang)
-                        translated = _call_translation_model(snippet, lang_name, "English", timeout=120)
-                        if translated and translated.strip():
-                            text_out = translated
-                            is_translated = True
-                            is_preview = True
-                            preview_chars = cut
+                        lock_acquired = bool(r and r.set(inflight_key, '1', ex=180, nx=True))
+                    except Exception:
+                        lock_acquired = True  # Redis down — proceed without lock
+                    if not lock_acquired:
+                        translation_error = "Translation in progress — reload in a moment."
+                    else:
+                        try:
+                            from translation import _call_translation_model
+                            cut = _slice_for_translation(body)
+                            snippet = body[:cut]
+                            lang_name = LIBRARY_LANG_CODE_TO_NAME.get(lang, lang)
+                            translated = _call_translation_model(snippet, lang_name, "English", timeout=120)
+                            if translated and translated.strip():
+                                text_out = translated
+                                is_translated = True
+                                is_preview = True
+                                preview_chars = cut
+                                try:
+                                    with library_db.db() as conn:
+                                        library_db.set_translation(
+                                            conn, gutenberg_id, lang, text_out,
+                                            is_preview=True, preview_chars=cut,
+                                            created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                                        )
+                                except Exception as ex:
+                                    app.logger.warning(f"Failed to cache library translation {gutenberg_id}/{lang}: {ex}")
+                            else:
+                                translation_error = "Translation model returned empty result"
+                        except Exception as ex:
+                            app.logger.warning(
+                                f"Library translation failed for {gutenberg_id}/{lang}: {ex}"
+                            )
+                            translation_error = str(ex)
+                        finally:
                             try:
-                                with library_db.db() as conn:
-                                    library_db.set_translation(
-                                        conn, gutenberg_id, lang, text_out,
-                                        is_preview=True, preview_chars=cut,
-                                        created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                                    )
-                            except Exception as ex:
-                                app.logger.warning(f"Failed to cache library translation {gutenberg_id}/{lang}: {ex}")
-                        else:
-                            translation_error = "Translation model returned empty result"
-                    except Exception as ex:
-                        app.logger.warning(
-                            f"Library translation failed for {gutenberg_id}/{lang}: {ex}"
-                        )
-                        translation_error = str(ex)
+                                if r:
+                                    r.delete(inflight_key)
+                            except Exception:
+                                pass
 
         payload = {
             'gutenberg_id':         meta.get('gutenberg_id', gutenberg_id),
