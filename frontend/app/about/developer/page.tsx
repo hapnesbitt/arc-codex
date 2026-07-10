@@ -46,7 +46,7 @@ const Warn: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 
 const Panel: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <details className="group/p border-b border-slate-800/40">
-    <summary className="list-none [&::-webkit-details-marker]:hidden cursor-pointer flex items-center justify-between gap-4 py-3 px-2 -mx-2 rounded-sm hover:bg-slate-800/30 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40">
+    <summary className="list-none [&::-webkit-details-marker]:hidden cursor-pointer flex items-center justify-between gap-4 py-3 px-2 -mx-2 rounded-sm hover:bg-slate-800/30 transition-colors ring-focus">
       <span className="font-mono text-sm text-slate-300">{label}</span>
       <span className="font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500 group-open/p:hidden">expand</span>
       <span className="font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500 hidden group-open/p:inline">collapse</span>
@@ -375,7 +375,7 @@ text, duration = call_ollama_with_fallback(prompt, model)`}</Block>
               href="https://github.com/hapnesbitt/arc-codex"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-slate-300 underline decoration-slate-600 hover:decoration-slate-300 underline-offset-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+              className="text-slate-300 underline decoration-slate-600 hover:decoration-slate-300 underline-offset-2 ring-focus rounded-sm"
             >
               github.com/hapnesbitt/arc-codex
             </a>

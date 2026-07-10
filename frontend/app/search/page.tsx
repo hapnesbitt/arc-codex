@@ -140,7 +140,7 @@ function ResultCard({ result }: { result: SearchResult; index: number }) {
   return (
     <Link
       href={`/article/${result.id}`}
-      className="group block px-6 py-6 border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+      className="group block px-6 py-6 border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors ring-focus"
     >
       <div className="flex gap-6">
         <div className="flex-1 min-w-0 space-y-3">
@@ -397,7 +397,7 @@ function SearchPageContent() {
           <div className="flex items-center gap-3 mb-4">
             <Link
               href="/"
-              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-slate-800/80 border border-slate-700/50 text-slate-400 hover:text-amber-300 hover:border-amber-500/30 transition-all outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60"
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-slate-800/80 border border-slate-700/50 text-slate-400 hover:text-amber-300 hover:border-amber-500/30 transition-all ring-focus"
             >
               <ArrowLeft className="h-3 w-3" aria-hidden="true" />
               <span>Home</span>
@@ -426,7 +426,7 @@ function SearchPageContent() {
                 type="submit"
                 disabled={loading || !inputValue.trim()}
                 aria-label={loading ? 'Searching…' : 'Run search'}
-                className="px-5 py-3.5 bg-amber-500/90 hover:bg-amber-400 disabled:bg-slate-800/80 disabled:text-slate-600 text-slate-900 font-black rounded-xl transition-all text-sm flex items-center gap-2 outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+                className="px-5 py-3.5 bg-amber-500/90 hover:bg-amber-400 disabled:bg-slate-800/80 disabled:text-slate-600 text-slate-900 font-black rounded-xl transition-all text-sm flex items-center gap-2 ring-focus"
               >
                 {loading
                   ? <div className="w-4 h-4 border-2 border-slate-700/40 border-t-slate-500 rounded-full animate-spin" aria-hidden="true" />
@@ -448,7 +448,7 @@ function SearchPageContent() {
           <div className="relative">
             <button
               onClick={() => { setShowLangPicker(v => !v); setShowDirPicker(false); }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ring-focus ${
                 langFilter
                   ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300'
                   : 'bg-slate-800/60 border-slate-700/50 text-slate-400 hover:text-slate-300'
@@ -491,7 +491,7 @@ function SearchPageContent() {
           <div className="relative">
             <button
               onClick={() => { setShowDirPicker(v => !v); setShowLangPicker(false); }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ring-focus ${
                 directiveFilter
                   ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
                   : 'bg-slate-800/60 border-slate-700/50 text-slate-400 hover:text-slate-300'
@@ -575,7 +575,7 @@ function SearchPageContent() {
                 key={key}
                 onClick={() => handleSortChange(key)}
                 aria-pressed={sortBy === key}
-                className={`px-3 py-1.5 font-sans text-xs uppercase tracking-[0.2em] border rounded-sm transition-colors outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 ${
+                className={`px-3 py-1.5 font-sans text-xs uppercase tracking-[0.2em] border rounded-sm transition-colors ring-focus ${
                   sortBy === key
                     ? 'bg-slate-800/40 text-slate-100 border-slate-700'
                     : 'text-slate-500 border-slate-800 hover:text-slate-300 hover:border-slate-700'
@@ -657,7 +657,7 @@ function SearchPageContent() {
                   <span key={term}>
                     <button
                       onClick={() => { setInputValue(term); inputRef.current?.focus(); }}
-                      className="text-amber-400/80 hover:text-amber-300 transition-colors font-mono outline-none focus-visible:ring-1 focus-visible:ring-amber-400/60 rounded"
+                      className="text-amber-400/80 hover:text-amber-300 transition-colors font-mono ring-focus rounded"
                     >
                       {term}
                     </button>

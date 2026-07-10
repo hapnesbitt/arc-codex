@@ -88,7 +88,7 @@ export default async function LibraryPage() {
               <li key={shelf.slug} className="border-b border-slate-800/40">
                 <Link
                   href={`/library/shelf/${shelf.slug}`}
-                  className="flex items-center justify-between gap-4 py-6 px-2 -mx-2 hover:bg-slate-800/30 transition-colors group rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                  className="flex items-center justify-between gap-4 py-6 px-2 -mx-2 hover:bg-slate-800/30 transition-colors group rounded-sm ring-focus"
                 >
                   <div className="min-w-0 flex-1 space-y-2">
                     <h2 className="font-sans text-sm uppercase tracking-[0.25em] text-slate-100 group-hover:text-emerald-300 transition-colors">

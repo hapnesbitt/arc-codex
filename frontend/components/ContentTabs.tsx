@@ -55,7 +55,7 @@ const ContentTabs: React.FC<ContentTabsProps> = ({ activeTab, setActiveTab, chil
               onClick={() => setActiveTab(tab.id)}
               onKeyDown={(e) => handleKeyDown(e, index)}
               className={`relative px-4 py-2 text-lg font-medium transition-colors outline-none
-                focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-inset ${
+                ring-focus focus-visible:ring-inset ${
                 isActive
                   ? 'text-green-400'
                   : 'text-slate-400 hover:text-green-400/80'
@@ -82,7 +82,7 @@ const ContentTabs: React.FC<ContentTabsProps> = ({ activeTab, setActiveTab, chil
           aria-labelledby={`${uid}-tab-${tab.id}`}
           hidden={activeTab !== tab.id}
           tabIndex={0}
-          className="py-6 outline-none focus-visible:ring-2 focus-visible:ring-green-400/50 rounded"
+          className="py-6 ring-focus rounded"
         >
           {activeTab === tab.id && children}
         </div>

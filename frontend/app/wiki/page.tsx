@@ -78,7 +78,7 @@ export default function WikiPage() {
                 <li key={directive.name} className="border-b border-slate-800/40">
                   <Link
                     href={`/wiki/${toSlug(directive.name)}`}
-                    className="flex items-center justify-between gap-4 py-4 px-2 -mx-2 hover:bg-slate-800/30 transition-colors group rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                    className="flex items-center justify-between gap-4 py-4 px-2 -mx-2 hover:bg-slate-800/30 transition-colors group rounded-sm ring-focus"
                   >
                     <h3 className="font-serif text-lg text-slate-100 group-hover:text-slate-50 transition-colors leading-snug">
                       {directive.name}

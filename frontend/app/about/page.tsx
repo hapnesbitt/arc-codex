@@ -101,7 +101,7 @@ export default function AboutGateway() {
             </p>
             <Link
               href={pillar.href}
-              className="inline-flex items-center gap-2 font-sans text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+              className="inline-flex items-center gap-2 font-sans text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-slate-100 transition-colors ring-focus rounded-sm"
             >
               Enter Archive
               <ChevronRight className="h-3 w-3" aria-hidden="true" />
@@ -118,7 +118,7 @@ export default function AboutGateway() {
             <Link
               key={item.href}
               href={item.href}
-              className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500 hover:text-slate-200 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+              className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500 hover:text-slate-200 transition-colors ring-focus rounded-sm"
             >
               {item.label}
             </Link>
@@ -132,13 +132,13 @@ export default function AboutGateway() {
               href="https://grafana.arc-codex.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="hover:text-slate-200 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+              className="hover:text-slate-200 transition-colors ring-focus rounded-sm"
             >
               ◈ Corpus Metrics
             </a>
             <Link
               href="/sources"
-              className="hover:text-slate-200 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+              className="hover:text-slate-200 transition-colors ring-focus rounded-sm"
             >
               ◈ Sources
             </Link>

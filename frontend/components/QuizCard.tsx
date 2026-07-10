@@ -24,7 +24,7 @@ export default function QuizCard({ index, total, question, chosen, onChoose, onN
 
   const buttonClass = (i: number) => {
     const base =
-      'group w-full text-left rounded-2xl border px-4 py-3.5 sm:py-4 min-h-[58px] sm:min-h-[64px] flex items-start gap-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50';
+      'group w-full text-left rounded-2xl border px-4 py-3.5 sm:py-4 min-h-[58px] sm:min-h-[64px] flex items-start gap-3 transition-colors ring-focus';
     if (!revealed) {
       return `${base} border-slate-700/60 bg-slate-900/40 hover:border-amber-400/40 hover:bg-slate-900/70 active:bg-slate-900 cursor-pointer`;
     }
@@ -119,7 +119,7 @@ export default function QuizCard({ index, total, question, chosen, onChoose, onN
           <button
             type="button"
             onClick={onNext}
-            className="w-full sm:mt-1 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-sans text-sm uppercase tracking-[0.3em] font-semibold py-3.5 sm:py-4 min-h-[52px] sm:min-h-[56px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200 flex items-center justify-center gap-2 mb-2 sm:mb-0"
+            className="w-full sm:mt-1 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-sans text-sm uppercase tracking-[0.3em] font-semibold py-3.5 sm:py-4 min-h-[52px] sm:min-h-[56px] transition-colors ring-focus flex items-center justify-center gap-2 mb-2 sm:mb-0"
           >
             {isLast ? 'See your score' : 'Next question'}
             <ArrowRight className="h-4 w-4" aria-hidden="true" />

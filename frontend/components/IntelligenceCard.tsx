@@ -285,7 +285,7 @@ const AccordionText: React.FC<AccordionTextProps> = ({ text, characterLimit = 40
                 onClick={toggleExpansion}
                 aria-expanded={isExpanded}
                 aria-controls={remainderId}
-                className={`font-sans text-xs uppercase tracking-[0.2em] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm ${
+                className={`font-sans text-xs uppercase tracking-[0.2em] transition-colors ring-focus rounded-sm ${
                     isExpanded
                         ? 'text-sky-400 hover:text-sky-200'
                         : 'text-rose-400 hover:text-rose-200'
@@ -444,7 +444,7 @@ const AnalysisSection: React.FC<AnalysisSectionProps> = ({
                 onClick={onToggle}
                 aria-expanded={isExpanded}
                 aria-controls={contentId}
-                className="w-full flex justify-between items-center px-4 sm:px-8 py-5 text-left hover:bg-slate-800/30 transition-colors group focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-emerald-400/40"
+                className="w-full flex justify-between items-center px-4 sm:px-8 py-5 text-left hover:bg-slate-800/30 transition-colors group ring-focus focus-visible:ring-inset"
             >
                 <div className="flex items-center gap-3">
                     <div aria-hidden="true">
@@ -539,7 +539,7 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
                 aria-label="Research this article"
                 aria-expanded={isOpen}
                 aria-haspopup="menu"
-                className="inline-flex items-center justify-center rounded-sm h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                className="inline-flex items-center justify-center rounded-sm h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
             </button>
@@ -1043,7 +1043,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                     href={`/article/${card.id}`}
                                     aria-label="Arc Codex permalink"
                                     title="Permalink — Arc Codex's copy with full A.R.C. analysis"
-                                    className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                                    className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
                                 >
                                     <LinkIcon className="h-5 w-5" aria-hidden="true" />
                                 </Link>
@@ -1075,7 +1075,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                     rel="noopener noreferrer"
                                     aria-label="Full take — open wiki directive page"
                                     title="Full Take"
-                                    className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                                    className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
                                 >
                                     <Flashlight className="h-5 w-5" aria-hidden="true" />
                                 </a>
@@ -1085,7 +1085,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                     rel="noopener noreferrer"
                                     aria-label="Quiz me on this article"
                                     title="Quiz Me — earn a per-article badge on School of Chat"
-                                    className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                                    className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
                                 >
                                     <GraduationCap className="h-5 w-5" aria-hidden="true" />
                                 </a>

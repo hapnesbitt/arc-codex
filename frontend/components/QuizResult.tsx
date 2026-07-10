@@ -76,14 +76,14 @@ export default function QuizResult({ score, total, weekLabel, onReplay }: Props)
         <button
           type="button"
           onClick={onReplay}
-          className="flex-1 rounded-2xl border border-slate-700/60 bg-slate-900/40 hover:bg-slate-900/70 hover:border-amber-400/40 text-slate-200 font-sans text-sm uppercase tracking-[0.3em] py-4 min-h-[56px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50 flex items-center justify-center gap-2"
+          className="flex-1 rounded-2xl border border-slate-700/60 bg-slate-900/40 hover:bg-slate-900/70 hover:border-amber-400/40 text-slate-200 font-sans text-sm uppercase tracking-[0.3em] py-4 min-h-[56px] transition-colors ring-focus flex items-center justify-center gap-2"
         >
           <RotateCcw className="h-4 w-4" aria-hidden="true" />
           Play Again
         </button>
         <Link
           href="/"
-          className="flex-1 rounded-2xl border border-slate-700/60 bg-slate-900/40 hover:bg-slate-900/70 hover:border-amber-400/40 text-slate-200 font-sans text-sm uppercase tracking-[0.3em] py-4 min-h-[56px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50 flex items-center justify-center gap-2"
+          className="flex-1 rounded-2xl border border-slate-700/60 bg-slate-900/40 hover:bg-slate-900/70 hover:border-amber-400/40 text-slate-200 font-sans text-sm uppercase tracking-[0.3em] py-4 min-h-[56px] transition-colors ring-focus flex items-center justify-center gap-2"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           Back to feed

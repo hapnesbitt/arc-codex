@@ -100,7 +100,7 @@ export default function GradeButton({ articleId, onGraded, onReset }: GradeButto
         }
         aria-pressed={isShowing}
         className={cn(
-          "flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all outline-none focus-visible:ring-2 focus-visible:ring-amber-500 disabled:cursor-wait border",
+          "flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ring-focus disabled:cursor-wait border",
           isShowing && grade
             ? gradeColor(grade)
             : loading
@@ -121,7 +121,7 @@ export default function GradeButton({ articleId, onGraded, onReset }: GradeButto
         <button
           onClick={() => { setIsShowing(false); onReset(); }}
           aria-label="Show original text"
-          className="px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-slate-500 text-[10px] font-bold uppercase tracking-widest hover:text-white hover:bg-white/10 transition-all outline-none focus-visible:ring-2 focus-visible:ring-white"
+          className="px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-slate-500 text-[10px] font-bold uppercase tracking-widest hover:text-white hover:bg-white/10 transition-all ring-focus"
         >
           Original
         </button>

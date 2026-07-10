@@ -84,7 +84,7 @@ export default async function WikiDirectivePage({ params }: { params: Promise<{ 
         >
           <Link
             href="/wiki"
-            className="flex items-center gap-1.5 hover:text-slate-200 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+            className="flex items-center gap-1.5 hover:text-slate-200 transition-colors ring-focus rounded-sm"
           >
             <ChevronLeft className="h-3 w-3" aria-hidden="true" />
             Library
@@ -146,7 +146,7 @@ export default async function WikiDirectivePage({ params }: { params: Promise<{ 
 
                     <Link
                       href={`/article/${article.id}`}
-                      className="block group focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+                      className="block group ring-focus rounded-sm"
                     >
                       <h2 className="font-serif text-2xl sm:text-3xl font-semibold tracking-tight text-slate-50 leading-snug group-hover:text-slate-100 transition-colors">
                         {article.title}
@@ -159,7 +159,7 @@ export default async function WikiDirectivePage({ params }: { params: Promise<{ 
 
                     {article.purple_team_analysis && (
                       <details className="font-serif">
-                        <summary className="list-none cursor-pointer inline-flex items-center gap-2 font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500 hover:text-slate-200 transition-colors marker:hidden focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm">
+                        <summary className="list-none cursor-pointer inline-flex items-center gap-2 font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500 hover:text-slate-200 transition-colors marker:hidden ring-focus rounded-sm">
                           Read full analysis
                         </summary>
                         <div className="mt-4 text-base text-slate-300 leading-relaxed whitespace-pre-line">
@@ -171,7 +171,7 @@ export default async function WikiDirectivePage({ params }: { params: Promise<{ 
                     <div className="pt-1">
                       <Link
                         href={`/article/${article.id}`}
-                        className="inline-flex items-center gap-2 font-sans text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+                        className="inline-flex items-center gap-2 font-sans text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-slate-100 transition-colors ring-focus rounded-sm"
                       >
                         <Flashlight className="h-3 w-3" aria-hidden="true" />
                         Full take

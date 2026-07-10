@@ -104,7 +104,7 @@ export default async function SourcesPage() {
               open
               className="group/cat py-6 border-b border-slate-800/60"
             >
-              <summary className="list-none [&::-webkit-details-marker]:hidden cursor-pointer flex items-center justify-between gap-4 px-2 -mx-2 py-2 rounded-sm hover:bg-slate-800/30 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40">
+              <summary className="list-none [&::-webkit-details-marker]:hidden cursor-pointer flex items-center justify-between gap-4 px-2 -mx-2 py-2 rounded-sm hover:bg-slate-800/30 transition-colors ring-focus">
                 <div className="flex items-center gap-3">
                   <ChevronRight
                     className="h-3 w-3 text-slate-500 group-open/cat:rotate-90 transition-transform"
@@ -129,7 +129,7 @@ export default async function SourcesPage() {
                         href={homeUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex flex-col gap-1 py-4 px-3 -mx-3 hover:bg-slate-800/30 transition-colors rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                        className="flex flex-col gap-1 py-4 px-3 -mx-3 hover:bg-slate-800/30 transition-colors rounded-sm ring-focus"
                       >
                         <h3 className="font-serif text-lg text-slate-100 leading-snug">
                           {src.name}

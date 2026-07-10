@@ -162,7 +162,7 @@ export default function SalesPage() {
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Visit Huntaegis (opens in new tab)"
-            className="inline-flex items-center gap-2 font-sans text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+            className="inline-flex items-center gap-2 font-sans text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-slate-100 transition-colors ring-focus rounded-sm"
           >
             Visit Huntaegis
             <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -218,7 +218,7 @@ export default function SalesPage() {
           <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
             <Link
               href="/about/support"
-              className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-slate-50 font-sans text-xs uppercase tracking-[0.25em] font-semibold rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-300"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-slate-50 font-sans text-xs uppercase tracking-[0.25em] font-semibold rounded-sm transition-colors ring-focus"
             >
               How to Use Arc Codex
               <ChevronRight className="h-3 w-3" aria-hidden="true" />
@@ -226,7 +226,7 @@ export default function SalesPage() {
             <a
               href="mailto:ross@arc-codex.com"
               aria-label="Email ross@arc-codex.com"
-              className="inline-flex items-center gap-2 px-6 py-3 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-slate-100 font-sans text-xs uppercase tracking-[0.25em] rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+              className="inline-flex items-center gap-2 px-6 py-3 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-slate-100 font-sans text-xs uppercase tracking-[0.25em] rounded-sm transition-colors ring-focus"
             >
               ross@arc-codex.com
             </a>

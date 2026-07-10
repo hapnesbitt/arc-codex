@@ -69,7 +69,7 @@ export default function ShelfBooksClient({ books }: { books: Book[] }) {
               <li key={work.gutenberg_id} className="border-b border-slate-800/40">
                 <Link
                   href={`/library/${work.gutenberg_id}`}
-                  className="flex items-center justify-between gap-4 py-5 px-2 -mx-2 hover:bg-slate-800/30 transition-colors group rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                  className="flex items-center justify-between gap-4 py-5 px-2 -mx-2 hover:bg-slate-800/30 transition-colors group rounded-sm ring-focus"
                 >
                   <div className="min-w-0 flex-1 space-y-1">
                     <h2 className="font-serif text-lg sm:text-xl text-slate-100 group-hover:text-slate-50 transition-colors leading-snug">

@@ -28,7 +28,7 @@ const SectionShell: React.FC<{ id?: string; eyebrow: string; heading: string; ch
 
 const Panel: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <details className="group/p border-b border-slate-800/40">
-    <summary className="list-none [&::-webkit-details-marker]:hidden cursor-pointer flex items-center justify-between gap-4 py-3 px-2 -mx-2 rounded-sm hover:bg-slate-800/30 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40">
+    <summary className="list-none [&::-webkit-details-marker]:hidden cursor-pointer flex items-center justify-between gap-4 py-3 px-2 -mx-2 rounded-sm hover:bg-slate-800/30 transition-colors ring-focus">
       <span className="font-sans text-xs uppercase tracking-[0.2em] text-slate-300">{label}</span>
       <ChevronRight className="h-3 w-3 text-slate-500 group-open/p:rotate-90 transition-transform" aria-hidden="true" />
     </summary>
@@ -295,7 +295,7 @@ export default function SupportCodex() {
           <p className="font-serif text-base text-slate-300 italic">Questions not answered here?</p>
           <a
             href="mailto:ross@arc-codex.com"
-            className="inline-block font-sans text-xs uppercase tracking-[0.2em] text-slate-300 underline decoration-slate-600 hover:decoration-slate-300 underline-offset-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+            className="inline-block font-sans text-xs uppercase tracking-[0.2em] text-slate-300 underline decoration-slate-600 hover:decoration-slate-300 underline-offset-2 ring-focus rounded-sm"
           >
             ross@arc-codex.com
           </a>

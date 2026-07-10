@@ -52,7 +52,7 @@ const ErrorMessage: React.FC<{ message: string; onRetry: () => void }> = ({ mess
         onClick={onRetry}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
-        className="mt-4 px-6 py-2 bg-amber-500 text-slate-900 font-bold rounded-lg hover:bg-amber-400 transition-colors shadow-md hover:shadow-lg focus-visible:ring-2 focus-visible:ring-white outline-none"
+        className="mt-4 px-6 py-2 bg-amber-500 text-slate-900 font-bold rounded-lg hover:bg-amber-400 transition-colors shadow-md hover:shadow-lg ring-focus"
       >
         Try Again
       </motion.button>

@@ -46,7 +46,7 @@ function SyndromeRow({ entry }: { entry: SyndromeEntry }) {
     <li className="border-b border-slate-800/40">
       <Link
         href={entry.url}
-        className="group flex items-baseline gap-3 py-3 px-3 -mx-3 rounded-sm hover:bg-slate-800/40 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400/50"
+        className="group flex items-baseline gap-3 py-3 px-3 -mx-3 rounded-sm hover:bg-slate-800/40 transition-colors ring-focus"
       >
         <span className="font-serif text-base sm:text-lg font-semibold text-amber-300 group-hover:text-amber-200 transition-colors leading-snug">
           {entry.common}

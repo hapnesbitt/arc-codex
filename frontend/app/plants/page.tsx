@@ -47,7 +47,7 @@ function PlantRow({ plant }: { plant: PlantEntry }) {
     <li className="border-b border-slate-800/40">
       <Link
         href={plant.url}
-        className="group flex items-baseline gap-3 py-3 px-3 -mx-3 rounded-sm hover:bg-slate-800/40 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400/50"
+        className="group flex items-baseline gap-3 py-3 px-3 -mx-3 rounded-sm hover:bg-slate-800/40 transition-colors ring-focus"
       >
         <span className="font-serif text-base sm:text-lg font-semibold text-amber-300 group-hover:text-amber-200 transition-colors leading-snug">
           {plant.common}
@@ -147,14 +147,14 @@ export default async function PlantoriumPage() {
           >
             <a
               href="#annuals"
-              className="inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-500/5 px-4 py-1.5 font-sans text-[10px] uppercase tracking-[0.25em] text-amber-300 hover:bg-amber-500/10 hover:border-amber-400/50 hover:text-amber-200 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400/50"
+              className="inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-500/5 px-4 py-1.5 font-sans text-[10px] uppercase tracking-[0.25em] text-amber-300 hover:bg-amber-500/10 hover:border-amber-400/50 hover:text-amber-200 transition-colors ring-focus"
             >
               <Leaf className="h-3 w-3 text-amber-400/70" aria-hidden="true" />
               Annuals
             </a>
             <a
               href="#perennials"
-              className="inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-500/5 px-4 py-1.5 font-sans text-[10px] uppercase tracking-[0.25em] text-amber-300 hover:bg-amber-500/10 hover:border-amber-400/50 hover:text-amber-200 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400/50"
+              className="inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-500/5 px-4 py-1.5 font-sans text-[10px] uppercase tracking-[0.25em] text-amber-300 hover:bg-amber-500/10 hover:border-amber-400/50 hover:text-amber-200 transition-colors ring-focus"
             >
               <Leaf className="h-3 w-3 text-amber-400/70" aria-hidden="true" />
               Perennials

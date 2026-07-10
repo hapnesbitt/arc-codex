@@ -101,7 +101,7 @@ export default function CopyAllButton({ article, comments }: CopyAllButtonProps)
       className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md
                  bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-400
                  border border-slate-700 hover:border-amber-400/50 transition-all duration-200
-                 outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                 ring-focus"
     >
       {copied ? (
         <>

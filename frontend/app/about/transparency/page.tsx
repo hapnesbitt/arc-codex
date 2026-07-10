@@ -161,7 +161,7 @@ export default function TransparencyPage() {
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Read the source on GitHub (opens in new tab)"
-            className="inline-flex items-center gap-2 font-sans text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+            className="inline-flex items-center gap-2 font-sans text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-slate-100 transition-colors ring-focus rounded-sm"
           >
             Read the source
             <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -172,7 +172,7 @@ export default function TransparencyPage() {
         <section className="py-10 border-b border-slate-800/60 text-center">
           <Link
             href="/about"
-            className="inline-flex items-center gap-2 font-sans text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+            className="inline-flex items-center gap-2 font-sans text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-slate-100 transition-colors ring-focus rounded-sm"
           >
             Return to About
             <ChevronRight className="h-3 w-3" aria-hidden="true" />

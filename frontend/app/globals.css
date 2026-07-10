@@ -74,6 +74,15 @@
   }
 }
 
+@layer utilities {
+  /* Single focus-visible ring across the app. Element radii win; do not
+     bake a rounded-* into this utility. Destructive actions and
+     error-state inputs keep semantic red/rose rings inline. */
+  .ring-focus {
+    @apply focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40;
+  }
+}
+
 /*
   ==============================================
   CUSTOM ELEGANT SCROLLBAR STYLES

@@ -28,13 +28,13 @@ export default function NotFound() {
         <div className="flex gap-4">
           <Link
             href="/"
-            className="px-5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-slate-300 hover:text-white hover:border-white/20 transition-all text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
+            className="px-5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-slate-300 hover:text-white hover:border-white/20 transition-all text-sm font-medium ring-focus"
           >
             Return to Feed
           </Link>
           <Link
             href="/wiki"
-            className="px-5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-slate-300 hover:text-white hover:border-white/20 transition-all text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
+            className="px-5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-slate-300 hover:text-white hover:border-white/20 transition-all text-sm font-medium ring-focus"
           >
             Browse Wiki
           </Link>

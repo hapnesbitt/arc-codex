@@ -125,7 +125,7 @@ export default async function LibraryWorkPage({
         >
           <Link
             href="/library"
-            className="flex items-center gap-1.5 hover:text-slate-200 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+            className="flex items-center gap-1.5 hover:text-slate-200 transition-colors ring-focus rounded-sm"
           >
             <ChevronLeft className="h-3 w-3" aria-hidden="true" />
             Library

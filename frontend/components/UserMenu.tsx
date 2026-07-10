@@ -117,7 +117,7 @@ export default function UserMenu() {
                     className="w-full flex items-center justify-center gap-2.5 px-3 py-2 rounded-lg
                                text-sm text-slate-400 hover:text-amber-300 hover:bg-white/5
                                border border-transparent hover:border-amber-400/20
-                               transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
+                               transition-all duration-200 ring-focus"
                 >
                     <LogIn className="h-4 w-4" aria-hidden="true" />
                     <span>Sign In</span>
@@ -139,7 +139,7 @@ export default function UserMenu() {
                 aria-haspopup="dialog"
                 aria-label={`User settings${displayLang ? `, preferred language: ${displayLang}` : ''}`}
                 className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-white/5
-                           transition-colors group outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/50"
+                           transition-colors group ring-focus"
             >
                 {user.image ? (
                     <Image
@@ -191,7 +191,7 @@ export default function UserMenu() {
                         <button
                             onClick={closePanel}
                             aria-label="Close preferences panel"
-                            className="text-slate-500 hover:text-slate-300 transition-colors p-1 rounded focus-visible:ring-2 focus-visible:ring-yellow-400/50 outline-none"
+                            className="text-slate-500 hover:text-slate-300 transition-colors p-1 rounded ring-focus"
                         >
                             <X className="h-4 w-4" aria-hidden="true" />
                         </button>
@@ -211,8 +211,8 @@ export default function UserMenu() {
                                 value={langValue}
                                 onChange={(e) => setLangValue(e.target.value)}
                                 className="flex-1 text-xs bg-black/40 text-slate-200 rounded-lg px-2 py-2
-                                           border border-white/10 focus:border-yellow-400/50 outline-none
-                                           focus:ring-1 focus:ring-yellow-400/30 cursor-pointer"
+                                           border border-white/10 focus:border-emerald-500/50
+                                           ring-focus cursor-pointer"
                             >
                                 <option value="">Auto-Detect (Original)</option>
                                 {LANGUAGES.map(({ code, name }) => (
@@ -226,7 +226,7 @@ export default function UserMenu() {
                                 className="h-8 min-w-[60px] flex items-center justify-center rounded-lg text-[10px] font-black uppercase tracking-widest
                                            bg-amber-500/10 text-amber-500 border border-amber-500/30
                                            hover:bg-amber-500/20 disabled:opacity-20 disabled:cursor-not-allowed
-                                           transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-amber-400/50 outline-none"
+                                           transition-all active:scale-95 ring-focus"
                             >
                                 {saved ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : saving ? "..." : "Save"}
                             </button>
@@ -243,7 +243,7 @@ export default function UserMenu() {
                             onClick={() => signOut({ redirect: false }).then(() => setPanelOpen(false))}
                             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest
                                        text-slate-400 hover:text-white hover:bg-white/5 transition-all outline-none
-                                       focus-visible:ring-2 focus-visible:ring-white/30"
+                                       ring-focus"
                         >
                             <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
                             Sign out
@@ -277,7 +277,7 @@ export default function UserMenu() {
                                     aria-label="Cancel account deletion"
                                     className="px-3 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest
                                                text-slate-400 hover:text-white hover:bg-white/5 disabled:opacity-50
-                                               transition-all outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+                                               transition-all ring-focus"
                                 >
                                     Cancel
                                 </button>

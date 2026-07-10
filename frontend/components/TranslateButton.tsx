@@ -215,7 +215,7 @@ export default function TranslateButton({
         aria-label={triggerLabel}
         disabled={!!loadingLang}
         className={cn(
-          "inline-flex items-center justify-center h-10 w-10 rounded-sm transition-colors outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 disabled:cursor-wait",
+          "inline-flex items-center justify-center h-10 w-10 rounded-sm transition-colors ring-focus disabled:cursor-wait",
           activeLang || loadingLang
             ? "text-emerald-400 hover:text-emerald-300 hover:bg-slate-800/40"
             : "text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"

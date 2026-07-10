@@ -163,7 +163,7 @@ const MobileAuthButton = () => {
                   <button
                     ref={closeButtonRef}
                     onClick={closeSheet}
-                    className="p-2 bg-white/5 rounded-full text-slate-400 hover:text-white transition-colors focus-visible:ring-2 focus-visible:ring-amber-500 outline-none"
+                    className="p-2 bg-white/5 rounded-full text-slate-400 hover:text-white transition-colors ring-focus"
                     aria-label="Close settings"
                   >
                     <X size={20} aria-hidden="true" />
@@ -181,7 +181,7 @@ const MobileAuthButton = () => {
                   aria-label="Select preferred language"
                   aria-activedescendant={tempLang ? `lang-opt-${tempLang.replace(/\s+/g, '-')}` : undefined}
                   tabIndex={0}
-                  className="flex-1 overflow-y-auto pr-2 mb-6 space-y-1 custom-scrollbar outline-none focus-visible:ring-2 focus-visible:ring-amber-500 rounded-xl"
+                  className="flex-1 overflow-y-auto pr-2 mb-6 space-y-1 custom-scrollbar ring-focus rounded-xl"
                   style={{ maxHeight: '350px' }}
                   onKeyDown={(e) => {
                     const idx = tempLang ? LANGUAGES.findIndex(l => l.name === tempLang) : -1;
@@ -231,7 +231,7 @@ const MobileAuthButton = () => {
                     onClick={handleCommitChanges}
                     disabled={isSaving}
                     aria-busy={isSaving}
-                    className="w-full py-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-black uppercase tracking-widest hover:bg-amber-500/20 disabled:opacity-50 transition-colors mb-3 focus-visible:ring-2 focus-visible:ring-amber-500 outline-none"
+                    className="w-full py-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-black uppercase tracking-widest hover:bg-amber-500/20 disabled:opacity-50 transition-colors mb-3 ring-focus"
                   >
                     {isSaving ? "Saving..." : "Save Preference"}
                   </button>
@@ -246,7 +246,7 @@ const MobileAuthButton = () => {
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       onClick={() => signOut()}
-                      className="py-4 rounded-xl bg-white/5 border border-white/10 text-slate-400 text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 transition-colors focus-visible:ring-2 focus-visible:ring-white/50 outline-none"
+                      className="py-4 rounded-xl bg-white/5 border border-white/10 text-slate-400 text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 transition-colors ring-focus"
                     >
                       Sign Out
                     </button>
@@ -267,7 +267,7 @@ const MobileAuthButton = () => {
                           onClick={handleCancelDelete}
                           disabled={isDeleting}
                           aria-label="Cancel account deletion"
-                          className="py-4 rounded-xl bg-white/5 border border-white/10 text-slate-400 text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 disabled:opacity-50 transition-colors focus-visible:ring-2 focus-visible:ring-white/30 outline-none"
+                          className="py-4 rounded-xl bg-white/5 border border-white/10 text-slate-400 text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 disabled:opacity-50 transition-colors ring-focus"
                         >
                           Cancel
                         </button>

@@ -182,14 +182,14 @@ export default function PrivacyPage() {
           <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
             <Link
               href="/about/contact"
-              className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-slate-50 font-sans text-xs uppercase tracking-[0.25em] font-semibold rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-300"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-slate-50 font-sans text-xs uppercase tracking-[0.25em] font-semibold rounded-sm transition-colors ring-focus"
             >
               Contact
               <ChevronRight className="h-3 w-3" aria-hidden="true" />
             </Link>
             <a
               href="mailto:ross@arc-codex.com"
-              className="inline-flex items-center gap-2 px-6 py-3 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-slate-100 font-sans text-xs uppercase tracking-[0.25em] rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+              className="inline-flex items-center gap-2 px-6 py-3 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-slate-100 font-sans text-xs uppercase tracking-[0.25em] rounded-sm transition-colors ring-focus"
             >
               ross@arc-codex.com
             </a>

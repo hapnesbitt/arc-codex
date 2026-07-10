@@ -106,7 +106,7 @@ export default function ContactPage() {
                   target={c.external ? '_blank' : undefined}
                   rel={c.external ? 'noopener noreferrer' : undefined}
                   aria-label={c.aria}
-                  className="group flex items-center justify-between gap-4 py-4 px-2 -mx-2 hover:bg-slate-800/30 transition-colors rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                  className="group flex items-center justify-between gap-4 py-4 px-2 -mx-2 hover:bg-slate-800/30 transition-colors rounded-sm ring-focus"
                 >
                   <div className="flex-1 space-y-1">
                     <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">{c.label}</div>
@@ -128,7 +128,7 @@ export default function ContactPage() {
           <Link
             href="/"
             aria-label="Go to Arc Codex intelligence feed"
-            className="inline-flex items-center gap-2 font-sans text-xs uppercase tracking-[0.2em] text-slate-200 hover:text-slate-50 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+            className="inline-flex items-center gap-2 font-sans text-xs uppercase tracking-[0.2em] text-slate-200 hover:text-slate-50 transition-colors ring-focus rounded-sm"
           >
             Arc Codex Intelligence Feed
             <ChevronRight className="h-3 w-3" aria-hidden="true" />

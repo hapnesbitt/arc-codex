@@ -139,7 +139,7 @@ const SelectorButton: React.FC<{
     ref={buttonRef}
     tabIndex={isActive ? 0 : -1}
     className={`px-4 py-3 border transition-colors duration-200 flex items-center gap-3 rounded-sm font-sans text-xs uppercase tracking-[0.18em]
-      outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40
+      ring-focus
       ${isActive
         ? 'border-emerald-500/60 text-slate-100 bg-slate-800/40'
         : 'border-slate-800 hover:border-slate-700 text-slate-500 hover:text-slate-300'
@@ -861,7 +861,7 @@ function PublishPageInner() {
       {/* Skip link */}
       <a
         href="#publish-form"
-        className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:top-4 focus-visible:left-4 focus-visible:z-[300] focus-visible:px-4 focus-visible:py-2 focus-visible:bg-emerald-600 focus-visible:text-slate-50 focus-visible:font-semibold focus-visible:rounded-sm focus-visible:text-xs focus-visible:uppercase focus-visible:tracking-[0.2em] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-300"
+        className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:top-4 focus-visible:left-4 focus-visible:z-[300] focus-visible:px-4 focus-visible:py-2 focus-visible:bg-emerald-600 focus-visible:text-slate-50 focus-visible:font-semibold focus-visible:rounded-sm focus-visible:text-xs focus-visible:uppercase focus-visible:tracking-[0.2em] ring-focus"
       >
         Skip to publish form
       </a>
@@ -1004,7 +1004,7 @@ function PublishPageInner() {
               onClick={() => setImageOpen(v => !v)}
               aria-expanded={mounted ? imageOpen : false}
               aria-controls="image-accordion-body"
-              className="w-full flex items-center justify-between gap-4 outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-sm"
+              className="w-full flex items-center justify-between gap-4 ring-focus rounded-sm"
             >
               <div className="flex items-center gap-3">
                 <div className="text-slate-500" aria-hidden="true">
@@ -1066,7 +1066,7 @@ function PublishPageInner() {
                           type="button"
                           onClick={clearImage}
                           aria-label="Remove image"
-                          className="absolute top-2 right-2 p-1.5 rounded-sm bg-slate-950/80 border border-slate-700 text-slate-300 hover:text-slate-100 hover:border-slate-500 transition-colors focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                          className="absolute top-2 right-2 p-1.5 rounded-sm bg-slate-950/80 border border-slate-700 text-slate-300 hover:text-slate-100 hover:border-slate-500 transition-colors ring-focus"
                         >
                           <XIcon className="h-4 w-4" aria-hidden="true" />
                         </button>
@@ -1079,7 +1079,7 @@ function PublishPageInner() {
                         type="button"
                         onClick={() => imageInputRef.current?.click()}
                         disabled={status === 'loading' || status === 'success'}
-                        className="w-full max-w-md mx-auto h-32 border border-dashed border-slate-800 hover:border-slate-600 text-slate-500 hover:text-slate-300 flex flex-col items-center justify-center gap-2 transition-colors rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                        className="w-full max-w-md mx-auto h-32 border border-dashed border-slate-800 hover:border-slate-600 text-slate-500 hover:text-slate-300 flex flex-col items-center justify-center gap-2 transition-colors rounded-sm ring-focus"
                         aria-label="Browse for cover image or take photo"
                       >
                         <ImagePlus className="h-6 w-6" aria-hidden="true" />
@@ -1114,7 +1114,7 @@ function PublishPageInner() {
                   setContentType('text');
                   setContent('');
                 }}
-                className="shrink-0 px-4 py-2 rounded-sm border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-slate-100 font-sans text-xs uppercase tracking-[0.2em] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                className="shrink-0 px-4 py-2 rounded-sm border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-slate-100 font-sans text-xs uppercase tracking-[0.2em] transition-colors ring-focus"
               >
                 Switch to Write Text
               </button>
@@ -1142,7 +1142,7 @@ function PublishPageInner() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="font-sans text-xs uppercase tracking-[0.2em] text-slate-500 hover:text-slate-200 hover:bg-slate-800/40 rounded-sm focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                      className="font-sans text-xs uppercase tracking-[0.2em] text-slate-500 hover:text-slate-200 hover:bg-slate-800/40 rounded-sm ring-focus"
                     >
                       Clear All
                     </Button>
@@ -1181,7 +1181,7 @@ function PublishPageInner() {
                         size="sm"
                         onClick={handleRestoreDraft}
                         aria-label="Restore last saved draft"
-                        className="font-sans text-xs uppercase tracking-[0.2em] text-slate-500 hover:text-slate-200 hover:bg-slate-800/40 rounded-sm focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                        className="font-sans text-xs uppercase tracking-[0.2em] text-slate-500 hover:text-slate-200 hover:bg-slate-800/40 rounded-sm ring-focus"
                       >
                         <RefreshCw className="h-3.5 w-3.5 mr-2" aria-hidden="true" />
                         Restore
@@ -1202,7 +1202,7 @@ function PublishPageInner() {
                   ref={submitBtnRef}
                   disabled={status === 'loading' || status === 'success'}
                   aria-label={submitLabel}
-                  className="bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-slate-50 font-sans text-xs uppercase tracking-[0.25em] font-semibold px-8 py-5 h-auto rounded-sm transition-colors duration-200 focus-visible:ring-1 focus-visible:ring-emerald-300"
+                  className="bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-slate-50 font-sans text-xs uppercase tracking-[0.25em] font-semibold px-8 py-5 h-auto rounded-sm transition-colors duration-200 ring-focus"
                 >
                   <div className="flex items-center gap-3">
                     {status === 'loading' ? (
@@ -1241,7 +1241,7 @@ function PublishPageInner() {
           onClick={() => handleRequestSubmit()}
           disabled={status === 'loading' || status === 'success'}
           aria-label={submitLabel}
-          className="h-14 w-14 rounded-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 text-slate-50 transition-colors duration-200 focus-visible:ring-1 focus-visible:ring-emerald-300"
+          className="h-14 w-14 rounded-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 text-slate-50 transition-colors duration-200 ring-focus"
         >
           <Send className="h-5 w-5" aria-hidden="true" />
         </Button>
@@ -1273,7 +1273,7 @@ function PublishPageInner() {
               <button
                 type="button"
                 onClick={() => handleConfirmedPublish('public')}
-                className="w-full p-4 rounded-sm border border-emerald-500/60 bg-emerald-600/10 text-slate-100 text-left transition-colors hover:bg-emerald-600/20 focus-visible:ring-1 focus-visible:ring-emerald-400/60 focus-visible:outline-none"
+                className="w-full p-4 rounded-sm border border-emerald-500/60 bg-emerald-600/10 text-slate-100 text-left transition-colors hover:bg-emerald-600/20 ring-focus"
               >
                 <div className="font-sans text-xs uppercase tracking-[0.2em] font-semibold text-emerald-300">Make Public</div>
                 <div className="font-serif text-sm text-slate-400 mt-1">
@@ -1290,9 +1290,9 @@ function PublishPageInner() {
                 disabled={!isAuthed}
                 aria-disabled={!isAuthed}
                 title={!isAuthed ? 'Sign in to publish privately' : undefined}
-                className={`w-full p-4 rounded-sm border text-left transition-colors focus-visible:ring-1 focus-visible:outline-none
+                className={`w-full p-4 rounded-sm border text-left transition-colors ring-focus
                   ${isAuthed
-                    ? 'border-slate-700 hover:border-slate-500 hover:bg-slate-800/40 focus-visible:ring-emerald-400/40'
+                    ? 'border-slate-700 hover:border-slate-500 hover:bg-slate-800/40'
                     : 'border-slate-800 cursor-not-allowed'
                   }`}
               >
@@ -1319,7 +1319,7 @@ function PublishPageInner() {
                 variant="ghost"
                 size="sm"
                 onClick={() => setShowConfirmModal(false)}
-                className="font-sans text-xs uppercase tracking-[0.2em] text-slate-500 hover:text-slate-200 hover:bg-slate-800/40 rounded-sm shrink-0 focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                className="font-sans text-xs uppercase tracking-[0.2em] text-slate-500 hover:text-slate-200 hover:bg-slate-800/40 rounded-sm shrink-0 ring-focus"
               >
                 Cancel
               </Button>

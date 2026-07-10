@@ -330,7 +330,7 @@ function CommentSection({ comments = [], articleId }: CommentSectionProps): Reac
                       onClick={() => setReplyingTo(isReplyFormOpen ? null : comment.id)}
                       aria-expanded={isReplyFormOpen}
                       aria-label={`Reply to ${style.authorName}`}
-                      className="text-slate-400 hover:text-amber-400 transition-colors font-semibold flex items-center gap-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400/50 rounded"
+                      className="text-slate-400 hover:text-amber-400 transition-colors font-semibold flex items-center gap-1 ring-focus rounded"
                     >
                       <Reply className="h-3 w-3" aria-hidden="true" />
                       <span>Reply</span>
@@ -341,7 +341,7 @@ function CommentSection({ comments = [], articleId }: CommentSectionProps): Reac
                         onClick={() => toggleThread(comment.id)}
                         aria-expanded={!isCollapsed}
                         aria-controls={repliesId}
-                        className="text-slate-400 hover:text-slate-300 transition-colors font-semibold flex items-center gap-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-400/50 rounded"
+                        className="text-slate-400 hover:text-slate-300 transition-colors font-semibold flex items-center gap-1 ring-focus rounded"
                       >
                         {isCollapsed ? (
                           <>
@@ -371,7 +371,7 @@ function CommentSection({ comments = [], articleId }: CommentSectionProps): Reac
                           aria-label={count > 0 ? `${label}: ${count}` : label}
                           className={`
                             flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs transition-all duration-200
-                            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50
+                            ring-focus
                             ${isActive
                               ? 'bg-amber-500/20 border border-amber-400/40 scale-105'
                               : 'bg-slate-800/40 border border-slate-700/30 hover:bg-slate-700/50 hover:border-slate-600/40'
@@ -406,7 +406,7 @@ function CommentSection({ comments = [], articleId }: CommentSectionProps): Reac
                         value={replyText}
                         onChange={(e) => setReplyText(e.target.value)}
                         placeholder={`Reply to ${style.authorName}...`}
-                        className="w-full p-3 bg-slate-900/60 border border-slate-600/40 rounded-lg text-slate-200 placeholder-slate-400 resize-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all text-sm"
+                        className="w-full p-3 bg-slate-900/60 border border-slate-600/40 rounded-lg text-slate-200 placeholder-slate-400 resize-none focus:border-emerald-500/50 ring-focus transition-all text-sm"
                         rows={2}
                         maxLength={9000}
                         disabled={isSubmitting}
@@ -465,7 +465,7 @@ function CommentSection({ comments = [], articleId }: CommentSectionProps): Reac
                 <button
                   onClick={() => toggleShowAllReplies(comment.id)}
                   aria-label={`View ${hiddenCount} more ${hiddenCount === 1 ? 'reply' : 'replies'}`}
-                  className="flex items-center gap-2 text-amber-400 hover:text-amber-300 transition-colors text-sm font-semibold ml-4 sm:ml-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50 rounded"
+                  className="flex items-center gap-2 text-amber-400 hover:text-amber-300 transition-colors text-sm font-semibold ml-4 sm:ml-6 ring-focus rounded"
                 >
                   <ChevronDown className="h-4 w-4" aria-hidden="true" />
                   <span>View {hiddenCount} more {hiddenCount === 1 ? 'reply' : 'replies'}</span>
@@ -487,7 +487,7 @@ function CommentSection({ comments = [], articleId }: CommentSectionProps): Reac
           onClick={() => setIsExpanded(!isExpanded)}
           aria-expanded={isExpanded}
           aria-controls="comment-thread"
-          className="flex items-center gap-2 text-slate-300 hover:text-amber-300 transition-colors group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50 rounded"
+          className="flex items-center gap-2 text-slate-300 hover:text-amber-300 transition-colors group ring-focus rounded"
         >
           <MessageSquare className="h-5 w-5 group-hover:scale-110 transition-transform" aria-hidden="true" />
           <span className="font-medium">
@@ -513,7 +513,7 @@ function CommentSection({ comments = [], articleId }: CommentSectionProps): Reac
                     value={commentText}
                     onChange={(e) => setCommentText(e.target.value)}
                     placeholder="Share your thoughts on this article..."
-                    className="w-full p-3 bg-slate-900/60 border border-slate-600/40 rounded-lg text-slate-200 placeholder-slate-400 resize-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all"
+                    className="w-full p-3 bg-slate-900/60 border border-slate-600/40 rounded-lg text-slate-200 placeholder-slate-400 resize-none focus:border-emerald-500/50 ring-focus transition-all"
                     rows={3}
                     maxLength={9000}
                     disabled={isSubmitting}
