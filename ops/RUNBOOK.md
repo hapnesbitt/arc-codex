@@ -310,3 +310,84 @@ Caddy's routing table.
 
 Browser scroll seam (1 → 1 → 2 → 4 …) still needs a real browser —
 Ross's iPhone 11 test outstanding.
+
+## 2026-07-10 — Perf Sprint 2: WebP hero variants (arc)
+
+**Motivation**: Sprint 1 recon showed 33 first-batch heroes at 1200x675
+JPEG = 3.9 MB eager on iPhone 11 cellular. Sprint 2 ships responsive
+variants (WebP at 480/800/1200 widths) via a one-time backfill of the
+existing corpus plus a pipeline hook so new heroes get variants at
+ingest. Render side upgraded from plain `<img>` to `<picture>` with a
+WebP `<source>` for scraped heroes; non-scraped heroes stay on the
+plain img path.
+
+`SCRAPED_IMAGE_DIR` verified: `scribe.py` resolves it to
+`/home/www/arc_stack/frontend/public/uploads/scraped`, matching the
+backfill script's default. Same directory, no divergence.
+
+### Backfill run — 2026-07-10 20:19:49 → 20:37:38 UTC (~17m 49s)
+
+- 3,588 JPGs planned (from dry-run); 3,591 processed (scraper added 3
+  during the run — glob taken at script start missed those + any
+  arrivals during the final ~4-minute window before scribe restart).
+- 10,773 variants written (3,591 × 3, zero encode failures).
+- 420.4 MB actually written vs 331 MB projection (+26.7%) — sample
+  extrapolation ran light. Still trivial vs the 69.5 GB free headroom.
+- Compression spot-check on one 36,961-byte JPG:
+  - -480.webp = 5,886 B (15.9% of original)
+  - -800.webp = 9,572 B (25.8%)
+  - -1200.webp = 14,048 B (38.0%)
+  Substantial mobile savings for the 480/800 tiers browsers actually
+  pick on phone-sized viewports.
+
+### Transition-window orphans + close (20:39-20:41 UTC)
+
+Deploy sequence per the sprint brief: backfill → arc.sh build → arc.sh
+restart scribe → verify. Between backfill-end (20:37:38) and scribe
+restart (~20:41), old scribe was still running without Part C and
+rehosted 5 new heroes without variants. First post-deploy spot-check
+happened to pick one of them — the SSR-first card's WebP URLs 404'd,
+creating a live regression for modern browsers (~1-2 minute window).
+
+Ran `make_image_variants.py --execute` a second time (idempotent —
+skipped 3,591, generated variants for the 5 orphans in ~2 seconds,
++771 KB written). Post-fix orphan count = 0. SSR-first hero's
+`-800.webp` URL now returns 200 with `content-type: image/webp` and
+`Cache-Control: public, max-age=31536000, immutable`. Regression cleared.
+
+Lesson for future runs: restart scribe BEFORE the backfill (so Part C
+covers arrivals during the backfill window), or run the backfill twice
+by design.
+
+### Frontend deploy (Part B commit 71f6c26)
+
+`./arc.sh build` — Docker image `arc-codex-frontend:latest` rebuilt,
+container `arc-frontend` recreated and healthy. SSR HTML now emits
+`<picture>` with three-candidate WebP srcset for scraped-hero URLs
+(sizes="(min-width: 640px) 600px, 350px") with the original JPEG as the
+`<img>` child carrying all Sprint 1 attrs intact (width/height,
+decoding, loading, fetchPriority).
+
+Non-scraped heroes (external hotlinks, `/uploads/arc-codex-default.jpg`
+etc.) render as the plain `<img>` — verified via
+`https://arc-codex.com/article/72300debccb379efed32a9b321b5950d` which
+has `<picture>` count 0 and the expected `<img>` with Sprint 1 attrs.
+
+### Scribe deploy (Part C commit 5966ad5)
+
+`./arc.sh restart scribe` — pid 4521 → 133201. Part C now generates the
+three WebP variants after every JPEG save in `rehost_article_image`,
+non-fatal on any variant failure.
+
+Working-tree note: Ross's in-progress tuning of `SOURCE_BATCH_SIZE`
+(20 → 69) and `MAX_CONCURRENT_ANALYZERS` (1 → 2) rode along with this
+restart intentionally, and stays uncommitted per direction.
+
+### Verification owed
+
+- Real-browser check that iPhone 11 selects the -800.webp candidate at
+  ~390 CSS px viewport. Ross's device test.
+- One full scribe cycle (13 min) to confirm a new-article ingest end-
+  to-end generates all three variants via Part C.
+- Huntaegis parity (Sprint 1 Caddy edits AND Sprint 2 WebP pipeline) —
+  still deferred as follow-ups.
