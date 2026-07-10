@@ -497,7 +497,10 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
     };
 
     useEffect(() => {
-        const handleClickOutside = (e: MouseEvent) => {};
+        if (!isOpen) return;
+        const handleClickOutside = (e: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(e.target as Node)) close();
+        };
         const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
         document.addEventListener("mousedown", handleClickOutside);
         document.addEventListener("keydown", handleEsc);
