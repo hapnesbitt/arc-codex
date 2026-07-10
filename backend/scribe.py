@@ -613,6 +613,18 @@ def rehost_article_image(article_id, image_url):
         img.save(os.path.join(SCRAPED_IMAGE_DIR, f"{article_id}.jpg"),
                  format='JPEG', quality=85, optimize=True)
         logger.info(f"🖼️  Rehosted image for {article_id}: {src_w}x{src_h} → {REHOST_W}x{REHOST_H}")
+
+        # WebP variants for responsive srcset (see frontend IntelligenceCard <picture>).
+        # Non-fatal: any variant failure logs and continues; the JPEG serves as fallback.
+        for variant_w in (480, 800, 1200):
+            try:
+                variant = img.copy()
+                variant.thumbnail((variant_w, variant_w * 10), Image.LANCZOS)
+                variant.save(os.path.join(SCRAPED_IMAGE_DIR, f"{article_id}-{variant_w}.webp"),
+                             format='WEBP', quality=80, method=6)
+            except Exception as e:
+                logger.info(f"🖼️  Variant -{variant_w}.webp failed for {article_id}: {type(e).__name__}: {e}")
+
         return f"/uploads/scraped/{article_id}.jpg"
     except Exception as e:
         logger.info(f"🖼️  Rehost failed ({type(e).__name__}) for {image_url[:80]} — keeping hotlink")
