@@ -541,7 +541,8 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
             <button
                 ref={triggerRef}
                 onClick={(e) => { e.stopPropagation(); setIsOpen(s => !s); }}
-                aria-label="Research this article"
+                aria-label="Research"
+                data-tooltip="Open this article in Claude, ChatGPT, Perplexity, or Google — with the title and source already teed up in the search box."
                 aria-expanded={isOpen}
                 aria-haspopup="menu"
                 className="inline-flex items-center justify-center rounded-sm h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
@@ -687,7 +688,8 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
                 variant="ghost"
                 size="icon"
                 onClick={handleShare}
-                aria-label="Share article"
+                aria-label="Share"
+                data-tooltip="Share this article on Bluesky, Mastodon, Reddit, LinkedIn, or by email — with a summary of the Purple Team's analysis attached."
                 aria-expanded={isOpen}
                 aria-haspopup="menu"
                 className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
@@ -1072,8 +1074,8 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 )}
                                 <Link
                                     href={`/article/${card.id}`}
-                                    aria-label="Arc Codex permalink"
-                                    title="Permalink — Arc Codex's copy with full A.R.C. analysis"
+                                    aria-label="Permalink"
+                                    data-tooltip="Open Arc Codex's permanent copy of this article — every A.R.C. section expanded, ready to link or reference later."
                                     className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
                                 >
                                     <LinkIcon className="h-5 w-5" aria-hidden="true" />
@@ -1083,7 +1085,8 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                     size="icon"
                                     onClick={handleCopy}
                                     className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
-                                    aria-label={hasCopied ? "Link copied" : "Copy article link"}
+                                    aria-label={hasCopied ? "Link copied" : "Copy link"}
+                                    data-tooltip="Copy this article's Arc Codex permalink to your clipboard, together with a short blurb of the counter-analyst's take."
                                 >
                                     {hasCopied ? <Check className="text-emerald-400" aria-hidden="true" /> : <Copy aria-hidden="true" />}
                                 </Button>
@@ -1104,9 +1107,9 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                     href={card.directive ? `/wiki/${toSlug(card.directive)}#article-${card.id}` : '/wiki'}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    aria-label="Full take — open wiki directive page"
-                                    title="Full Take"
-                                    className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
+                                    aria-label="Full take"
+                                    data-tooltip="Jump to the wiki directive page for this article's topic, showing every related story and its full analysis in one place."
+                                    className="tooltip-right inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
                                 >
                                     <Flashlight className="h-5 w-5" aria-hidden="true" />
                                 </a>
@@ -1114,9 +1117,9 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                     href={`https://soc.arc-codex.com/course/quiz-me/article/${card.id}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    aria-label="Quiz me on this article"
-                                    title="Quiz Me — earn a per-article badge on School of Chat"
-                                    className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
+                                    aria-label="Quiz me"
+                                    data-tooltip="Take a quick quiz on this article at School of Chat and earn a per-article badge for reading it closely."
+                                    className="tooltip-right inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
                                 >
                                     <GraduationCap className="h-5 w-5" aria-hidden="true" />
                                 </a>
@@ -1124,8 +1127,9 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                     variant="ghost"
                                     size="icon"
                                     onClick={(e: React.MouseEvent) => { e.stopPropagation(); window.print(); }}
-                                    className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
-                                    aria-label="Print article"
+                                    className="tooltip-right rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
+                                    aria-label="Print"
+                                    data-tooltip="Expand every section and open the browser's print dialog — good for a paper copy or a clean PDF export."
                                 >
                                     <Printer className="h-5 w-5" aria-hidden="true" />
                                 </Button>

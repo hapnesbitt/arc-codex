@@ -213,6 +213,7 @@ export default function TranslateButton({
         aria-expanded={isOpen}
         aria-controls={dropdownId}
         aria-label={triggerLabel}
+        data-tooltip="Translate this article and its A.R.C. analysis into another language — cached translations load instantly, new ones take a moment."
         disabled={!!loadingLang}
         className={cn(
           "inline-flex items-center justify-center h-10 w-10 rounded-sm transition-colors ring-focus disabled:cursor-wait",

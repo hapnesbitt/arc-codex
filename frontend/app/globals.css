@@ -130,6 +130,70 @@
 }
 
 /* ==============================================
+   ICON-ROW TOOLTIPS (Sprint 5)
+   Trigger: data-tooltip="{explanation}" on any button/link.
+   Show: :hover OR :focus-visible, 400ms delay before appearing,
+   instant hide. Scoped to (hover: hover) so touch devices skip
+   it — avoids stuck-visible state after tap.
+   Edge modifiers: .tooltip-right anchors the tooltip's right edge
+   to the button's right edge (for buttons near the viewport
+   right edge). Default is centered above the button.
+   ============================================== */
+
+@media (hover: hover) {
+  [data-tooltip] {
+    position: relative;
+  }
+  [data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translate(-50%, 4px);
+    background: #0f172a; /* slate-900 solid — overlays text below */
+    color: #cbd5e1; /* slate-300 */
+    border: 1px solid rgba(30, 41, 59, 0.6); /* slate-800/60 hairline */
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-family: var(--font-sans, ui-sans-serif, system-ui, -apple-system, sans-serif);
+    font-size: 11px;
+    line-height: 1.4;
+    max-width: 36ch;
+    width: max-content;
+    text-align: center;
+    white-space: normal;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    z-index: 40;
+  }
+  [data-tooltip]:hover::after,
+  [data-tooltip]:focus-visible::after {
+    opacity: 1;
+    transform: translate(-50%, 0);
+    transition-delay: 400ms;
+  }
+  [data-tooltip].tooltip-right::after {
+    left: auto;
+    right: 0;
+    transform: translate(0, 4px);
+  }
+  [data-tooltip].tooltip-right:hover::after,
+  [data-tooltip].tooltip-right:focus-visible::after {
+    transform: translate(0, 0);
+  }
+  [data-tooltip].tooltip-left::after {
+    left: 0;
+    right: auto;
+    transform: translate(0, 4px);
+  }
+  [data-tooltip].tooltip-left:hover::after,
+  [data-tooltip].tooltip-left:focus-visible::after {
+    transform: translate(0, 0);
+  }
+}
+
+/* ==============================================
    PRINT STYLES
    ============================================== */
 
