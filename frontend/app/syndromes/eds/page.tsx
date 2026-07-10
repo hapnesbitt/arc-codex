@@ -29,7 +29,7 @@ const SectionHeader = ({ icon: Icon, label, protocol }: { icon: any, label: stri
 export default function EDSIntelligenceUnit() {
   return (
     <PageWrapper>
-      <div className="min-h-screen bg-[#fdfbf7] text-slate-900 font-ubuntu selection:bg-slate-900 selection:text-white">
+      <div className="min-h-screen bg-[#fdfbf7] text-slate-900 font-sans selection:bg-slate-900 selection:text-white">
         <main className="max-w-6xl mx-auto px-8 py-24 md:py-40">
           
           {/* THE CLINICAL HEADER */}
@@ -146,7 +146,7 @@ export default function EDSIntelligenceUnit() {
           <footer className="mt-40 space-y-12">
             <div className="max-w-2xl mx-auto p-8 border border-slate-200 flex gap-6 items-start">
               <Info className="h-5 w-5 text-slate-300 shrink-0 mt-1" />
-              <p className="text-xs text-slate-400 font-ubuntu italic leading-relaxed">
+              <p className="text-xs text-slate-400 font-sans italic leading-relaxed">
                 <strong>Forensic Notice:</strong> This intelligence unit is provided for information purposes within the A.R.C. Framework. 
                 It does not constitute medical advice. Consult with a clinical geneticist or rheumatologist for diagnostic verification.
               </p>

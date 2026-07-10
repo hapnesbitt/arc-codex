@@ -267,7 +267,7 @@ const AccordionText: React.FC<AccordionTextProps> = ({ text, characterLimit = 40
     if (!needsTruncation) {
         return (
             <div
-                className="prose prose-invert max-w-none font-serif text-slate-200 leading-relaxed"
+                className="prose prose-invert max-w-prose font-serif text-slate-200 leading-relaxed"
                 dangerouslySetInnerHTML={{ __html: fullHtml }}
             />
         );
@@ -296,7 +296,7 @@ const AccordionText: React.FC<AccordionTextProps> = ({ text, characterLimit = 40
             <div
                 id={remainderId}
                 hidden={!isExpanded}
-                className="prose prose-invert max-w-none font-serif text-slate-200 leading-relaxed mt-4"
+                className="prose prose-invert max-w-prose font-serif text-slate-200 leading-relaxed mt-4"
                 dangerouslySetInnerHTML={{ __html: fullHtml }}
             />
         </div>

@@ -320,7 +320,7 @@ function CommentSection({ comments = [], articleId }: CommentSectionProps): Reac
                        not as live markup. Same class of gap as the article
                        plainTextToHtml fix from 2026-07-09. */}
                   <div
-                    className="text-slate-200 leading-relaxed mb-2 whitespace-pre-wrap text-sm prose prose-invert max-w-none"
+                    className="text-slate-200 leading-relaxed mb-2 whitespace-pre-wrap text-sm prose prose-invert max-w-none font-sans"
                     dangerouslySetInnerHTML={{ __html: linkifyText(escapeHtml(comment.text)) }}
                   />
 
