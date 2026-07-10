@@ -284,3 +284,29 @@ on any `/uploads/scraped/*.jpg` for `Cache-Control`; then verify
 `huntaegis.com` and one unrelated site (e.g. `plantorium.arc-codex.com`)
 still return 200 as sanity checks that the site-block edit didn't break
 Caddy's routing table.
+
+### Go-live 2026-07-10 20:01 UTC
+
+- `caddy reload --config /etc/caddy/Caddyfile` — exit 0, only the
+  cosmetic "input is not formatted" warning (unchanged pre-existing
+  state, not introduced by this edit).
+- `curl -sI -H "Accept-Encoding: gzip, zstd" https://arc-codex.com/api/get_feed`
+  showed no `content-encoding` (HEAD requests carry no body, so Caddy's
+  encode handler correctly omits it). Re-run with GET:
+  `content-encoding: gzip` on `Accept-Encoding: gzip` (187 KB body vs
+  ~486 KB uncompressed = 2.6× reduction); `content-encoding: zstd` on
+  `Accept-Encoding: zstd` (182 KB body). Both variants live.
+- `curl -sI https://arc-codex.com/uploads/scraped/fbac4b7fa430b236ff808a6098f57602.jpg`
+  → `cache-control: public, max-age=31536000, immutable`.
+- `curl -sI https://huntaegis.com/` → HTTP/2 200. `soc.arc-codex.com` →
+  HTTP/2 200. Neighbor site blocks unaffected.
+- Frontend redeploy via `./arc.sh build` — Docker image
+  `arc-codex-frontend:latest` rebuilt from HEAD (commit `ca94f9c`),
+  container `arc-frontend` recreated and healthy.
+- `curl -s https://arc-codex.com/` returned **1** article in the SSR
+  HTML (was ~33 pre-Sprint-1). Hero `<img>` carries
+  `width="1200" height="675" decoding="async" loading="eager"
+  fetchPriority="high"`. First-batch SSR HTML dropped to ~49 KB.
+
+Browser scroll seam (1 → 1 → 2 → 4 …) still needs a real browser —
+Ross's iPhone 11 test outstanding.
