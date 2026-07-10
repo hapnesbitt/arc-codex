@@ -358,9 +358,9 @@ function SearchPageContent() {
       {/* Skip to content */}
       <a
         href="#search-main"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[300] focus:px-4 focus:py-2 focus:bg-amber-500 focus:text-black focus:font-bold focus:rounded-lg focus:text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+        className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:top-4 focus-visible:left-4 focus-visible:z-[100] focus-visible:px-4 focus-visible:py-2 focus-visible:bg-amber-500 focus-visible:text-black focus-visible:font-bold focus-visible:rounded-lg focus-visible:ring-2 focus-visible:ring-white"
       >
-        Skip to main content
+        Skip to content
       </a>
 
       <main id="search-main" className="max-w-4xl mx-auto px-4 sm:px-6 space-y-8">

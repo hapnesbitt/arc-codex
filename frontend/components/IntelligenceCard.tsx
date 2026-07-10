@@ -557,7 +557,7 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
                         <button
                             role="menuitem"
                             onClick={handleGoogle}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors focus-visible:outline-none focus-visible:bg-slate-800/80"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-slate-800/80"
                         >
                             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
                             <span>Google</span>
@@ -565,7 +565,7 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
                         <button
                             role="menuitem"
                             onClick={handleChatGPT}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors focus-visible:outline-none focus-visible:bg-slate-800/80"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-slate-800/80"
                         >
                             <svg className="h-4 w-4 text-emerald-400" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zM13.26 22.43a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zM3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.676l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0L4.01 14.23A4.5 4.5 0 0 1 2.34 7.896zm16.597 3.855l-5.843-3.369 2.02-1.168a.076.076 0 0 1 .071 0l4.808 2.773a4.5 4.5 0 0 1-.676 8.115v-5.678a.795.795 0 0 0-.38-.673zm2.01-3.023l-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.807-2.774a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.795.795 0 0 0-.393.681zm1.097-2.365l2.602-1.5 2.607 1.5v2.999l-2.597 1.5-2.607-1.5z"/></svg>
                             <span>ChatGPT</span>
@@ -573,7 +573,7 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
                         <button
                             role="menuitem"
                             onClick={handlePerplexity}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors focus-visible:outline-none focus-visible:bg-slate-800/80"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-slate-800/80"
                         >
                             <svg className="h-4 w-4 text-teal-400" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22.414 0h-8.015L12 2.678 9.601 0H1.586L8.15 7.773 0 16.227h7.875L12 20.843l4.125-4.616H24l-8.15-8.454L22.414 0zM9.977 2.678l1.764 1.927H8.213l1.764-1.927zm4.046 0 1.764 1.927h-3.528l1.764-1.927zM3.414 1.678h4.594L3.414 6.583V1.678zm13.578 0h4.594v4.905l-4.594-4.905zM1.838 14.549l6.406-6.645h7.512l6.406 6.645H1.838zm6.337 1.678H4.05l3.472-3.884-.347 3.884zm7.65 0-.347-3.884 3.472 3.884h-3.125zM12 19.135l-2.912-3.257h5.824L12 19.135z"/></svg>
                             <span>Perplexity</span>
@@ -581,7 +581,7 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
                         <button
                             role="menuitem"
                             onClick={handleClaude}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors focus-visible:outline-none focus-visible:bg-slate-800/80"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-slate-800/80"
                         >
                             <svg className="h-4 w-4 text-amber-400" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>
                             <span>Claude</span>
@@ -704,7 +704,7 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
                         <button
                             role="menuitem"
                             onClick={handleFacebook}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors focus-visible:outline-none focus-visible:bg-slate-800/80"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-slate-800/80"
                         >
                             <svg className="h-4 w-4 text-blue-400" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                                 <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
@@ -714,7 +714,7 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
                         <button
                             role="menuitem"
                             onClick={handleBluesky}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors focus-visible:outline-none focus-visible:bg-slate-800/80"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-slate-800/80"
                         >
                             <svg className="h-4 w-4 text-sky-400" viewBox="0 0 360 320" fill="currentColor" aria-hidden="true">
                                 <path d="M180 141.964C163.699 110.262 119.308 51.1817 78.0347 26.67C56.326 14.0375 3.49981 -3.09781 3.49981 58.4432C3.49981 70.0484 6.51032 152.417 8.02611 164.966C13.0991 206.358 55.1251 218.468 91.8511 211.868C28.8511 221.896 -1.74363 233.946 21.5634 269.754C55.0434 319.698 119.309 292.734 148.915 278.006C167.735 268.609 178.431 260.768 180 256.477C181.569 260.768 192.265 268.609 211.085 278.006C240.691 292.734 304.957 319.698 338.437 269.754C361.744 233.946 331.149 221.896 268.149 211.868C304.875 218.468 346.901 206.358 351.974 164.966C353.49 152.417 356.5 70.0484 356.5 58.4432C356.5 -3.09781 303.674 14.0375 281.965 26.67C240.692 51.1817 196.301 110.262 180 141.964Z"/>
@@ -724,7 +724,7 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
                         <button
                             role="menuitem"
                             onClick={handleMastodon}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors focus-visible:outline-none focus-visible:bg-slate-800/80"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-slate-800/80"
                         >
                             <svg className="h-4 w-4 text-purple-400" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                                 <path d="M23.268 5.313c-.35-2.578-2.617-4.61-5.304-5.004C17.51.242 15.792 0 11.813 0h-.03c-3.98 0-4.835.242-5.288.309C3.882.692 1.496 2.518.917 5.127.64 6.412.61 7.837.661 9.143c.074 1.874.088 3.745.26 5.611.118 1.24.325 2.47.62 3.68.55 2.237 2.777 4.098 4.96 4.857 2.336.792 4.849.923 7.256.38.265-.061.527-.132.786-.213.585-.184 1.27-.39 1.774-.753a.057.057 0 0 0 .023-.043v-1.809a.052.052 0 0 0-.02-.041.053.053 0 0 0-.046-.01 20.282 20.282 0 0 1-4.709.545c-2.73 0-3.463-1.284-3.674-1.818a5.593 5.593 0 0 1-.319-1.433.053.053 0 0 1 .066-.054c1.517.363 3.072.546 4.632.546.376 0 .75 0 1.125-.01 1.57-.044 3.224-.124 4.768-.422.038-.008.077-.015.11-.024 2.435-.464 4.753-1.92 4.989-5.604.008-.145.03-1.52.03-1.67.002-.512.167-3.63-.024-5.545zm-3.748 9.195h-2.561V8.29c0-1.309-.55-1.976-1.67-1.976-1.23 0-1.846.79-1.846 2.35v3.403h-2.546V8.663c0-1.56-.617-2.35-1.848-2.35-1.112 0-1.668.668-1.67 1.977v6.218H4.822V8.102c0-1.31.337-2.35 1.011-3.12.696-.77 1.608-1.164 2.74-1.164 1.311 0 2.302.5 2.962 1.498l.638 1.06.638-1.06c.66-.999 1.65-1.498 2.96-1.498 1.13 0 2.043.395 2.74 1.164.675.77 1.012 1.81 1.012 3.12z"/>
@@ -734,7 +734,7 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
                         <button
                             role="menuitem"
                             onClick={handleSubstack}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors focus-visible:outline-none focus-visible:bg-slate-800/80"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-slate-800/80"
                         >
                             <svg className="h-4 w-4 text-orange-400" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                                 <path d="M22.539 8.242H1.46V5.406h21.08v2.836zM1.46 10.812V24L12 18.11 22.54 24V10.812H1.46zM22.54 0H1.46v2.836h21.08V0z"/>
@@ -744,7 +744,7 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
                         <button
                             role="menuitem"
                             onClick={handleEmail}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors focus-visible:outline-none focus-visible:bg-slate-800/80"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-slate-800/80"
                         >
                             <Mail className="h-4 w-4 text-slate-400" aria-hidden="true" />
                             <span>Email</span>

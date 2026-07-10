@@ -861,9 +861,9 @@ function PublishPageInner() {
       {/* Skip link */}
       <a
         href="#publish-form"
-        className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:top-4 focus-visible:left-4 focus-visible:z-[300] focus-visible:px-4 focus-visible:py-2 focus-visible:bg-emerald-600 focus-visible:text-slate-50 focus-visible:font-semibold focus-visible:rounded-sm focus-visible:text-xs focus-visible:uppercase focus-visible:tracking-[0.2em] ring-focus"
+        className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:top-4 focus-visible:left-4 focus-visible:z-[100] focus-visible:px-4 focus-visible:py-2 focus-visible:bg-amber-500 focus-visible:text-black focus-visible:font-bold focus-visible:rounded-lg focus-visible:ring-2 focus-visible:ring-white"
       >
-        Skip to publish form
+        Skip to content
       </a>
 
       {/* Live region for screen reader announcements */}
