@@ -147,7 +147,7 @@ export default function UserMenu() {
                         alt=""
                         width={28}
                         height={28}
-                        className="rounded-full ring-1 ring-white/10 group-hover:ring-yellow-400/40 transition-all flex-shrink-0"
+                        className="rounded-full ring-1 ring-white/10 group-hover:ring-white/20 transition-all flex-shrink-0"
                     />
                 ) : (
                     <div
@@ -160,7 +160,7 @@ export default function UserMenu() {
                     </div>
                 )}
                 <div className="flex-1 min-w-0 text-left" aria-hidden="true">
-                    <p className="text-xs font-medium text-slate-300 truncate group-hover:text-yellow-300 transition-colors">
+                    <p className="text-xs font-medium text-slate-300 truncate">
                         {user.name ?? user.email}
                     </p>
                     {displayLang && (
@@ -169,8 +169,8 @@ export default function UserMenu() {
                 </div>
                 <Settings
                     className={cn(
-                        "h-3.5 w-3.5 text-slate-500 flex-shrink-0 transition-transform duration-300",
-                        panelOpen ? "rotate-90 text-yellow-400" : "group-hover:text-slate-300"
+                        "h-3.5 w-3.5 text-slate-400 flex-shrink-0 transition-transform duration-300 group-hover:text-slate-200",
+                        panelOpen && "rotate-90"
                     )}
                     aria-hidden="true"
                 />
@@ -223,10 +223,13 @@ export default function UserMenu() {
                                 onClick={handleSaveLang}
                                 disabled={saving || langValue === (prefs?.preferred_lang ?? "")}
                                 aria-label={saving ? "Saving" : saved ? "Saved" : "Save language preference"}
-                                className="h-8 min-w-[60px] flex items-center justify-center rounded-lg text-[10px] font-black uppercase tracking-widest
-                                           bg-amber-500/10 text-amber-500 border border-amber-500/30
-                                           hover:bg-amber-500/20 disabled:opacity-20 disabled:cursor-not-allowed
-                                           transition-all active:scale-95 ring-focus"
+                                className={cn(
+                                    "h-8 min-w-[60px] flex items-center justify-center rounded-lg text-[10px] font-black uppercase tracking-widest",
+                                    "border transition-all active:scale-95 ring-focus disabled:opacity-20 disabled:cursor-not-allowed",
+                                    saved
+                                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                                        : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10 hover:text-white"
+                                )}
                             >
                                 {saved ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : saving ? "..." : "Save"}
                             </button>

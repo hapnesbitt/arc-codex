@@ -130,7 +130,7 @@ const MobileAuthButton = () => {
               alt=""
               width={24}
               height={24}
-              className="rounded-full ring-1 ring-amber-400/40"
+              className="rounded-full ring-1 ring-white/10"
             />
           </motion.div>
           <span className="mt-2 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500 group-hover:text-slate-300" aria-hidden="true">
@@ -421,7 +421,7 @@ const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => {
       {!isMobile && (
         <div className="mt-auto flex flex-col items-center w-full gap-3">
           <UserMenu />
-          <Activity size={16} className="text-amber-500 animate-pulse opacity-20" aria-hidden="true" />
+          <Activity size={16} className="text-slate-600 animate-pulse opacity-20" aria-hidden="true" />
         </div>
       )}
     </div>
