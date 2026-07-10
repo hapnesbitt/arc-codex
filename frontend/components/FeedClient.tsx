@@ -34,7 +34,7 @@ const LoadingSpinner: React.FC = () => (
       className="h-80 border-b border-slate-800/60 bg-slate-900/30 animate-pulse"
       aria-hidden="true"
     />
-    <span className="sr-only">Decrypting more intelligence...</span>
+    <span className="sr-only">Loading more stories.</span>
   </div>
 );
 
@@ -157,7 +157,7 @@ function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JS
     <main className="space-y-12" aria-label="Intelligence Main Feed">
       {directiveFilter && (
         <div className="chip w-full max-w-2xl mx-auto flex items-center gap-3 mb-2">
-          <span>Filtering by: <strong className="text-slate-300 font-semibold">{directiveFilter}</strong></span>
+          <span className="text-slate-400">Filtering by: <strong className="text-slate-300 font-semibold">{directiveFilter}</strong></span>
           <button
             onClick={() => router.push('/')}
             className="ml-auto inline-flex items-center gap-1 px-2 py-1.5 -my-1 rounded-sm text-slate-500 hover:text-slate-200 hover:bg-slate-800/40 transition-colors ring-focus"

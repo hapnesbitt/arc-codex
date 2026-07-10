@@ -962,7 +962,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                         {card.description && (
                             <p className="font-serif text-slate-400 leading-relaxed mb-4">{card.description}</p>
                         )}
-                        <span className="font-sans text-[10px] uppercase tracking-[0.2em] text-slate-600 border border-slate-800 px-2 py-0.5 rounded-sm">
+                        <span className="chip">
                             {videoDomain}
                         </span>
                     </div>
