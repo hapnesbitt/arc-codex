@@ -123,7 +123,7 @@ const MobileAuthButton = () => {
         >
           <motion.div
             whileHover={{ y: -5 }}
-            className="relative rounded-xl p-1.5 transition-all bg-black/40 border border-white/5 group-focus-visible:ring-2 group-focus-visible:ring-amber-500"
+            className="relative rounded-xl p-1.5 transition-all bg-black/40 border border-white/5 group-ring-focus"
           >
             <Image
               src={session.user.image}
@@ -133,7 +133,7 @@ const MobileAuthButton = () => {
               className="rounded-full ring-1 ring-amber-400/40"
             />
           </motion.div>
-          <span className="mt-2 text-[8px] uppercase font-bold tracking-widest text-amber-400" aria-hidden="true">
+          <span className="mt-2 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500 group-hover:text-slate-300" aria-hidden="true">
             Settings
           </span>
         </button>
@@ -301,11 +301,11 @@ const MobileAuthButton = () => {
       >
         <motion.div
           whileHover={{ y: -5 }}
-          className="relative rounded-xl p-3 transition-all bg-black/40 border border-white/5 hover:bg-white/5 group-focus-visible:ring-2 group-focus-visible:ring-amber-400"
+          className="relative rounded-xl p-3 transition-all bg-black/40 border border-white/5 hover:bg-white/5 group-ring-focus"
         >
           <LogIn size={20} className="text-slate-500 group-hover:text-amber-400" aria-hidden="true" />
         </motion.div>
-        <span className="mt-2 text-[8px] uppercase font-bold tracking-widest text-slate-500 group-hover:text-amber-400" aria-hidden="true">
+        <span className="mt-2 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500 group-hover:text-amber-400" aria-hidden="true">
           Sign In
         </span>
       </button>
@@ -322,15 +322,17 @@ const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => {
   const { data: session } = useSession();
   const isAuthed = !!session?.user;
 
+  // One voice: nav icons recede to slate; amber marks the one true
+  // action (Publish). Active state is slate + hairline rail, not color.
   const links = [
-    ...(isMobile ? [{ href: "/",      icon: <Home     size={20}             aria-hidden="true" />, label: "Home",    color: "text-white"     }] : []),
-    {               href: "/search",  icon: <Search   size={isMobile?20:22} aria-hidden="true" />, label: "Search",  color: "text-amber-400" },
-    {               href: "/publish", icon: <Send     size={isMobile?20:22} aria-hidden="true" />, label: "Publish", color: "text-blue-400"  },
-    ...(isAuthed ? [{ href: "https://vid.arc-codex.com", icon: <Film size={isMobile?20:22} aria-hidden="true" />, label: "Video", color: "text-violet-400" }] : []),
+    ...(isMobile ? [{ href: "/",      icon: <Home     size={20}             aria-hidden="true" />, label: "Home",    color: "text-slate-400" }] : []),
+    {               href: "/search",  icon: <Search   size={isMobile?20:22} aria-hidden="true" />, label: "Search",  color: "text-slate-400" },
+    {               href: "/publish", icon: <Send     size={isMobile?20:22} aria-hidden="true" />, label: "Publish", color: "text-amber-400" },
+    ...(isAuthed ? [{ href: "https://vid.arc-codex.com", icon: <Film size={isMobile?20:22} aria-hidden="true" />, label: "Video", color: "text-slate-400" }] : []),
     {               href: "/wiki",    icon: <Library  size={isMobile?20:22} aria-hidden="true" />, label: "Wiki",    color: "text-slate-400" },
     {               href: "/library", icon: <BookText size={isMobile?20:22} aria-hidden="true" />, label: "Library", color: "text-slate-400" },
     {               href: "/sources", icon: <Rss      size={isMobile?20:22} aria-hidden="true" />, label: "Sources", color: "text-slate-400" },
-    {               href: "/about",   icon: <BookOpen size={isMobile?20:22} aria-hidden="true" />, label: "More",    color: "text-amber-400" },
+    {               href: "/about",   icon: <BookOpen size={isMobile?20:22} aria-hidden="true" />, label: "More",    color: "text-slate-400" },
   ];
 
   return (
@@ -363,27 +365,37 @@ const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => {
               <motion.div
                 whileHover={{ y: isMobile ? -5 : -2 }}
                 className={cn(
-                  "relative rounded-xl p-3 transition-all group-focus-visible:ring-2",
+                  "relative rounded-xl p-3 transition-all group-ring-focus",
                   isActive
-                    ? "bg-white/10 border-white/20 shadow-lg group-focus-visible:ring-white"
-                    : "bg-black/40 border border-white/5 group-focus-visible:ring-slate-400"
+                    ? "bg-white/10 border border-white/20"
+                    : "bg-black/40 border border-white/5"
                 )}
               >
-                <div className={cn("relative z-10", isActive ? "scale-110 text-white" : link.color)}>
+                <div className={cn("relative z-10", isActive ? "text-slate-100" : link.color)}>
                   {link.icon}
                 </div>
               </motion.div>
-              <span className={cn("mt-2 text-[8px] uppercase font-bold tracking-widest", isActive ? "text-white" : "text-slate-500")}>
+              <span className={cn("mt-2 font-sans text-[10px] uppercase tracking-[0.25em]", isActive ? "text-slate-100" : "text-slate-500 group-hover:text-slate-300")}>
                 {link.label}
               </span>
             </>
+          );
+
+          // "You are here" — hairline rail, not color: left edge on the
+          // desktop sidebar, top edge on the mobile bottom bar.
+          // Transparent placeholder keeps geometry stable across routes.
+          const navItemClass = cn(
+            "group relative flex flex-col items-center flex-1 outline-none",
+            isMobile
+              ? (isActive ? "border-t-2 border-slate-400" : "border-t-2 border-transparent")
+              : cn("w-full", isActive ? "border-l-2 border-slate-400" : "border-l-2 border-transparent")
           );
 
           return isExternal ? (
             <a
               key={idx}
               href={link.href}
-              className="group relative flex flex-col items-center flex-1 outline-none"
+              className={navItemClass}
               aria-label={link.label}
             >
               {inner}
@@ -392,7 +404,7 @@ const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => {
             <Link
               key={idx}
               href={link.href}
-              className="group relative flex flex-col items-center flex-1 outline-none"
+              className={navItemClass}
               aria-current={isActive ? "page" : undefined}
               onClick={isActive ? (e: React.MouseEvent) => {
                 e.preventDefault();

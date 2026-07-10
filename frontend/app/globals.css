@@ -82,6 +82,12 @@
     @apply focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40;
   }
 
+  /* Group-scoped variant of .ring-focus — for nav tiles where the ring
+     draws on a child while the focusable element is the parent link. */
+  .group-ring-focus {
+    @apply group-focus-visible:ring-1 group-focus-visible:ring-emerald-400/40;
+  }
+
   /* Metadata chip — promoted from the IntelligenceCard footer source
      chip (audit item 10). Quiet bordered label for source domains,
      filter banners, and similar annotations. */
