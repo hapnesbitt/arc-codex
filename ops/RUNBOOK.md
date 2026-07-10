@@ -211,3 +211,76 @@ future writes on both stacks.
 
 `bleach>=6.4` in `backend/venv` on both stacks (used by
 `sanitize_active_content`).
+
+## 2026-07-10 — Perf Sprint 1: Caddy encode + hero cache-control (arc)
+
+**Motivation**: mobile first-load recon showed `/api/get_feed` shipping
+486 KB uncompressed (no `content-encoding` header on prod) and hero
+JPEGs served without `Cache-Control` — so every cold visit re-downloads
+the full 3.9 MB batch of hero images. Two arc-codex.com site-block edits
+addressed both.
+
+### Actions taken
+
+- Added `encode zstd gzip` at the top of the `arc-codex.com` site block
+  in `/etc/caddy/Caddyfile` — compresses all responses from that vhost,
+  including the SSR HTML from Next.js and JSON from Flask.
+- Added a specific `handle /uploads/scraped/*` block (before the general
+  `/uploads/*`) that sets
+  `Cache-Control: public, max-age=31536000, immutable` and serves from
+  the same `/home/www/arc_stack/frontend/public` root. Scraped hero
+  filenames are content-hashed so the immutable directive is safe.
+- Pre-edit backup: `/home/www/arc_stack/Caddyfile.bak-perf-sprint-1-pre`
+  (gitignored per `*.bak*`).
+- `caddy adapt --validate` succeeded (the log-file permission-denied at
+  the end is the known non-root quirk from the 2026-07-02 runbook, not a
+  config error — the adapted JSON contains both new handlers).
+
+### Diff (arc-codex.com block, two hunks)
+
+```
+@@ -39,6 +39,7 @@
+ 		format json
+ 	}
+ 
++	encode zstd gzip
+ 
+ 	handle /sitemap.xml {
+
+@@ -84,6 +85,11 @@
+ 	handle /api/submit_comment {
+ 		reverse_proxy localhost:3000
+ 	}
++	handle /uploads/scraped/* {
++		root * /home/www/arc_stack/frontend/public
++		header Cache-Control "public, max-age=31536000, immutable"
++		file_server
++	}
+ 	handle /uploads/* {
+```
+
+### Huntaegis parity
+
+Not applied. Huntaegis has its own site block with the identical
+pre-edit shape; it does NOT inherit the encode directive from arc
+(Caddy site blocks are separate scopes). Same two edits to the
+`huntaegis.com` block would give it parity — deferred as a follow-up so
+Sprint 1 stays scoped to arc-codex.com and can be verified in isolation.
+
+### Soc / hapenews.mine.nu
+
+Both serve `/uploads/*` from `/home/www/arc_stack/frontend/public` but
+neither got the immutable cache-control block, since neither routes
+through `/uploads/scraped/*` in a way that matters for the arc feed
+first-load — they can pick up the same edit in a follow-up if wanted.
+
+### Reload procedure (not yet run at commit time)
+
+Per the 2026-07-02 huntaegis-repoint runbook:
+`caddy reload --config /etc/caddy/Caddyfile` (admin API, atomic, keeps
+old config on failure). Post-reload spot-checks: `curl -I` on
+`https://arc-codex.com/api/get_feed` for `content-encoding`; `curl -I`
+on any `/uploads/scraped/*.jpg` for `Cache-Control`; then verify
+`huntaegis.com` and one unrelated site (e.g. `plantorium.arc-codex.com`)
+still return 200 as sanity checks that the site-block edit didn't break
+Caddy's routing table.
