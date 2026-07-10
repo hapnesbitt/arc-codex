@@ -81,6 +81,13 @@
   .ring-focus {
     @apply focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40;
   }
+
+  /* Metadata chip — promoted from the IntelligenceCard footer source
+     chip (audit item 10). Quiet bordered label for source domains,
+     filter banners, and similar annotations. */
+  .chip {
+    @apply font-sans text-[10px] uppercase tracking-[0.2em] text-slate-600 border border-slate-800 px-2 py-0.5 rounded-sm;
+  }
 }
 
 /*

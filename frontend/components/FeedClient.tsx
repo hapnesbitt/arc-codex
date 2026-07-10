@@ -13,6 +13,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
+import { X } from 'lucide-react';
 import IntelligenceCard from '@/components/IntelligenceCard';
 import { useUserPrefs } from '@/components/UserPrefsContext';
 import type { Article, Comment } from '@/lib/types';
@@ -25,39 +26,32 @@ interface FeedClientProps {
 
 const LoadingSpinner: React.FC = () => (
   <div
-    className="flex justify-center items-center py-12 w-full"
+    className="w-full max-w-2xl mx-auto py-12"
     role="status"
     aria-live="polite"
   >
-    <div className="relative" aria-hidden="true">
-      <div className="absolute inset-0 rounded-full bg-amber-400/20 blur-xl animate-pulse" />
-      <div className="relative animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-amber-300" />
-      <div className="absolute inset-2 rounded-full bg-amber-400/10 animate-ping" />
-    </div>
+    <div
+      className="h-80 border-b border-slate-800/60 bg-slate-900/30 animate-pulse"
+      aria-hidden="true"
+    />
     <span className="sr-only">Decrypting more intelligence...</span>
   </div>
 );
 
 const ErrorMessage: React.FC<{ message: string; onRetry: () => void }> = ({ message, onRetry }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    className="flex justify-center items-center py-12 w-full"
+  <div
+    className="w-full max-w-2xl mx-auto border-t border-rose-500/30 px-4 sm:px-8 py-8 text-center"
     role="alert"
     aria-live="assertive"
   >
-    <div className="text-center p-6 bg-red-900/30 backdrop-blur-sm border border-red-600/50 rounded-xl text-red-300 max-w-md shadow-lg">
-      <p className="text-base font-medium">{message}</p>
-      <motion.button
-        onClick={onRetry}
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        className="mt-4 px-6 py-2 bg-amber-500 text-slate-900 font-bold rounded-lg hover:bg-amber-400 transition-colors shadow-md hover:shadow-lg ring-focus"
-      >
-        Try Again
-      </motion.button>
-    </div>
-  </motion.div>
+    <p className="font-sans text-sm text-slate-300">{message}</p>
+    <button
+      onClick={onRetry}
+      className="mt-4 px-4 py-2 rounded-sm border border-slate-700 text-slate-300 hover:border-slate-500 hover:text-slate-100 font-sans text-xs uppercase tracking-[0.2em] transition-colors ring-focus"
+    >
+      Try Again
+    </button>
+  </div>
 );
 
 function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JSX.Element {
@@ -162,14 +156,15 @@ function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JS
     // role="feed" lives on the <ol> where it belongs per ARIA spec.
     <main className="space-y-12" aria-label="Intelligence Main Feed">
       {directiveFilter && (
-        <div className="flex items-center gap-3 px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-sm text-amber-300 mb-2">
-          <span>Filtering by: <strong className="text-amber-200">{directiveFilter}</strong></span>
+        <div className="chip w-full max-w-2xl mx-auto flex items-center gap-3 mb-2">
+          <span>Filtering by: <strong className="text-slate-300 font-semibold">{directiveFilter}</strong></span>
           <button
             onClick={() => router.push('/')}
-            className="ml-auto text-xs px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/40 text-amber-200 transition-colors"
+            className="ml-auto inline-flex items-center gap-1 px-2 py-1.5 -my-1 rounded-sm text-slate-500 hover:text-slate-200 hover:bg-slate-800/40 transition-colors ring-focus"
             aria-label="Clear directive filter"
           >
-            ✕ Clear
+            <X className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>Clear</span>
           </button>
         </div>
       )}
@@ -215,19 +210,12 @@ function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JS
       {error && <ErrorMessage message={error} onRetry={fetchMoreItems} />}
 
       {!hasMore && feed.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="flex justify-center items-center py-12 w-full"
+        <div
+          className="py-12 text-center font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500"
           role="status"
         >
-          <div className="text-center text-slate-400 font-semibold backdrop-blur-sm bg-slate-900/30 rounded-xl px-8 py-6 border border-slate-700/50">
-            <p className="text-lg">End of Feed</p>
-            <p className="text-sm mt-2 text-slate-500">
-              Viewed {feed.length} {feed.length === 1 ? 'story' : 'stories'}
-            </p>
-          </div>
-        </motion.div>
+          End of feed · Viewed {feed.length} {feed.length === 1 ? 'story' : 'stories'}
+        </div>
       )}
     </main>
   );
