@@ -1135,7 +1135,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 onToggle={() => toggleSection('talkingPoints')}
                                 fullyExpanded={fullyExpanded}
                             >
-                                <ul className="list-disc pl-5 space-y-3 text-slate-200 font-serif">
+                                <ul className="list-disc pl-5 space-y-3 text-slate-200 font-serif max-w-prose">
                                     {talkingPoints.map((point, index) => (
                                         <li key={index} className="leading-relaxed">{point}</li>
                                     ))}
@@ -1152,7 +1152,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 onToggle={() => toggleSection('deepAnalysis')}
                                 fullyExpanded={fullyExpanded}
                             >
-                                <p className="text-slate-200 font-serif leading-relaxed">{deepAnalysisSummary}</p>
+                                <p className="text-slate-200 font-serif leading-relaxed max-w-prose">{deepAnalysisSummary}</p>
                             </AnalysisSection>
                         )}
 
@@ -1240,7 +1240,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                         </span>
                                     </div>
 
-                                    <p className="font-serif text-slate-200 leading-relaxed">{sentinelData.summary}</p>
+                                    <p className="font-serif text-slate-200 leading-relaxed max-w-prose">{sentinelData.summary}</p>
 
                                     {sentinelData.indicators && sentinelData.indicators.length > 0 && (
                                         <div className="space-y-2">
