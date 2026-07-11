@@ -392,6 +392,25 @@ restart intentionally, and stays uncommitted per direction.
 - Huntaegis parity (Sprint 1 Caddy edits AND Sprint 2 WebP pipeline) —
   still deferred as follow-ups.
 
+## 2026-07-11 — Housekeeping: nightly git-push cron (both stacks)
+
+`ops/nightly-git-push.sh` runs at **02:30 daily** (clear of the 03:00
+arc / 04:00 hunt backup windows) and does `git push origin main` on
+arc_stack then huntaegis_stack. **Push only** — the script never runs
+add/commit/pull/rebase; a failed push is logged and skipped, no
+retries, no prompts (`GIT_TERMINAL_PROMPT=0`). It is a safety net for
+landed-but-unpushed commits, not an auto-committer.
+
+- Script: `/home/www/arc_stack/ops/nightly-git-push.sh`
+- Script log: `/home/www/arc_stack/logs/nightly_push.log`
+- Cron-level log: `/home/www/arc_stack/logs/nightly_push_cron.log`
+- Crontab: `30 2 * * * /home/www/arc_stack/ops/nightly-git-push.sh >> …/nightly_push_cron.log 2>&1`
+
+Same sprint also purged 14 dead backup files (archived to
+`/mnt/arcdata/arc-dead-backup-files-2026-07-10.tar.gz` before
+deletion) and gitignored `backend/library.db` (arc) and
+`frontend/tsconfig.tsbuildinfo` (hunt).
+
 ## 2026-07-10 — Polish Sprint 5: icon-row tooltips deployed (arc)
 
 Commit `976d299` — CSS-only `[data-tooltip]` pattern in `globals.css`
