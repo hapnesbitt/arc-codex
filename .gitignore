@@ -75,3 +75,6 @@ __pycache__/
 *.bak*
 Jun17*
 *.Jun[0-9]*
+
+# SQLite runtime artifact (Gutenberg library corpus, lives on /mnt/arcdata in prod)
+backend/library.db
