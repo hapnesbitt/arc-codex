@@ -78,3 +78,6 @@ Jun17*
 
 # SQLite runtime artifact (Gutenberg library corpus, lives on /mnt/arcdata in prod)
 backend/library.db
+
+# Stray generator output — the real sitemap is frontend/public/sitemap.xml (hourly, ignored above)
+/sitemap.xml
