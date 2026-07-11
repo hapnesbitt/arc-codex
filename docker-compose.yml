@@ -133,7 +133,6 @@ services:
       dockerfile: ./Dockerfile.frontend
       args:
         NEXTAUTH_URL: ${NEXTAUTH_URL:-https://arc-codex.com}
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5005}
     image: arc-codex-frontend:latest
     container_name: arc-frontend
     network_mode: host
