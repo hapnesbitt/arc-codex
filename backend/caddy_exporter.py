@@ -69,7 +69,8 @@ log = logging.getLogger(__name__)
 PATH_GROUPS = [
     (r'^/api/get_feed',         'api_feed'),
     (r'^/api/translate',        'api_translate'),
-    (r'^/api/articles',         'api_articles'),
+    (r'^/api/article/',         'api_articles'),
+    (r'^/api/library/',         'api_library'),
     (r'^/api/search',           'api_search'),
     (r'^/api/submit',           'api_submit'),
     (r'^/api/auth',             'api_auth'),

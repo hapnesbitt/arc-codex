@@ -14,5 +14,6 @@ exec gunicorn \
     --timeout 600 \
     --preload \
     --access-logfile /home/www/arc_stack/logs/gunicorn_access.log \
+    --access-logformat '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(L)s' \
     --error-logfile /home/www/arc_stack/logs/gunicorn_error.log \
     main:app
