@@ -391,3 +391,14 @@ restart intentionally, and stays uncommitted per direction.
   to-end generates all three variants via Part C.
 - Huntaegis parity (Sprint 1 Caddy edits AND Sprint 2 WebP pipeline) —
   still deferred as follow-ups.
+
+## 2026-07-10 — Polish Sprint 5: icon-row tooltips deployed (arc)
+
+Commit `976d299` — CSS-only `[data-tooltip]` pattern in `globals.css`
+(scoped to `@media (hover: hover)` so touch skips it), plus 8 verbatim
+tooltip strings on the IntelligenceCard icon row (translate, permalink,
+copy, research, share, torch, quiz me, print). Copy approved by Ross
+as-is with no amendments. Deployed via `./arc.sh build` post-approval.
+Post-deploy verification: SSR HTML shows all 8 `data-tooltip` attrs;
+served stylesheet contains `[data-tooltip]`, `.tooltip-right`,
+`.tooltip-left` rules under the hover-hover media query.
