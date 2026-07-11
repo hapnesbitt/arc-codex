@@ -1837,6 +1837,16 @@ def post_bluesky():
 
     Returns 200 with post URI on success.
     """
+    # Same secret gate as publish_article — this endpoint posts to Arc's
+    # Bluesky account, so it must not be publicly triggerable. Note: never
+    # log the provided value, only whether one was sent.
+    if request.headers.get('X-Scribe-Secret') != SCRIBE_SECRET_KEY:
+        app.logger.warning(
+            f"⚠️  Unauthorized post_bluesky attempt (secret header "
+            f"{'present' if request.headers.get('X-Scribe-Secret') else 'absent'})"
+        )
+        return jsonify({"error": "Unauthorized"}), 403
+
     if not BLUESKY_APP_PASSWORD:
         return jsonify({"error": "Bluesky not configured."}), 503
 
