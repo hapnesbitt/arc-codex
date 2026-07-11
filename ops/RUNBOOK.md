@@ -473,9 +473,9 @@ Arc commit `5922b62`, hunt commit `14a30a9`. Per-item:
 - **Q4** publish_article rejection logs now record secret-header
   presence/absence, not the value (both stacks; arc line 454 was the
   original audit finding, hunt:423 was wave-1 flag 2).
-- **cleanup.py docstring** corrected to backend/venv path (arc; hunt's
-  docstring never had the stale path in its cron line — not checked
-  further, cron itself fixed in C2).
+- **cleanup.py docstring** corrected to backend/venv path (arc).
+  Correction 2026-07-11: this entry originally claimed hunt's docstring
+  lacked the stale path — wrong, it had it too; fixed in wave 3.
 - **frontend/.env.local** (arc, untracked): removed REDIS_HOST,
   REDIS_PASSWORD, REDIS_PORT, SOLR_URL — no frontend code reads them.
   Container rebuilt healthy after removal.

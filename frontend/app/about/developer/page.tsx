@@ -281,7 +281,7 @@ text, duration = call_ollama_with_fallback(prompt, model)`}</Block>
             Models: <Code>gpt-oss:20b</Code> (cloud, primary) → <Code>gemma4:e2b</Code> (local M1, fallback). devstral-2 retired 2026-07-15; gemma4:e2b handles simple tasks but struggles with large JSON translation payloads. Translation failures on 429 are graceful — &ldquo;model unavailable&rdquo; is shown to the user.
           </p>
           <Warn>
-            <span><strong className="not-italic">Do not auto-translate on component mount in feed view.</strong> 33 article cards firing simultaneous Ollama requests blocks all gunicorn threads and takes down the site. <Code>preferred_lang</Code> is a click shortcut — it skips the language dropdown, it does not auto-fire.</span>
+            <span><strong className="not-italic">Do not auto-translate on component mount in feed view.</strong> The feed lazy-loads on a tribonacci ramp, but a scrolled session holds dozens of mounted cards — that many simultaneous Ollama requests blocks all gunicorn threads and takes down the site. <Code>preferred_lang</Code> is a click shortcut — it skips the language dropdown, it does not auto-fire.</span>
           </Warn>
         </SectionShell>
 
