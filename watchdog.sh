@@ -213,6 +213,18 @@ SWEEP_PID=$!
 trap "kill $SWEEP_PID 2>/dev/null; log '👋 Watchdog stopped'" EXIT
 
 while true; do
+    # Hold-off: a targeted restart (arc.sh/huntaegis.sh cmd_restart) is in
+    # flight — skip this pass instead of racing its stop→start gap. A stale
+    # hold (>120s, e.g. restart crashed mid-way) is discarded so the
+    # watchdog can never be disabled permanently.
+    if [ -f "$PID_DIR/watchdog.hold" ]; then
+        hold_age=$(( $(date +%s) - $(stat -c %Y "$PID_DIR/watchdog.hold" 2>/dev/null || echo 0) ))
+        if [ "$hold_age" -lt 120 ]; then
+            sleep "$CHECK_INTERVAL"
+            continue
+        fi
+        rm -f "$PID_DIR/watchdog.hold"
+    fi
     for svc in "${SERVICES[@]}"; do
         local_name="${svc%%|*}"
         IFS='|' read -r _ _ local_cmd _ _ <<< "$svc"

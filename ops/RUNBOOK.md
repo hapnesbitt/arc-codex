@@ -421,3 +421,21 @@ as-is with no amendments. Deployed via `./arc.sh build` post-approval.
 Post-deploy verification: SSR HTML shows all 8 `data-tooltip` attrs;
 served stylesheet contains `[data-tooltip]`, `.tooltip-right`,
 `.tooltip-left` rules under the hover-hover media query.
+
+## 2026-07-11 — Watchdog hold-off for targeted restarts (both stacks)
+
+`./arc.sh restart <service>` has a ~2s stop→start gap; if the
+watchdog's 60s check landed inside it, it spawned an untracked
+duplicate (hit on Hunt's scribe during the 2026-07-11 parity deploy —
+two scribes ran for ~30 min until noticed and killed).
+
+Fix, mirrored on both stacks: `cmd_restart`'s targeted branch touches
+`pids/watchdog.hold` before stopping and removes it after starting;
+the watchdog main loop skips a pass while the file is fresher than
+120s and deletes stale ones (so a crashed restart can never disable
+the watchdog permanently). Full-stack restart needs no hold — it
+stops the watchdog itself.
+
+Verified: watchdog restarts on both stacks picked up the new loop,
+`huntaegis.sh restart scribe` produced exactly one scribe with the
+hold file created and cleaned.

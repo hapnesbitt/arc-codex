@@ -277,9 +277,13 @@ cmd_restart() {
         local svc
         svc=$(get_service_def "$target") || { echo "❌ Unknown service: $target"; exit 1; }
         echo "🔄 Restarting $target..."
+        # Hold off the watchdog while the stop→start gap is open, so its
+        # 60s check can't race us and spawn an untracked duplicate.
+        touch "$PID_DIR/watchdog.hold"
         stop_service "$svc"
         sleep 1
         start_service "$svc"
+        rm -f "$PID_DIR/watchdog.hold"
     else
         cmd_stop
         sleep 2
