@@ -451,7 +451,10 @@ def publish_article():
         return jsonify({"error": "Database connection is offline."}), 503
     
     if request.headers.get('X-Scribe-Secret') != SCRIBE_SECRET_KEY:
-        app.logger.warning(f"⚠️  Unauthorized publish attempt. Provided key: {request.headers.get('X-Scribe-Secret')}")
+        app.logger.warning(
+            f"⚠️  Unauthorized publish attempt (secret header "
+            f"{'present' if request.headers.get('X-Scribe-Secret') else 'absent'})"
+        )
         return jsonify({"error": "Unauthorized"}), 403
     
     data = request.get_json()
@@ -489,8 +492,10 @@ def get_feed():
         app.logger.error("🔥 Redis unavailable for get_feed")
         return jsonify({"error": "Database connection is offline."}), 503
     
-    limit = request.args.get('limit', 33, type=int)
-    offset = request.args.get('offset', 0, type=int)
+    # Clamp like /api/search does — an uncapped or negative limit lets one
+    # request dump the entire feed with full analyst payloads.
+    limit = max(1, min(request.args.get('limit', 33, type=int), 50))
+    offset = max(0, request.args.get('offset', 0, type=int))
     category_filter  = request.args.get('category', '', type=str).strip()
     directive_filter = request.args.get('directive', '', type=str).strip()
     
@@ -1694,6 +1699,24 @@ def upload_image():
 
     Returns: { "url": "/uploads/<filename>" }
     """
+    # Concurrency throttle (same pattern as pre_analyze). This endpoint is
+    # called client-side from the publish page, so under the Caddy header-
+    # strip trust boundary there is no auth context to check here — the
+    # throttle + 10MB cap bound abuse, but the auth gap is a known deferral
+    # (health audit Q2, 2026-07-11).
+    if not _upload_image_sem.acquire(timeout=1):
+        app.logger.warning("⚠️  upload_image: concurrency limit reached, returning 429")
+        return jsonify({'error': 'Server busy, please retry shortly.'}), 429
+    try:
+        return _upload_image_inner()
+    finally:
+        _upload_image_sem.release()
+
+
+_upload_image_sem = threading.Semaphore(2)
+
+
+def _upload_image_inner():
     import hashlib
 
     file = request.files.get('image')

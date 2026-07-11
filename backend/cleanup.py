@@ -7,7 +7,7 @@ Non-interactive maintenance script — safe to schedule via cron.
 Runs orphan purges on Redis and Solr, logs results.
 
 Cron (Sunday 1am, before cold backup):
-  0 1 * * 0 /home/www/arc_stack/venv/bin/python3 /home/www/arc_stack/backend/cleanup.py >> /home/www/arc_stack/logs/cleanup.log 2>&1
+  0 1 * * 0 /home/www/arc_stack/backend/venv/bin/python3 /home/www/arc_stack/backend/cleanup.py >> /home/www/arc_stack/logs/cleanup.log 2>&1
 
 Also safe to run manually at any time — read-only scan first, then purge.
 """
