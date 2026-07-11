@@ -780,3 +780,26 @@ nltk. pip-itself and yt-dlp are lower.
   Redis parse.
 - **npm audit tail**: 2 remaining vulns in each stack's postcss
   (Next transitive) — need `--force` + Next major bump to clear.
+
+### Bug caught by the very first CI run
+
+CI's first push failed the backend job at pytest with
+`ModuleNotFoundError: No module named 'bleach'`. `bleach==6.4.0` is
+installed in both boxes' venvs and used at import time by
+`fetch_utils.py` (which `main.py` imports transitively via
+`rss_feed`) — but it was NOT declared in either stack's
+`requirements.txt`. Production worked only because the venvs
+happened to have it. A fresh install from `requirements.txt` alone
+would have failed on both stacks at first import.
+
+Added `bleach==6.4.0` to both `backend/requirements.txt`. Fixed in
+its own commit because a bug caught by the first machine
+verification deserves its own line in the story — that is exactly
+what R2 is for. Hunt's CI was green because its backend job only
+does `py_compile` (parses, does not import); Arc caught it because
+its backend job also runs pytest (imports). Same drift, silent on
+one stack, loud on the other.
+
+No other missing production deps found in a sweep of all
+top-level `import`/`from` statements (`fpdf` is used only in
+`makehap.py`, a standalone script not on `main.py`'s graph).
