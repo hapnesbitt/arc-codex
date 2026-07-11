@@ -41,6 +41,7 @@ import json
 import random
 import logging
 import requests
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 # ── env ────────────────────────────────────────────────────────────────────────
@@ -378,6 +379,30 @@ def autopost_enabled() -> bool:
         return False
 
 # ── main loop ──────────────────────────────────────────────────────────────────
+def log_data_access_expiry():
+    """Log Graph API data_access_expires_at at startup so the renewal runway
+    is visible in logs. The page token itself never expires (expires_at=0)
+    but data access does — 90-day window renewed by re-auth. Visibility must
+    never break posting: any failure here logs and continues."""
+    try:
+        resp = requests.get(
+            f"{GRAPH_API}/debug_token",
+            params={"input_token": ACCESS_TOKEN,
+                    "access_token": f"{APP_ID}|{APP_SECRET}"},
+            timeout=10,
+        )
+        exp_ts = resp.json().get("data", {}).get("data_access_expires_at")
+        if exp_ts:
+            exp = datetime.fromtimestamp(exp_ts, tz=timezone.utc)
+            days = (exp - datetime.now(timezone.utc)).days
+            log.info("Graph data access expires %s (%d days remaining) — re-auth before then",
+                     exp.strftime("%Y-%m-%d"), days)
+        else:
+            log.warning("debug_token returned no data_access_expires_at — check token manually")
+    except Exception as e:
+        log.warning("data-access expiry check failed (%s: %s) — posting continues", type(e).__name__, e)
+
+
 def main():
     log.info("facebook_poster v1.2 starting — page_id: %s  app_id: %s",
              PAGE_ID or "(not set)", APP_ID or "(not set)")
@@ -386,6 +411,8 @@ def main():
         sys.exit(1)
     if not APP_ID or not APP_SECRET:
         log.warning("FACEBOOK_APP_ID / FACEBOOK_APP_SECRET not set — token auto-refresh disabled")
+
+    log_data_access_expiry()
 
     seed_posted_set()
 
