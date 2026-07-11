@@ -456,3 +456,29 @@ drift. No catch-up run needed; Sunday's cron takes it.
 Fix: crontab repointed at `<stack>/backend/venv/bin/python3` (both
 lines); interpreters verified present; both cleanup.py pass
 py_compile under their venv. No live prune executed.
+
+## 2026-07-11 — Health audit wave 2: Q1-Q4 hygiene (both stacks)
+
+Arc commit `5922b62`, hunt commit `14a30a9`. Per-item:
+
+- **Q1** get_feed limit clamped [1,50], offset floored (both stacks).
+  Verified live: limit=99999 → 50, limit=-1 → 1, limit=1 → 1; SSR
+  first paint unaffected on both domains.
+- **Q2** upload_image throttled (pre_analyze semaphore pattern, 2
+  concurrent, 429 on saturation; both stacks). Caller trace: publish
+  page calls it client-side, so Caddy's header-strip boundary leaves
+  no auth context to check — **auth gap deliberately deferred**, noted
+  in both endpoints' comments. A proper gate needs a Next.js proxy
+  route + Caddy reroute (architecture change, future decision).
+- **Q4** publish_article rejection logs now record secret-header
+  presence/absence, not the value (both stacks; arc line 454 was the
+  original audit finding, hunt:423 was wave-1 flag 2).
+- **cleanup.py docstring** corrected to backend/venv path (arc; hunt's
+  docstring never had the stale path in its cron line — not checked
+  further, cron itself fixed in C2).
+- **frontend/.env.local** (arc, untracked): removed REDIS_HOST,
+  REDIS_PASSWORD, REDIS_PORT, SOLR_URL — no frontend code reads them.
+  Container rebuilt healthy after removal.
+
+Services bounced: arc gunicorn ×2 (guard, then env-adjacent rebuild),
+arc frontend container, hunt gunicorn. All verified serving.
