@@ -576,3 +576,84 @@ this drill was performed manually for that reason. Register: add a
 Hunt has a weekly cold cron; arc still has none (part of why R4 went
 unnoticed). NOT added this wave — Ross's call on schedule slot, since
 the run costs ~15 min of gzip CPU.
+
+## 2026-07-11 — api_other Wave B: /api/library/ swarm gated, exporter fixed
+
+### Bucket definition and offender
+
+The `api_other` catch-all in `caddy_exporter.py` PATH_GROUPS was hiding
+one endpoint: `/api/library/<id>?lang=<non-en>`. Alibaba Cloud US
+IP ranges (47.79.x / 47.82.x, many /24s) hit that path with a
+fake-Chrome UA that slipped `_is_bot_ua`, commissioning a 120s M1
+translation the scraper never waited to receive. Over ~2.5 days of
+logs: 974 requests, 716 slow (>5s), 94.7% status=0 (client aborted
+at ~10s of its own timeout). The 10s round number was the SCRAPER'S
+client timeout, not ours — our end continued the Ollama call and
+cached the translation. Real users unaffected in aggregate; M1 cost
+was pure waste.
+
+### R-A — behavioral gate (main.py)
+
+Extended the existing `_is_bot_ua` check on the commission branch to
+also trigger the bot-path when NONE of `Sec-Fetch-Site`,
+`Sec-Fetch-Mode`, `Sec-Fetch-Dest` are present. W3C Fetch Metadata
+headers are set automatically by every real browser fetch/navigation
+and are not sent by bare HTTP clients (curl, python-requests, the
+Alibaba swarm). Choice reasoning: cheapest reliable discriminator on
+the wire at this endpoint; IP/ASN lists would rot as the next swarm
+comes from somewhere else. Cache hits remain ungated (public data,
+cheap to serve). Response for gated requests is the existing bot-path
+`translation_error`, not a 403 — no scraper gets a signal to adapt.
+When the gate fires, `arc:stats:library_translation_gated` is INCR'd
+and an INFO log line "library translation gated: id=... lang=...
+reason=bot_ua|no_sec_fetch" is emitted.
+
+Verified end-to-end after gunicorn restart:
+- Scraper curl `?lang=fr`, no Sec-Fetch-*, fake-Chrome UA →
+  response 0.010s, gate log emitted, counter=1, no Ollama call.
+- Browser-shaped curl `?lang=pt-br` (Sec-Fetch-*, Referer) →
+  passed the gate, reached `_call_translation_model` (return time
+  120s = Ollama's own timeout; orthogonal, not a regression).
+- Scraper curl on cached (30419, es) → 0.005s, is_translated=true,
+  Spanish text served. Cache path ungated as designed.
+
+### R-C — gunicorn %(L)s response-time logging (gunicorn_arc.sh)
+
+`--access-logformat` added with `%(L)s` appended as the last field.
+Verified after restart: `... "curl/8.18.0" 0.002410`. Closes half of
+the R6 observability gap the api_other recon surfaced; per-endpoint
+Flask timing now exists at the launcher log, not just aggregated in
+Caddy.
+
+### R-D — caddy_exporter PATH_GROUPS surgery
+
+- Added `(r'^/api/library/', 'api_library')` above the api_other
+  catch-all. New Grafana bucket carries the swarm signal into its own
+  series.
+- Fixed the dead `api_articles` regex: was `^/api/articles` (plural,
+  no route matches); repointed to `^/api/article/` (singular, matches
+  the real endpoint `/api/article/<id>` + `/comments`).
+
+**Grafana discontinuity warning**: at this commit `api_other` shrinks
+sharply (~30% of its historical volume moves to `api_library`), and
+`api_articles` begins collecting real data for the first time (~65% of
+former `api_other` moves there). Any dashboards or alerts that queried
+`api_other` as a proxy for "everything under /api/*" will report an
+apparent step-drop starting 2026-07-11 — that is the bucket splitting,
+not a traffic change. Verified in a scrape after exporter restart:
+both new labels present.
+
+Restart procedure used: `arc.sh restart caddy_exporter` and
+`arc.sh restart gunicorn`. Both service-name entries in
+`VALID_SERVICES` — no separate systemd unit involved.
+
+### Registered (not fixed) this wave
+
+- **R-B**: widen `_BOT_UA_MARKERS`. The Sec-Fetch-* gate makes this
+  lower priority — a swarm rotating UA would still be caught.
+- **R-E**: `/api/library/<id>` sets `Cache-Control: public,
+  max-age=3600` unconditionally, including on error and
+  translation-error paths (`main.py:2262`). Edge caches could serve
+  stale errors for an hour. Separate change; not a latency story.
+- **Hunt exposure**: none. Hunt has no `/api/library/*` route in
+  backend or frontend. No port needed.

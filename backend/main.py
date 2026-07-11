@@ -186,6 +186,18 @@ def _is_bot_ua(ua: str) -> bool:
     return any(m in u for m in _BOT_UA_MARKERS)
 
 
+_FETCH_METADATA_HEADERS = ('Sec-Fetch-Site', 'Sec-Fetch-Mode', 'Sec-Fetch-Dest')
+
+def _has_fetch_metadata(req) -> bool:
+    """True if the request carries any Sec-Fetch-* header — the W3C Fetch
+    Metadata signal set automatically by real browsers on every fetch and
+    navigation. Bare HTTP clients (curl, python-requests, Go http, and the
+    Alibaba scraper swarm) do not send these. Used as a lightweight
+    'is this a browser?' gate on endpoints that would otherwise commission
+    expensive M1 work for scrapers wearing a fake-Chrome UA."""
+    return any(req.headers.get(h) for h in _FETCH_METADATA_HEADERS)
+
+
 def _client_ua(req) -> str:
     """Effective client User-Agent for gating.
 
@@ -2176,10 +2188,21 @@ def get_library_work(gutenberg_id):
                     if cached_tx['is_preview']:
                         is_preview = True
                         preview_chars = cached_tx['preview_chars'] or None
-                elif _is_bot_ua(_client_ua(request)):
+                elif _is_bot_ua(_client_ua(request)) or not _has_fetch_metadata(request):
                     # Bots don't commission a 120s M1 translation. Serve English —
                     # crawlers index English fine; this keeps the M1 for readers.
+                    # Sec-Fetch-* absence catches fake-Chrome scrapers that slip
+                    # _is_bot_ua (Alibaba swarm 2026-07-09 to 07-11: ~700 gated).
+                    # Cache hits above still serve everyone; this only blocks new
+                    # commissions.
                     translation_error = "Translation not generated for automated clients."
+                    try:
+                        if r:
+                            r.incr("arc:stats:library_translation_gated")
+                    except Exception:
+                        pass
+                    reason = 'bot_ua' if _is_bot_ua(_client_ua(request)) else 'no_sec_fetch'
+                    app.logger.info(f"library translation gated: id={gutenberg_id} lang={lang} reason={reason}")
                 else:
                     # Per-(work×lang) inflight lock. Under load, 5 concurrent readers
                     # of the same book/lang would otherwise fire 5 parallel model
