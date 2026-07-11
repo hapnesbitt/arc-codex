@@ -571,11 +571,28 @@ option. Fine as the break-glass path, but drills must not use it —
 this drill was performed manually for that reason. Register: add a
 `--target <dir>` option (LOW, hours).
 
-### Missing cold-backup cron — flag
+### Missing cold-backup cron — scheduled 2026-07-11
 
-Hunt has a weekly cold cron; arc still has none (part of why R4 went
-unnoticed). NOT added this wave — Ross's call on schedule slot, since
-the run costs ~15 min of gzip CPU.
+Hunt has a weekly cold cron; arc had none (part of why R4 went
+unnoticed for months). Installed to Ross's crontab:
+
+```
+0 4 * * 0   /home/www/arc_stack/arc.sh backup-cold              >> /home/www/arc_stack/logs/backup_cron.log 2>&1
+```
+
+Sunday 04:00 UTC — one hour after Sunday cleanup jobs (arc 01:00,
+hunt 02:00) and hunt's cold backup (03:00), immediately alongside
+hunt's daily backup (04:00). Different filesystems, no target
+collision.
+
+First scheduled run: **2026-07-12 (Sunday) 04:00**.
+
+Retention math (verified against actual): archive is 6.1 GB gzipped
+(Wave A first drill), KEEP=4 → **~24.4 GB steady-state** on
+`/mnt/arcdata`. Peak in-flight during a run is larger (~44 GB
+including the ~14 GB staging area for library.db before it streams
+into gzip, plus the four existing archives). `/mnt/arcdata` has
+191 GB free — plenty of headroom.
 
 ## 2026-07-11 — api_other Wave B: /api/library/ swarm gated, exporter fixed
 
