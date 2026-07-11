@@ -1,0 +1,72 @@
+name: verify
+
+# Verification-only workflow — no deploy steps, no secrets required.
+# R2 (Register Wave B-proper, 2026-07-11): first machine verification of
+# frontend build/type and backend syntax/tests. A failing job does NOT
+# block anything today (no branch protection); it only makes the redness
+# visible on every push.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  frontend:
+    name: frontend (npm ci + build + tsc)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      # Next.js build reads NEXT_PUBLIC_* at build time. Provide stable
+      # placeholders so the build is deterministic in CI; real values live
+      # in the deploy environment.
+      - name: npm run build
+        env:
+          NEXT_PUBLIC_BACKEND_URL: https://arc-codex.com
+          BACKEND_INTERNAL_URL: http://localhost:5005
+          NEXTAUTH_URL: https://arc-codex.com
+          AUTH_SECRET: ci-build-placeholder
+        run: npm run build
+      - run: npx tsc --noEmit
+
+  backend:
+    name: backend (py_compile + pytest smoke)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - name: install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      - name: py_compile sweep
+        # Excludes the venv directory and the manual_test_* scripts that
+        # depend on live services (Redis / M1). Everything else must
+        # compile clean.
+        run: |
+          python -m py_compile $(ls *.py | grep -v '^manual_test_')
+      - name: pytest smoke suite
+        # conftest.py sets a valid-shape REDIS_URL and SCRIBE_SECRET_KEY;
+        # no live services touched. Tests monkey-patch Redis / library_db
+        # per-case.
+        run: python -m pytest tests/ -v

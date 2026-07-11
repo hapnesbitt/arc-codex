@@ -674,3 +674,109 @@ Restart procedure used: `arc.sh restart caddy_exporter` and
   stale errors for an hour. Separate change; not a latency story.
 - **Hunt exposure**: none. Hunt has no `/api/library/*` route in
   backend or frontend. No port needed.
+
+## 2026-07-11 — Register Wave B-proper: machine verification (R2, R1, R8)
+
+The diligence paragraph's central claim was "nothing is machine-verified."
+This wave answers that on three axes: CI, tests, dep audits. Not
+comprehensive — a floor to build on.
+
+### R2 — GitHub Actions verify.yml, both stacks
+
+`.github/workflows/verify.yml` on both `arc_stack` and `huntaegis_stack`.
+Runs on push to `main` and PRs targeting `main`. Verification only —
+no deploy, no secrets required.
+
+Jobs (both stacks):
+- **frontend**: `npm ci` → `npm run build` (with placeholder
+  `NEXT_PUBLIC_*` / `NEXTAUTH_URL` / `AUTH_SECRET`) → `npx tsc --noEmit`.
+- **backend**: `pip install -r requirements.txt` → `py_compile` sweep
+  of every `*.py` (`manual_test_*` explicitly excluded on Arc — see
+  R1 note below). Chose `py_compile` over `ruff check` — zero config,
+  no lint noise, no version drift. `ruff` can arrive later as its own
+  register line if we want stylistic coverage.
+
+Arc's backend job additionally runs the pytest smoke suite (R1). Hunt
+has no suite yet; that's tracked as its own future register line and
+NOT force-mirrored here.
+
+**No branch protection today** — a failing run does not block a merge;
+the redness is only visible on the commit and PR pages. Whether to add
+required-checks + block on failure is a separate decision registered
+for a later wave.
+
+### R1 phase 1 — pytest smoke suite (Arc only)
+
+- **Orphan integration scripts renamed**, not deleted: they test live
+  code (escalation counters via prod Redis; ollama_client failover
+  against the M1 with a 60s sleep for breaker recovery) and are still
+  useful for manual QA — they just cannot run in a GH-Actions runner.
+  Renamed `test_escalation_order.py` → `manual_test_escalation_order.py`
+  and `test_ollama_client.py` → `manual_test_ollama_client.py` so
+  pytest's default collection (`test_*.py`) naturally skips them,
+  invocation-by-hand still works. Called out explicitly in the
+  `py_compile` sweep exclusion so a future edit doesn't silently
+  re-collect them.
+- **New suite** at `backend/tests/test_smoke.py` (9 tests). Uses
+  Flask's test client. Every test monkey-patches `main.r` and
+  `main.library_db`; no live services touched. Runs in ~40 ms locally.
+  Coverage of the money paths:
+  - `/api/get_feed`: 503-on-no-Redis, empty-feed shape, `limit`
+    clamped to 50 (uncapped-limit was the Wave B recon prompt),
+    negative `offset` clamped to 0.
+  - `/api/library/<id>?lang=…` (Wave B Sec-Fetch-* gate): scraper
+    with no Sec-Fetch-* → bot-path message, browser-shaped headers
+    → gate passes and commission fires (verified via spy on
+    `_call_translation_model`), scraper-on-cache still served (cache
+    ungated as designed).
+  - `/api/post_bluesky`: 403 without `X-Scribe-Secret`, 403 with the
+    wrong value (Wave A commit `1b4c32b`).
+- **conftest.py note** (for future-us): `translation.py` reads
+  `os.environ['REDIS_URL']` at module-import time and passes it to
+  `redis.from_url` — an empty string ValueErrors on parse, so the
+  conftest sets a valid-shape `REDIS_URL=redis://localhost:6379/15`
+  even though nothing actually connects. Real fragility (import-time
+  env dependency) but not a production bug — prod always has it set.
+  Registered as R1-phase-2 candidate for lazy-init cleanup.
+- **New file**: `backend/requirements-dev.txt` pins pytest / pytest-cov
+  / pip-audit for reproducible CI + local runs.
+
+### R8 — dependency hygiene
+
+**npm audit fix** (non-breaking, no `--force`), both frontends:
+- Arc: 11 → 2 vulns (before: 0 low / 1 mod / 4 mod / 6 high; after:
+  0/0/1/1). Build re-verified green after fix.
+- Hunt: 11 → 2 vulns (same tree, same result). Build re-verified.
+- Remaining 2 in each (moderate + high) sit inside next's transitive
+  `postcss`; only `--force` fixes them, which would jump Next past
+  the stated dependency range. Not this wave. Registered.
+
+**pip-audit** — findings ONLY, not fixed this wave (Flask-era pins
+need their own care). Same tree on both stacks: **44 known vulns
+across 11 packages**. Grouped:
+
+| Package | CVEs | Fix path |
+|---|---:|---|
+| pypdf | 15 | 6.7.5 → 6.13.x |
+| pip (itself) | 6 | 25.0.1 → 26.1.2 — low priority, often supply-chain-noise CVEs |
+| nltk | 5 | 3.9.3 → 3.9.4 (some no fix listed yet) |
+| yt-dlp | 4 | → 2026.6.9 |
+| urllib3 | 3 | → 2.7.0 |
+| soupsieve, lxml, idna | 2 each | patch bumps |
+| requests, pygments, lxml-html-clean | 1 each | patch bumps |
+
+Priority for a future R8-phase-2 upgrade wave: pypdf (broadest CVE
+surface + document-parsing = attacker-controlled input in
+`/api/submit_pdf`), then requests/urllib3 (network stack), then
+nltk. pip-itself and yt-dlp are lower.
+
+### Registered, not fixed
+
+- **R8-phase-2**: Python dep upgrades, package by package with
+  regression checks. Requires an upgrade wave of its own.
+- **R2 branch protection**: require verify.yml green before merge.
+- **R1 phase 2**: broaden smoke suite past three endpoints; also
+  bring Hunt onto pytest; also fix `translation.py`'s import-time
+  Redis parse.
+- **npm audit tail**: 2 remaining vulns in each stack's postcss
+  (Next transitive) — need `--force` + Next major bump to clear.
