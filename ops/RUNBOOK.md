@@ -439,3 +439,20 @@ stops the watchdog itself.
 Verified: watchdog restarts on both stacks picked up the new loop,
 `huntaegis.sh restart scribe` produced exactly one scribe with the
 hold file created and cleaned.
+
+## 2026-07-11 — C2: weekly cleanup crons dead since early May (both stacks)
+
+Health-audit finding C2. Both Sunday cleanup.py crons pointed at
+`<stack>/venv/bin/python3`, which does not exist (venvs live under
+`backend/`). Last successful runs: arc 2026-05-05, hunt 2026-05-01 —
+~9 Sundays of `/bin/sh: not found` in each cleanup.log.
+
+Backlog on restore (read-only count before touching anything):
+arc — 0 orphan article keys, 19 stale processed_hashes, Solr 1101 vs
+feed 1102; hunt — 0 orphans, 1 stale hash, Solr 1128 vs feed 1127.
+Trivial — the 2026-07-08/09 OOM and XSS manual cleanups absorbed most
+drift. No catch-up run needed; Sunday's cron takes it.
+
+Fix: crontab repointed at `<stack>/backend/venv/bin/python3` (both
+lines); interpreters verified present; both cleanup.py pass
+py_compile under their venv. No live prune executed.
