@@ -482,3 +482,97 @@ Arc commit `5922b62`, hunt commit `14a30a9`. Per-item:
 
 Services bounced: arc gunicorn ×2 (guard, then env-adjacent rebuild),
 arc frontend container, hunt gunicorn. All verified serving.
+
+## 2026-07-11 — Register Wave A: cold backup fixed, restore drill passed
+
+### R4 forensics — the cold backup had NEVER worked
+
+- `COLD_BACKUP_DIR` pointed at `/mnt/data/www/arc_stack_prod`. The
+  `/mnt/data` drive died or was removed (fstab entry with `nofail`
+  remains; mountpoint is now a bare root-owned dir with Mar-5 skeleton
+  dirs). `mkdir -p` failed silently on every arc.sh invocation; any
+  manual run would have errored loudly at tar. Zero `arc_cold_*.tar.gz`
+  exist anywhere on the box; `.bash_history` shows zero backup-cold
+  invocations; cron never scheduled it (hunt's cold cron exists, arc's
+  never did). Conclusion: never ran post-HDD-failure, likely never ran
+  at all.
+- Compounding: the script's `REDIS_PASSWORD` extraction
+  (`grep REDIS_URL | grep -oP "(?<=:)[^@]+"`) matched the `//` of the
+  URL scheme, not the password — so even the old BGSAVE call had been
+  failing silently (WRONGPASS, stderr to /dev/null) wherever it ran.
+  Fixed: arc.sh now reads the `REDIS_PASSWORD=` line from backend/.env
+  directly. This extraction is now load-bearing for the RDB capture.
+- CLAUDE.md's "includes Redis RDB + Solr" described an aspiration —
+  the old tar never contained either. Doc corrected.
+
+### R4 fix — what backup-cold now captures
+
+Destination `/mnt/arcdata/backups/` (dedicated subdir — automated
+retention never shares a namespace with the manual must-never-delete
+artifacts loose in /mnt/arcdata). `KEEP=4`; math: each archive ≈ 6.1 GB
+actual (stack ~5 GB dominated by uploads + library.db 13.7 GB → ~1 GB
+inside the shared gzip stream + RDB 176 MB + Solr 26 MB) → ~25 GB
+steady-state of the mount's ~197 GB free.
+
+- `data_layer/redis-arc.rdb` — `redis-cli --rdb` (consistent
+  point-in-time stream over the socket; /var/lib/redis is root-only and
+  --rdb can never capture a mid-write file — replaces the brief's
+  BGSAVE-poll-then-cp, which is permission-impossible for ross).
+  Captures ALL Redis DBs (arc 0, hunt 1, unknown 2, auth 5).
+- `data_layer/solr-snapshot/` — replication-handler backup staged under
+  SOLR_HOME (solr.allowPaths restriction), then moved. Consistent
+  committed-segment snapshot; raw index-dir copy can race merges.
+- `data_layer/library.db` — `sqlite3 .backup` (online-consistent; the
+  db is live-modified, raw cp is the same corruption class as a
+  mid-write RDB).
+- backend/.env still rides in the stack tar — known R9 issue, left for
+  the encrypted-store fix; deliberately not half-solved here.
+- First real archive: `arc_cold_2026-07-11_0724.tar.gz`, 6.1 GB,
+  14m 59s wall.
+
+### R3 — restore drill (first ever), 2026-07-11 13:40:55–13:44:59 UTC
+
+Wall time **4m 04s** end to end. Target
+`/home/ross/restore-drill-2026-07-11/` — scratch only; no production
+path was written, no service touched, prod Redis/Solr/stack untouched.
+
+- Stack: untarred 15 GB; arc.sh passes `bash -n`, main.py header
+  correct, IntelligenceCard.tsx present.
+- Redis: RDB loaded into a throwaway `redis-server --port 6380` (dir =
+  scratch, save disabled). DBSIZE: db0 46,697 / db1 15,842 / db2 233 /
+  db5 3. Three newest articles spot-checked: title, timestamp,
+  directive, original_text all populated (`purple_team_analysis` empty
+  on all three — correct, analysis is lazy and they were minutes old at
+  capture). Drill feed ZCARD 1,125 vs prod 1,126 at check time —
+  exactly the one article ingested since capture. `SHUTDOWN NOSAVE`;
+  port 6380 verified free after.
+- Solr: 185 segment files, 26 MB, zero zero-byte files, 11 .si.
+- library.db: `PRAGMA integrity_check` = ok; 5 tables; works = 29,238
+  (matches the OOM-remediation era count).
+
+**What the drill did NOT prove**: loading the Solr snapshot into a live
+core (file-level verification only); full-system bootstrap from bare
+metal (venv/node_modules/host config are excluded by design and
+documented in this runbook instead); restoring the RDB into a
+production Redis.
+
+**Drill environment prerequisite**: restore drills need ~20+ GB of
+DISK-BACKED scratch. `/tmp` is tmpfs (16 GB RAM) on this box and must
+never be the extraction target. `/home/ross/…` on the root disk works.
+
+**Recurrence**: quarterly. Next drill due ~2026-10-11. The drill
+procedure is exactly this entry, top to bottom.
+
+### cmd_restore hardwiring — new register finding
+
+`arc.sh restore` is interactive-only and hardwired to production: it
+stops the stack and untars over `$ITC_ROOT` with no scratch-target
+option. Fine as the break-glass path, but drills must not use it —
+this drill was performed manually for that reason. Register: add a
+`--target <dir>` option (LOW, hours).
+
+### Missing cold-backup cron — flag
+
+Hunt has a weekly cold cron; arc still has none (part of why R4 went
+unnoticed). NOT added this wave — Ross's call on schedule slot, since
+the run costs ~15 min of gzip CPU.

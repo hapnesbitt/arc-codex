@@ -25,10 +25,17 @@ PID_DIR="$ITC_ROOT/pids"
 BACKUP_DIR="$ITC_ROOT/backups"
 BACKUP_KEEP=5
 
-# Big drive — full cold archive, keep 30. Disaster recovery.
-# Includes .next build, uploads snapshot, Redis RDB, Solr data.
-COLD_BACKUP_DIR="/mnt/data/www/arc_stack_prod"
-COLD_BACKUP_KEEP=30
+# Big drive — full cold archive. Disaster recovery.
+# Dedicated subdir: automated retention must never share a namespace with
+# the manual must-never-delete artifacts (July RDB snapshots, library.db)
+# that live loose in /mnt/arcdata.
+# Retention math (2026-07-11): archive ≈ stack ~5GB (uploads are JPEG/WebP,
+# barely compress) + Redis RDB + Solr 26MB + library.db 13.7GB→~7GB gz
+# ≈ 12-14GB each. KEEP=4 → ~48-56GB of the mount's ~197GB free (~28%).
+# Old value /mnt/data/www/... was root-owned+unwritable — cold backup had
+# NEVER once produced an archive (register R4).
+COLD_BACKUP_DIR="/mnt/arcdata/backups"
+COLD_BACKUP_KEEP=4
 
 LOG_MAX_DAYS=9
 LOG_MAX_SIZE_MB=50
@@ -36,8 +43,11 @@ LOG_MAX_SIZE_MB=50
 # Docker
 COMPOSE_FILE="$ITC_ROOT/docker-compose.yml"
 GRAFANA_COMPOSE_FILE="$ITC_ROOT/docker-compose.grafana.yml"
-# Redis password — used for BGSAVE in backup-cold
-REDIS_PASSWORD="${REDIS_PASSWORD:-$(grep REDIS_URL "$BACKEND_DIR/.env" 2>/dev/null | grep -oP "(?<=:)[^@]+" | head -1)}"
+# Redis password — used for the cold-backup RDB capture. Read the
+# REDIS_PASSWORD= line directly: the old REDIS_URL regex extracted "//"
+# from the scheme, so every authenticated redis-cli call in this script
+# had been failing silently (register R4 forensics, 2026-07-11).
+REDIS_PASSWORD="${REDIS_PASSWORD:-$(grep -oP '^REDIS_PASSWORD=\K.*' "$BACKEND_DIR/.env" 2>/dev/null)}"
 
 SERVICES=(
     "gunicorn|$BACKEND_DIR|./gunicorn_arc.sh|true|5005"
@@ -420,33 +430,71 @@ cmd_backup() {
 
 # ==============================================================================
 # BACKUP — COLD (big drive, full snapshot, stack stays up, keep 30)
-# For: disaster recovery. Includes build output, Redis RDB, Solr data.
-# Stack does NOT stop — Redis BGSAVE + Solr commit flush instead.
+# For: disaster recovery. Stack code + config PLUS the data layer:
+#   data_layer/redis-arc.rdb    — consistent RDB via redis-cli --rdb
+#                                 (streams a point-in-time snapshot over the
+#                                 socket; /var/lib/redis is root-only, and
+#                                 --rdb can never capture a mid-write file)
+#   data_layer/solr-snapshot/   — Solr replication-handler backup (consistent
+#                                 committed-segment snapshot; raw index-dir
+#                                 copy can race merges). Staged under
+#                                 SOLR_HOME because solr.allowPaths restricts
+#                                 backup locations; moved into the archive.
+#   data_layer/library.db       — SQLite online .backup (safe with readers)
+# Stack does NOT stop. backend/.env rides in the stack tar (known R9 issue —
+# encrypted secret store is a separate fix; do not half-solve it here).
 # Cron: 0 2 * * 0 /home/www/arc_stack/arc.sh backup-cold
 # ==============================================================================
 cmd_backup_cold() {
     local DATE=$(date +%Y-%m-%d_%H%M)
+    mkdir -p "$COLD_BACKUP_DIR"
     local FILE="$COLD_BACKUP_DIR/arc_cold_$DATE.tar.gz"
-    echo "🧊 Cold archive backup (big drive, full snapshot)..."
-    echo "   Stack stays up — flushing Redis and Solr before snapshot..."
+    local STAGING="$COLD_BACKUP_DIR/.staging_$DATE"
+    local SOLR_BK_HOME="/home/ross/solr-9.9.0/server/solr/backups"
+    mkdir -p "$STAGING/data_layer" "$SOLR_BK_HOME"
+    echo "🧊 Cold archive backup (data layer + stack)..."
 
-    # Flush Redis to disk (non-blocking)
-    if command -v redis-cli &>/dev/null; then
-        redis-cli -a "$REDIS_PASSWORD" BGSAVE 2>/dev/null && echo "   ✅ Redis BGSAVE triggered"
-        sleep 3  # Give it a moment to complete
+    # --- Redis: consistent point-in-time RDB over the socket ---
+    if redis-cli --no-auth-warning -a "$REDIS_PASSWORD" --rdb "$STAGING/data_layer/redis-arc.rdb" &>/dev/null \
+        && [ -s "$STAGING/data_layer/redis-arc.rdb" ]; then
+        echo "   ✅ Redis RDB captured ($(du -sh "$STAGING/data_layer/redis-arc.rdb" | cut -f1))"
     else
-        echo "   ⚠️  redis-cli not found — Redis RDB may not be current"
+        echo "   ⚠️  Redis RDB capture FAILED — archive will lack Redis data"
     fi
 
-    # Commit Solr index
-    local solr_commit=$(curl -s "http://localhost:8983/solr/feeds/update?commit=true" 2>/dev/null)
-    if echo "$solr_commit" | grep -q '"status":0'; then
-        echo "   ✅ Solr commit flushed"
+    # --- Solr: commit, then replication-handler snapshot ---
+    curl -s "http://localhost:8983/solr/feeds/update?commit=true" >/dev/null 2>&1
+    rm -rf "$SOLR_BK_HOME/snapshot.cold_$DATE"
+    local solr_bk=$(curl -s "http://localhost:8983/solr/feeds/replication?command=backup&location=$SOLR_BK_HOME&name=cold_$DATE&wt=json")
+    if echo "$solr_bk" | grep -q '"OK"'; then
+        # Backup is async — poll until the snapshot dir size is stable
+        local prev=0 size=0
+        for i in $(seq 1 30); do
+            sleep 2
+            size=$(du -sb "$SOLR_BK_HOME/snapshot.cold_$DATE" 2>/dev/null | cut -f1)
+            [ -n "$size" ] && [ "$size" -gt 0 ] && [ "$size" = "$prev" ] && break
+            prev="$size"
+        done
+        if [ -d "$SOLR_BK_HOME/snapshot.cold_$DATE" ]; then
+            mv "$SOLR_BK_HOME/snapshot.cold_$DATE" "$STAGING/data_layer/solr-snapshot"
+            echo "   ✅ Solr snapshot captured ($(du -sh "$STAGING/data_layer/solr-snapshot" | cut -f1))"
+        else
+            echo "   ⚠️  Solr snapshot never appeared — archive will lack Solr data"
+        fi
     else
-        echo "   ⚠️  Solr commit may have failed — check manually"
+        echo "   ⚠️  Solr backup command failed — archive will lack Solr data"
     fi
 
-    echo "🗜️  Archiving full stack (this may take a while)..."
+    # --- SQLite library: online backup (consistent with concurrent readers) ---
+    if [ -f /mnt/arcdata/library.db ]; then
+        if sqlite3 /mnt/arcdata/library.db ".backup '$STAGING/data_layer/library.db'" 2>/dev/null; then
+            echo "   ✅ library.db captured ($(du -sh "$STAGING/data_layer/library.db" | cut -f1))"
+        else
+            echo "   ⚠️  library.db backup FAILED — archive will lack the library"
+        fi
+    fi
+
+    echo "🗜️  Archiving stack + data layer (this may take a while)..."
     tar -zcf "$FILE" \
         --exclude="./frontend/node_modules" \
         --exclude="./backend/venv" \
@@ -457,9 +505,13 @@ cmd_backup_cold() {
         --exclude="*.log.gz" \
         --exclude="./upload/completed" \
         --exclude="./upload/failed" \
-        -C "$ITC_ROOT" .
+        -C "$ITC_ROOT" . \
+        -C "$STAGING" data_layer
 
-    if [ -f "$FILE" ]; then
+    local tar_rc=$?
+    rm -rf "$STAGING"
+
+    if [ $tar_rc -eq 0 ] && [ -f "$FILE" ]; then
         echo "✅ Cold archive: $FILE ($(du -sh "$FILE" | cut -f1))"
         # Retain only the most recent N
         ls -t "$COLD_BACKUP_DIR"/arc_cold_*.tar.gz 2>/dev/null \

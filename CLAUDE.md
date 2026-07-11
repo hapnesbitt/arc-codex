@@ -48,7 +48,15 @@ cd frontend && npm run lint
 ./arc.sh logs              # Tail all logs
 ./arc.sh checkup           # Health check all services
 ./arc.sh backup            # SSD fast backup (keeps last 5)
-./arc.sh backup-cold       # Full cold archive (keeps last 30, includes Redis RDB + Solr)
+./arc.sh backup-cold       # Full cold archive → /mnt/arcdata/backups (keeps last 4).
+                           # Contains: stack code+config, frontend/public/uploads (heroes +
+                           # WebP variants), backend/.env (known R9 issue), and data_layer/
+                           # with a consistent Redis RDB (redis-cli --rdb), a Solr
+                           # replication-handler snapshot, and an sqlite .backup of
+                           # /mnt/arcdata/library.db.
+                           # Does NOT contain: host config outside the repo (Caddyfile,
+                           # redis.conf, crontab, systemd units — documented in
+                           # ops/RUNBOOK.md but not captured) or logs.
 ```
 
 ### Docker Compose (alternative to arc.sh)
