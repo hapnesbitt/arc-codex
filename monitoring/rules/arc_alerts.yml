@@ -1,0 +1,64 @@
+# Wave C R6 — Arc alert rules (2026-07-11)
+# Loaded by prometheus.yml → rule_files.
+# Thresholds set so today does not page; register for later tuning.
+
+groups:
+
+  - name: arc_liveness
+    interval: 30s
+    rules:
+      - alert: ScrapeTargetDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus target {{ $labels.job }}/{{ $labels.instance }} down for 5m"
+          description: "The scraper cannot reach {{ $labels.instance }} in job {{ $labels.job }}. This is either the exporter, the box, or the network path."
+
+  - name: arc_pipeline
+    interval: 60s
+    rules:
+      - alert: ArcFeedStale
+        # arc_last_publish_timestamp is the newest article's ts (Wave C R6
+        # gauge; set to 0 on empty feed → NaN in this expr, alert stays off).
+        expr: (time() - arc_last_publish_timestamp) > 10800  # 3h
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Arc feed has not published a new article in 3h"
+          description: "Newest article age: {{ $value | humanizeDuration }}. Investigate scribe.log for source failures or a fetch outage."
+
+  - name: arc_capacity
+    interval: 30s
+    rules:
+      # Root and /mnt/arcdata each get their own alert so a page tells you which.
+      # Root is at ~87% today; 90% keeps us quiet now, tightens the runway.
+      - alert: DiskRootFullish
+        expr: (node_filesystem_avail_bytes{mountpoint="/",fstype!="tmpfs"} / node_filesystem_size_bytes{mountpoint="/",fstype!="tmpfs"}) < 0.10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Root filesystem below 10% free"
+          description: "{{ $value | humanizePercentage }} free on /"
+      - alert: DiskArcdataFullish
+        expr: (node_filesystem_avail_bytes{mountpoint="/mnt/arcdata"} / node_filesystem_size_bytes{mountpoint="/mnt/arcdata"}) < 0.10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "/mnt/arcdata below 10% free"
+          description: "{{ $value | humanizePercentage }} free — cold-backup retention + library.db live here."
+
+      - alert: RedisMemoryHigh
+        # arc_redis_memory_ratio is used/maxmemory (0-1). corpus_exporter
+        # already computes it; alert at 80%.
+        expr: arc_redis_memory_ratio > 0.80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory > 80% of maxmemory"
+          description: "used_memory / maxmemory = {{ $value | humanizePercentage }}. maxmemory is 16 GB; investigate keyspace growth."

@@ -1,0 +1,29 @@
+# Wave C R6 — Alertmanager (2026-07-11)
+#
+# Delivery: webhook → http://localhost:5005/api/alert (a small Flask endpoint
+# that logs the payload). This is the "log-file receiver stopgap" per the
+# R6 spec. Email/Slack/PagerDuty routing is a separate follow-up (registered
+# as R6-phase-2).
+#
+# grouping: one message per (alertname, severity) with 5-minute grouping —
+# a whole-box outage should not fan out one page per target.
+
+route:
+  receiver: local-log
+  group_by: [alertname, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+
+receivers:
+  - name: local-log
+    webhook_configs:
+      - url: 'http://localhost:5005/api/alert'
+        # send_resolved so a fix generates a log line too (positive close-out).
+        send_resolved: true
+        # Bound outbound retries; if Flask is down there's no point retrying.
+        http_config:
+          follow_redirects: false
+        max_alerts: 32
+
+inhibit_rules: []

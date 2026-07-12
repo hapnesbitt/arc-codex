@@ -781,6 +781,195 @@ nltk. pip-itself and yt-dlp are lower.
 - **npm audit tail**: 2 remaining vulns in each stack's postcss
   (Next transitive) — need `--force` + Next major bump to clear.
 
+## 2026-07-11 — Register Wave C: hardening (R14, R15, R5, R6)
+
+The wave that makes the system TELL US when things break. Ordered
+smallest-blast-radius first: R14 → R15 → R5 → R6.
+
+### R14 — Dead code deletions (Arc)
+
+- `NEXT_PUBLIC_API_URL` build arg: removed from `Dockerfile.frontend`
+  and `docker-compose.yml`. Zero refs in `frontend/`.
+- 5 zero-importer components deleted: `ContentStats`, `ContentTabs`,
+  `DeepAnalysisToggle`, `GradeButton`, `Section`. Re-verified against
+  the current tree (grep for `from ['\"](\.\.?/)+components/X['\"]`
+  and `@/components/X`) before deleting — zero importers today.
+- CI verify.yml (R2) proved the deletion green:
+  https://github.com/hapnesbitt/arc-codex/actions/runs/29172952129
+
+### R15 — Log rotation
+
+`/etc/logrotate.d/` needs sudo we don't have. Instead: user-owned
+config at each stack's `ops/logrotate.conf`, invoked from ross's
+crontab against a user-owned state file `logs/.logrotate.state`.
+Cron entries (staggered 5 min to avoid IO overlap):
+
+```
+0 5 * * 0 /usr/sbin/logrotate -s /home/www/arc_stack/logs/.logrotate.state /home/www/arc_stack/ops/logrotate.conf >> /home/www/arc_stack/logs/logrotate.log 2>&1
+5 5 * * 0 /usr/sbin/logrotate -s /home/www/huntaegis_stack/logs/.logrotate.state /home/www/huntaegis_stack/ops/logrotate.conf >> /home/www/huntaegis_stack/logs/logrotate.log 2>&1
+```
+
+Covers the three growing files on each stack: `gunicorn_access.log`,
+`gunicorn_error.log`, `scribe.log`. `weekly`, `rotate 8`, `compress`
+with `delaycompress`, `copytruncate`. `copytruncate` because
+gunicorn/scribe keep their fd open — copytruncate copies then
+truncates in place so writes continue without a SIGUSR1/restart hook.
+Small tradeoff: writes during the copy→truncate window can be
+duplicated or lost; acceptable for access/error logs.
+
+**Not covered** (all present in top-10 but ruled out):
+- Caddy access logs — Caddy rotates natively (roll_size 50mb,
+  roll_keep 7) per its own vhost config.
+- `score_library.log` / `library_fetcher.log` — one-off jobs, last
+  written 2026-07-05/06, will not grow.
+- Poster/analyzer/exporter logs (11-20 MB range) — register for
+  R15-phase-2 if steady-state grows past that.
+
+**Verified**: forced rotation on both stacks produced archived copies
+(29M/39M/45M on arc; 39M/48M/55M on hunt), current files truncated to
+~0 bytes, subsequent requests logged normally (gunicorn `%(L)s` field
+still present). First scheduled rotation: 2026-07-12 (Sun) 05:00.
+
+### R5 — Security headers (Caddy) + CSP report-only
+
+**Subdomain HTTPS check before HSTS**: every arc-codex.com subdomain
+serves valid TLS today (arc-codex, athena, beowulf, dlb, grafana,
+holmes, mark, plantorium, pt, soc, vid — all 200/307 over HTTPS).
+Hunt has no subdomains. Safe to enable `includeSubDomains`. NO
+`preload` — that's a hard-to-undo commitment, registered separately.
+
+**Headers added to both `arc-codex.com` and `huntaegis.com` vhosts**:
+
+```
+header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "strict-origin-when-cross-origin"
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://lh3.googleusercontent.com https://avatars.githubusercontent.com https://media.licdn.com; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; report-uri /api/csp_report"
+}
+```
+
+Reload procedure (memory-documented, no sudo):
+`caddy adapt --validate --config /etc/caddy/Caddyfile` for syntax,
+then `caddy reload --config /etc/caddy/Caddyfile`. Spot-checked arc
++ hunt + plantorium (unrelated site — no new headers, as expected).
+
+**CSP finding — non-negotiable inline reliance**:
+- Next.js SSR emits multiple `<script>` blocks per page holding
+  hydration data (`self.__next_f.push([...])`), unique per request.
+- Tailwind + component code emits inline `style="…"` attributes on
+  many elements.
+- A CSP without `'unsafe-inline'` (or nonces) would break every page.
+- Kept `'unsafe-inline'` for `script-src` and `style-src` in the
+  starting policy. Removing them cleanly is a **frontend refactor**
+  (SSR nonce plumbing + Next `experimental.nonce`, style extraction)
+  — registered as **R5-phase-2**, NOT started in this wave per the
+  behavior guard.
+
+**CSP report ingest**: new `/api/csp_report` endpoint on both
+stacks. Log-only (no storage). Body cap 8 KB (real reports are well
+under 2 KB; cap protects against log-fill attacks). Concurrency
+bounded by `_csp_report_sem = Semaphore(2)`, 1 s timeout → 429 —
+mirrors the `_pre_analyze_sem` / `_upload_image_sem` pattern.
+Verified: valid report → 204 + INFO log line; 10 KB body → 413.
+Field extraction handles both W3C and vendor-cased variants
+(`blockedURL` / `effectiveDirective` / `documentURL`).
+
+**Review 2026-07-18**: one week of live reports before deciding
+whether to move any directive from report-only to enforce.
+
+**Click-through observation**: cannot run a real browser from this
+session; report-only means nothing user-facing broke (curl'd `/`,
+`/library`, `/wiki`, `/about`, `/publish` — all 200). Ross to
+click-through with devtools console open across the week.
+
+### R6 — Alertmanager + 5 rules + one end-to-end test
+
+**Delivery**: **webhook → `/api/alert`** on Flask, which logs a
+line per alert to `gunicorn_error.log`. This is the "log-file
+receiver stopgap" per the R6 spec. Registered as **R6-phase-2**:
+email/Slack routing when the mailer path is trusted.
+
+**Infrastructure changes** (all in `arc_stack` because Hunt shares
+the Prometheus + node + Redis view):
+- New `monitoring/rules/arc_alerts.yml` — 5 rules in 3 groups.
+- New `monitoring/alertmanager.yml` — webhook receiver, grouped by
+  `(alertname, severity)`, 30 s wait, 5 m group interval, 12 h
+  repeat.
+- `monitoring/prometheus.yml`: added `rule_files`, `alerting.alertmanagers`
+  block, and CRITICAL fix — `evaluation_interval` was `60m` (matched
+  the corpus-scrape interval, made every rule effectively silent).
+  Split into per-job `scrape_interval` and a global
+  `evaluation_interval: 30s`. Global scrape default is now 60 s;
+  per-job overrides preserved (corpus 2m, traffic/node 15s).
+- `docker-compose.grafana.yml`: added `alertmanager` service (host
+  network, port 9093), volume `alertmanager_data`, rules dir
+  bind-mount for prometheus, `depends_on: alertmanager`.
+- New `arc_last_publish_timestamp` gauge in `corpus_exporter.py`:
+  reads newest article timestamp from feed ZSET
+  (`ZREVRANGE feed 0 0 WITHSCORES`), sets to 0 on empty feed
+  (distinguishes "never published" from stale gauge).
+- New `/api/alert` Flask endpoint: log-only, 64 KB cap (bigger than
+  csp_report because batched AM payloads carry many alerts), same
+  Semaphore(2) + 429 pattern.
+
+**Bind-mount inode gotcha noted**: editing `monitoring/prometheus.yml`
+via write-then-replace (which most editors do) creates a new inode;
+the running Prometheus container's bind mount still points at the
+old one. `docker compose up -d --force-recreate prometheus` picks
+up the new inode. Documenting so we don't burn 20 minutes on this
+again.
+
+**Rules** (5, in `arc_alerts.yml`):
+
+| Group | Alert | Expr | for | Severity |
+|---|---|---|---|---|
+| liveness | `ScrapeTargetDown` | `up == 0` | 5m | critical |
+| pipeline | `ArcFeedStale` | `(time() - arc_last_publish_timestamp) > 10800` | 10m | warning |
+| capacity | `DiskRootFullish` | `avail/size < 0.10` on `/` | 15m | warning |
+| capacity | `DiskArcdataFullish` | `avail/size < 0.10` on `/mnt/arcdata` | 15m | warning |
+| capacity | `RedisMemoryHigh` | `arc_redis_memory_ratio > 0.80` | 10m | warning |
+
+**Cert expiry — not shipped**: neither `node_exporter` nor any
+running exporter emits certificate-expiry timeseries; per the R6
+spec, register rather than install a new exporter this wave.
+**R6-phase-3**: add `blackbox_exporter` for cert probes.
+
+**End-to-end test — `DiskRootFullish`**:
+- Root currently 87% used (13% free). Temporarily raised threshold
+  to `< 0.20` with `for: 30s`.
+- Result: Prometheus `state=firing` (value=0.1307), Alertmanager
+  active state, webhook fired, Flask log line landed:
+  `alert firing: [warning] DiskRootFullish — Root filesystem below 10% free`.
+- Threshold restored to `0.10` / `for: 15m`; active alerts cleared
+  cleanly.
+- **Current disk runway**: `/` 87% used (registered close to trigger
+  — cleanup pass separately registered); `/mnt/arcdata` 58% used
+  (plenty of runway even with the new weekly cold cron adding ~6 GB).
+
+**Hunt coverage**: shares the box, so `up`, `node_filesystem_*`,
+and box-level scrapes cover it already. Hunt has its own scribe but
+no running corpus_exporter — its feed staleness metric doesn't
+exist. Registered as **R6-phase-4**: run Hunt's corpus_exporter on
+`:9103` and add `hunt_last_publish_timestamp` + mirror rules.
+
+### Wave C followups registered (all NEW)
+
+- **R5-phase-2**: strip `'unsafe-inline'` from CSP via Next.js SSR
+  nonces + style extraction. Frontend refactor scope.
+- **R5-phase-3**: HSTS `preload` opt-in (2-year max-age; SUBMIT to
+  hstspreload.org). Do only when very confident.
+- **R6-phase-2**: alert delivery via email / Slack when the mailer
+  path is trusted.
+- **R6-phase-3**: `blackbox_exporter` for cert expiry probes.
+- **R6-phase-4**: Hunt corpus_exporter + feed-staleness rule.
+- **R15-phase-2**: coverage for poster/analyzer/exporter logs if
+  their steady-state grows past current ~10-20 MB range.
+- **Disk cleanup for `/`**: register that root is at 87% used — no
+  headroom for another 30 GB unpacking. Separate action.
+
 ### Bug caught by the very first CI run
 
 CI's first push failed the backend job at pytest with

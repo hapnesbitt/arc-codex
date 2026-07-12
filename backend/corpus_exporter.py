@@ -179,6 +179,10 @@ g_chimera_high    = Gauge('arc_chimera_score_high_total','Articles with chimera_
 g_synthetic_pct   = Gauge('arc_synthetic_pct',           'Percentage of articles flagged SYNTHETIC by Sentinel')
 g_last_scrape     = Gauge('arc_exporter_last_scrape_timestamp', 'Unix timestamp of last successful scrape')
 g_scrape_duration = Gauge('arc_exporter_scrape_duration_sec',   'Duration of last corpus scrape in seconds')
+# Wave C R6: newest article timestamp from the feed ZSET (feed is scored
+# by unix timestamp). Feeds the ArcFeedStale alert; a scribe outage or a
+# widespread source failure surfaces here as the value stops advancing.
+g_last_publish    = Gauge('arc_last_publish_timestamp',         'Unix timestamp of the newest article in the feed ZSET')
 g_chimera_bucket  = Gauge('arc_chimera_bucket',   'Chimera score histogram bucket count', ['bucket'])
 g_sentinel        = Gauge('arc_sentinel_total',   'Article count by Sentinel verdict',    ['verdict'])
 g_directive       = Gauge('arc_directive_total',  'Article count by directive/category',  ['directive'])
@@ -531,11 +535,20 @@ def scrape(r):
         log.warning(f"Pipeline health scrape failed (non-fatal): {e}")
 
     # ==========================================================================
-    # Timing
+    # Timing + newest-publish gauge
     # ==========================================================================
     duration = time.time() - t0
     g_last_scrape.set(time.time())
     g_scrape_duration.set(round(duration, 2))
+
+    # Wave C R6: newest article timestamp (feed ZSET is scored by unix ts).
+    # ZRANGE feed -1 -1 WITHSCORES → [(id, score)]. Set to 0 on empty feed
+    # so the alert can distinguish "never published" from a stale gauge.
+    try:
+        newest = r.zrevrange('feed', 0, 0, withscores=True)
+        g_last_publish.set(float(newest[0][1]) if newest else 0.0)
+    except Exception as e:
+        log.warning(f"last_publish_timestamp gauge update failed: {e}")
 
     log.info(
         f"Scrape complete: {total} articles ({nlp_count} with NLP) in {duration:.1f}s. "

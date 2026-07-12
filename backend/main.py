@@ -1055,6 +1055,42 @@ _csp_report_sem = threading.Semaphore(2)
 _CSP_REPORT_MAX_BYTES = 8 * 1024
 
 
+# --- Alertmanager webhook ingest --------------------------------------------
+# Wave C R6: Alertmanager posts firing/resolved alerts here. Log-only stopgap
+# for delivery; email/Slack routing is R6-phase-2. Larger cap than csp_report
+# because a batched Alertmanager payload can carry many alerts + annotations.
+_alert_sem = threading.Semaphore(2)
+_ALERT_MAX_BYTES = 64 * 1024
+
+
+@app.route('/api/alert', methods=['POST'])
+def alert_webhook():
+    """Alertmanager webhook receiver. Log only; no persistent storage."""
+    if request.content_length and request.content_length > _ALERT_MAX_BYTES:
+        return ('', 413)
+    if not _alert_sem.acquire(timeout=1):
+        return ('', 429)
+    try:
+        raw = request.get_data(cache=False, as_text=False,
+                               parse_form_data=False)[:_ALERT_MAX_BYTES]
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            payload = {}
+        # Alertmanager v0.27+ webhook shape: {alerts: [{status, labels, annotations, ...}]}
+        for a in payload.get('alerts') or []:
+            name = a.get('labels', {}).get('alertname', '?')
+            sev = a.get('labels', {}).get('severity', '?')
+            status = a.get('status', '?')
+            summary = a.get('annotations', {}).get('summary', '')
+            app.logger.warning(
+                f"alert {status}: [{sev}] {name} — {summary}"
+            )
+        return ('', 204)
+    finally:
+        _alert_sem.release()
+
+
 @app.route('/api/csp_report', methods=['POST'])
 def csp_report():
     """CSP violation ingest. Log only; no persistent storage.

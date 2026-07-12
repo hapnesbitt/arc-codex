@@ -5,8 +5,22 @@
 # =============================================================================
 
 global:
-  scrape_interval:     60m   # corpus scan is expensive — match exporter interval
-  evaluation_interval: 60m
+  # Global scrape default — per-job overrides below (corpus is on 2m, node/
+  # traffic on 15s).
+  scrape_interval:     60s
+  # Wave C R6 (2026-07-11) — rule-eval MUST be short enough for
+  # capacity/liveness alerts to fire promptly. Was 60m; that made every
+  # rule effectively silent. Corpus scrape frequency is now the per-job
+  # scrape_interval below, not the global.
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['localhost:9093']
 
 scrape_configs:
 

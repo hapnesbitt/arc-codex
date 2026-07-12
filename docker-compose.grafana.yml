@@ -28,6 +28,7 @@ services:
     network_mode: host
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/rules:/etc/prometheus/rules:ro
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -35,6 +36,23 @@ services:
       - '--storage.tsdb.retention.time=90d'
       - '--web.listen-address=localhost:9090'
       - '--web.enable-lifecycle'
+    depends_on:
+      - alertmanager
+    restart: unless-stopped
+
+  # Wave C R6 (2026-07-11) — webhook receiver → /api/alert (Flask logs it).
+  # Alert delivery via email/Slack/etc. is registered as R6-phase-2.
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: arc-alertmanager
+    network_mode: host
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.listen-address=localhost:9093'
     restart: unless-stopped
 
   grafana:
@@ -67,3 +85,4 @@ services:
 volumes:
   prometheus_data:
   grafana_data:
+  alertmanager_data:
