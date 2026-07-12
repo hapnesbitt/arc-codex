@@ -33,7 +33,9 @@ import redis
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
-import ollama_client  # transport-layer primary/fallback host failover (owns requests)
+import requests
+
+import ollama_client  # transport-layer primary/fallback host failover (cloud models only here)
 from domain_registry import domain_matches, matching_domains  # domain predicates (domains.yaml)
 from escalation import resolve_character_model, record_cloud_call
 from ollama_utils import is_cloud_reachable
@@ -45,6 +47,14 @@ REDIS_URL        = os.environ['REDIS_URL']
 OLLAMA_HOST      = os.getenv("OLLAMA_HOST", "http://192.168.1.185:11434")
 OLLAMA_MODEL     = os.getenv("OLLAMA_MODEL", "gemma3:4b")
 ARTICLE_BASE_URL = os.getenv("NEXT_PUBLIC_BACKEND_URL", "https://arc-codex.com")
+
+# Shed-and-yield (2026-07-12): council LOCAL generation is shed to the Z230's
+# own Ollama so the M1 belongs to the analyzers. Cloud models stay pinned to
+# the M1 via ollama_client (cloud creds live only there). Defaulting to the M1
+# means unsetting COUNCIL_OLLAMA_HOST is a complete rollback.
+COUNCIL_OLLAMA_HOST    = os.getenv("COUNCIL_OLLAMA_HOST", OLLAMA_HOST)
+COUNCIL_OLLAMA_TIMEOUT = int(os.getenv("COUNCIL_OLLAMA_TIMEOUT", "120"))  # 24s typical + serialized-queue margin
+COUNCIL_MAX_LOAD       = float(os.getenv("COUNCIL_MAX_LOAD", "3.0"))     # 1-min loadavg gate — spare-cycles host
 
 POLL_INTERVAL        = 20    # seconds between feed scans
 ANALYSIS_WAIT        = 120   # seconds to wait for full analysis before giving up
@@ -147,38 +157,56 @@ def build_dossier_text(article_id: str) -> str:
         return ""
 
 # ── Ollama call ────────────────────────────────────────────────────────────────
+def _council_payload(model: str, system_prompt: str, prompt: str) -> dict:
+    """The ONE place a council generation payload is built.
+
+    think=False is mandatory on every host, not a per-call nicety: thinking
+    models silently burn the entire num_predict budget on hidden reasoning and
+    return an empty response (the analyzer local-path bug fixed in
+    ollama_utils._apply_spec_following_options), and on the CPU-only Z230 a
+    thinking pass measured 76s vs 24s without — a host that forgets the flag
+    runs 3× slower. Add future knobs here so every host inherits them.
+    """
+    return {
+        "model":  model,
+        "prompt": prompt,
+        "system": system_prompt,
+        "stream": False,
+        "think":  False,
+        "options": {
+            "temperature": 0.7,
+            "num_predict": 1024,
+            "num_ctx":     8192,
+        },
+    }
+
+
 def call_ollama(system_prompt: str, dossier: str, model: str | None = None) -> str | None:
     """Call Ollama with character instruction + dossier. Returns comment text.
 
     When `model` is None, the global OLLAMA_MODEL is used (legacy behavior).
-    Per-character overrides come in via characters.yaml `model:` field —
-    e.g. devstral-2:123b-cloud for the school librarian and Torchy Blane.
+    Per-character overrides come in via characters.yaml `model:` field
+    (e.g. gpt-oss:20b-cloud), resolved through the council gate first.
+
+    Host routing: cloud models go through ollama_client (pinned to the M1 —
+    cloud creds live only there). Local models go to COUNCIL_OLLAMA_HOST (the
+    Z230) with deliberately NO failover to the M1 — the M1's e2b is no longer
+    the council's landing zone; if the Z230 is down the comment is skipped and
+    the env default rolls the council back to the M1 wholesale.
     """
     actual_model = model or OLLAMA_MODEL
     log.info("Calling Ollama model=%s for character", actual_model)
     prompt = f"{dossier}\n\n---\n\nBased on the above, write your comment now."
+    payload = _council_payload(actual_model, system_prompt, prompt)
     try:
-        # think=false is critical for gemma4-family models. Without it, thinking
-        # models silently burn the entire num_predict budget on hidden reasoning
-        # and return an empty response — same root cause as the analyzer local-
-        # path bug fixed in ollama_utils._apply_spec_following_options.
-        # See that helper's docstring for the full diagnosis.
-        resp = ollama_client.post(
-            "/api/generate",
-            json={
-                "model":  actual_model,
-                "prompt": prompt,
-                "system": system_prompt,
-                "stream": False,
-                "think":  False,
-                "options": {
-                    "temperature": 0.7,
-                    "num_predict": 1024,
-                    "num_ctx":     8192,
-                },
-            },
-            read_timeout=180,
-        )
+        if actual_model.strip().lower().endswith("-cloud"):
+            resp = ollama_client.post("/api/generate", json=payload, read_timeout=180)
+        else:
+            resp = requests.post(
+                f"{COUNCIL_OLLAMA_HOST.rstrip('/')}/api/generate",
+                json=payload,
+                timeout=(3, COUNCIL_OLLAMA_TIMEOUT),
+            )
         resp.raise_for_status()
         text = resp.json().get("response", "").strip()
         return text if len(text) > 20 else None
@@ -310,6 +338,17 @@ def main():
                 time.sleep(POLL_INTERVAL)
                 continue
 
+            # The Z230 is a spare-cycles host (two stacks, Redis, Solr, Docker),
+            # not a dedicated inference box. Yield to its tenants: skip this
+            # poll cycle while the box is busy. DEBUG on purpose — a yielded
+            # cycle is the system working, not something to page about.
+            load1 = os.getloadavg()[0]
+            if load1 >= COUNCIL_MAX_LOAD:
+                log.debug("host busy (1m load %.2f >= %.2f) — yielding poll cycle",
+                          load1, COUNCIL_MAX_LOAD)
+                time.sleep(POLL_INTERVAL)
+                continue
+
             all_ids    = set(r.zrange('feed', 0, -1))
             characters = cfg.get("characters", {})
 
@@ -376,8 +415,11 @@ def main():
                         if is_cloud_reachable():
                             record_cloud_call(r)
                         else:
-                            log.warning("Council gate: cloud host unreachable — "
-                                        "downgrading %s to local", resolved_model)
+                            # INFO, not WARNING: a closed cloud valve is a
+                            # normal degraded state (council lands on the Z230
+                            # local tier), not an actionable failure.
+                            log.info("Council gate: cloud host unreachable — "
+                                     "downgrading %s to local", resolved_model)
                             resolved_model = OLLAMA_MODEL
                     if resolved_model != character.get("model"):
                         log.info("Council gate: %s → %s for article %s",
