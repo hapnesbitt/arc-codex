@@ -1079,6 +1079,129 @@ sub-30s once the D1 cache warms.
   present RIGHT NOW; timing-critical to look at before the next
   deploy.
 
+## 2026-07-11 — D5 recon + fix: Next fetch cache pinned to arcdata
+
+Follow-up to the reclaim, executed same day. D5 was the promoted
+"next recon" line and it turned into a same-session fix once the
+alarm case was ruled out.
+
+### Root cause (three-item convergence)
+
+The 7.55 GB writable layer on `arc-frontend` was **entirely
+`/app/.next/cache/fetch-cache/`** — 34,459 entries of Next.js's
+server-side `fetch()` response cache. Every entry was `{"kind":
+"FETCH", "data":{...}}` with `application/json` content-type — no
+data, no logs, no session state, no uploads. Zero alarm case.
+
+But the growth rate was the finding: **7.2 GB in ~22 hours ≈ 8 GB/day**,
+which would have re-eaten today's 165 GB reclaim in ~21 days. And
+the causal chain runs through three separate register items —
+worth writing down so nobody undoes the wrong end:
+
+1. **Wave B R-A gate** (`main.py` `/api/library/<id>`): browser-shaped
+   requests reach `_call_translation_model` and — separately — the
+   English-original SSR path always fetches full book text
+   (`page.tsx:59`, `getWork(id, 'en')`).
+2. **Payload size**: `/api/library/<id>` returns full book JSON —
+   sampled bodies were 260 KB - 720 KB per book. That's the fuel.
+3. **Cache-Control** (`main.py:2262`, tail of Wave B, R-E-adjacent):
+   `Cache-Control: public, max-age=3600` set unconditionally. Next.js
+   fetch cache honors this header and stores every response. That's
+   the ignition.
+
+Cross-stack sanity: hnt-frontend's writable layer was **84 MB** in
+its 11-hour life — same mechanism, ~180 MB/day. Hunt has no
+`/api/library/*` endpoint, which is exactly why. That divergence
+confirmed the causal chain rather than something arc-specific in
+the container config.
+
+### Fix — bind /app/.next/cache to arcdata
+
+One line per stack in `docker-compose.yml`:
+
+```yaml
+volumes:
+  - /mnt/arcdata/docker-caches/arc-frontend-next:/app/.next/cache
+```
+
+Bind mount over local-driver-with-device-option: chose bind because
+the bytes are directly visible via `ls` without `docker inspect`,
+existing arcdata monitoring/backup already covers `/mnt/arcdata/*`
+paths naturally, and it's one line of compose config vs. multiple.
+Same on-disk outcome, less indirection.
+
+Container runs as UID 1001 (nextjs) with GID 65533 (nogroup); host
+dirs created via `mkdir -p` then `chown -R 1001:65533` inside a
+throwaway `alpine` container (no sudo path needed).
+
+Structural on Arc (fixes the 8 GB/day), prophylactic on Hunt
+(the growth mechanism was identical, just quieter — closes the
+door before it becomes a problem).
+
+### Verification
+
+**Arc frontend recreate** (deliberate — the current in-layer cache
+was recomputable JSON so it was safe to throw away):
+
+```
+BEFORE: arc-frontend  7.75 GB writable layer  (virtual 9.01 GB)
+AFTER:  arc-frontend  20.5 kB writable layer  (virtual 1.36 GB)
+```
+
+Writable layer dropped **7.72 GB → 20.5 kB** — a 99.9997% collapse.
+Inside the container, `/app/.next/cache/fetch-cache/` is now the
+bind-mounted directory owned by `nextjs:nogroup`. Bytes land on
+sda1.
+
+Health checks:
+- `docker ps` running, container up
+- `curl -sI https://arc-codex.com/` returns 200
+- Live traffic began seeding the cache dir immediately (3 MB
+  within the first minute of the recreate; steady write activity
+  observed thereafter)
+
+Hunt: same shape, `hnt-frontend` recreated cleanly, 200 on
+`https://huntaegis.com/`, mount populating.
+
+### Growth watch — the cache is still unbounded
+
+The fix moves the bytes to a 191-GB-free filesystem and stops the
+overlay-layer symptom, but Next.js has **no built-in size cap on
+fetch-cache** in the version we run. Gross write rate is ~8 GB/day
+on Arc; entries do expire per their `max-age`, so steady-state
+should plateau well below the gross rate — the question is where.
+
+**Register (new)**:
+
+- **D5-followup**: observe `/mnt/arcdata/docker-caches/arc-frontend-next`
+  for a week. If steady-state exceeds ~30 GB, revisit with a size
+  policy — options are a custom Next.js cache handler (real work,
+  ongoing maintenance) or a periodic trim cron (treats the symptom
+  but simple). Decision when the observation is in, not now.
+
+### R-E gains context
+
+`Cache-Control: public, max-age=3600` on `/api/library/<id>` is now
+**load-bearing** for two behaviors:
+1. Edge/browser caching (the original reason it's there).
+2. Next.js fetch cache lifecycle (the reason today's overhead exists).
+
+Any future R-E change (registered as a MEDIUM item — error paths
+serving stale `Cache-Control: public, max-age=3600` for hours) must
+consider the fetch cache implication. Dropping `max-age` doesn't
+just affect Caddy edge caching; it changes how fast Next.js's fetch
+cache turns over. Don't R-E without weighing this.
+
+### Follow-up register updates (all new)
+
+- **D5 — CLOSED** by this entry (was "promoted to next-recon
+  priority"; now fixed).
+- **D5-followup** — observe steady-state; decide on a size policy
+  if it exceeds ~30 GB.
+- **R-E — annotated** — the `Cache-Control: public, max-age=3600`
+  on `/api/library/<id>` is load-bearing for two purposes now.
+  Whoever picks up R-E needs to account for this.
+
 ### Bug caught by the very first CI run
 
 CI's first push failed the backend job at pytest with

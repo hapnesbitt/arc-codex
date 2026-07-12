@@ -137,6 +137,13 @@ services:
     container_name: arc-frontend
     network_mode: host
     env_file: ./frontend/.env.local
+    # D5 fix (2026-07-11): bind /app/.next/cache to arcdata so the Next.js
+    # server-side fetch cache stops inflating the container's writable
+    # layer (measured 8 GB/day of library-payload cache pre-fix, on root
+    # disk). Bytes now land on sda1 (191 GB free). Cache persists across
+    # container recreates → warmer performance after deploys.
+    volumes:
+      - /mnt/arcdata/docker-caches/arc-frontend-next:/app/.next/cache
     depends_on:
       gunicorn:
         condition: service_healthy
