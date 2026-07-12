@@ -228,6 +228,7 @@ PENDING_COMMENTS_DIR = os.path.join(UPLOAD_DIR, "pending_comments")
 
 SOURCE_BATCH_SIZE = 69
 NETWORK_TIMEOUT_SECONDS = 15
+DOMAIN_COURTESY_DELAY_SECONDS = 2.5
 MIN_ARTICLE_LENGTH = 200
 RECENTLY_PUBLISHED_MEMORY = 10
 MAX_CONCURRENT_SCRAPERS = 5
@@ -782,6 +783,33 @@ def extract_with_beautifulsoup(html_content, url):
     return None
 
 
+# Same-domain request spacing. A feed's top entries share a domain and are
+# fetched by up to MAX_CONCURRENT_SCRAPERS threads, x2 tiers — observed as
+# 6 requests inside one second at medicalxpress.com/phys.org, which got the
+# scraper 429-banned. Slot reservation happens under the lock so concurrent
+# threads queue up rather than stampede.
+_domain_last_fetch = {}
+_domain_last_fetch_lock = threading.Lock()
+
+
+def _domain_courtesy_wait(url):
+    try:
+        domain = urlparse(url).netloc.lower()
+    except Exception:
+        return
+    if not domain:
+        return
+    while True:
+        with _domain_last_fetch_lock:
+            now = time.monotonic()
+            last = _domain_last_fetch.get(domain)
+            if last is None or now - last >= DOMAIN_COURTESY_DELAY_SECONDS:
+                _domain_last_fetch[domain] = now
+                return
+            wait = DOMAIN_COURTESY_DELAY_SECONDS - (now - last)
+        time.sleep(wait)
+
+
 def _make_session(headers, referer=None):
     """Build a requests Session with appropriate headers."""
     session = requests.Session()
@@ -800,6 +828,7 @@ def fetch_with_requests(url, headers, stealth=False):
     Returns dict with text/image_url/html_content, or None.
     """
     session = None
+    _domain_courtesy_wait(url)
     try:
         referer = None
         if stealth:
