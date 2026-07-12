@@ -1045,6 +1045,47 @@ def react_to_comment(comment_id):
 
 _pre_analyze_sem = threading.Semaphore(2)
 
+# --- CSP report ingest ------------------------------------------------------
+# Wave C R5: Content-Security-Policy-Report-Only sends violation reports here.
+# Log-only, no storage. Body capped at 8 KB (browser reports are usually well
+# under 2 KB; the cap protects against a malicious client posting large blobs
+# to fill the log). Semaphore bounds concurrency to 2 like _pre_analyze_sem,
+# same 1 s timeout → 429 pattern.
+_csp_report_sem = threading.Semaphore(2)
+_CSP_REPORT_MAX_BYTES = 8 * 1024
+
+
+@app.route('/api/csp_report', methods=['POST'])
+def csp_report():
+    """CSP violation ingest. Log only; no persistent storage.
+
+    Report-only mode is a one-way stream: browsers post violation reports
+    here so we can see what a stricter CSP would break, without breaking
+    it today. Registered review date lives in the runbook.
+    """
+    if request.content_length and request.content_length > _CSP_REPORT_MAX_BYTES:
+        return ('', 413)
+    if not _csp_report_sem.acquire(timeout=1):
+        return ('', 429)
+    try:
+        raw = request.get_data(cache=False, as_text=False,
+                               parse_form_data=False)[:_CSP_REPORT_MAX_BYTES]
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            payload = {}
+        report = payload.get('csp-report') or payload
+        # Fields per W3C CSP spec — some browsers vary casing / naming
+        blocked = report.get('blocked-uri') or report.get('blockedURL') or '?'
+        violated = report.get('violated-directive') or report.get('effectiveDirective') or '?'
+        doc_uri = report.get('document-uri') or report.get('documentURL') or '?'
+        app.logger.info(
+            f"csp report: directive={violated} blocked={blocked} document={doc_uri}"
+        )
+        return ('', 204)
+    finally:
+        _csp_report_sem.release()
+
 
 def compute_chimera(fk_grade: float, coleman_liau: float, smog: float, dale_chall: float) -> int:
     avg_grade = (fk_grade + coleman_liau + smog + dale_chall) / 4.0
