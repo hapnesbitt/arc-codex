@@ -1364,3 +1364,160 @@ conftest so future-us doesn't wonder.
   `request_header -X-User-Id` on the new `handle /api/upload_image`
   Caddyfile block as belt-and-suspenders. Not urgent; the Next
   proxy already ignores incoming X-User-Id.
+
+## 2026-07-11 — R16-followup: Flask-Limiter storage wiring (arc only)
+
+Same-day close on the register line Wave D registered. Hunt was
+already correct (see below). Only Arc had the bug.
+
+### The construction-order gotcha — the valuable lesson
+
+Flask-Limiter 4.1.1's `Limiter` locks its `_storage` reference at
+`__init__()` time. `init_app()` is documented as the way to
+"finish" wiring the Limiter to an app, but **it does not rebuild
+the storage backend from `app.config['RATELIMIT_STORAGE_URI']`**.
+Whatever `storage_uri=` was passed to the constructor is what
+persists — even if you set the config key later and even if you
+call `init_app()`.
+
+Arc had:
+```
+main.py:53   from auth import limiter    # ← auth.py:56 fires:
+                                                Limiter(storage_uri="memory://")
+main.py:56   load_dotenv()               # ← too late: env now loaded,
+                                                but limiter is already built
+main.py:250  init_auth(app, ...)         # ← limiter.init_app(app),
+                                                storage NOT swapped
+```
+
+At `from auth import limiter` (line 53), the process env has
+whatever gunicorn/systemd started with, but NOT `backend/.env`.
+`load_dotenv()` ran three lines later — too late. The Limiter was
+stuck on MemoryStorage forever. Every rate-limited endpoint
+(`submit_comment`, `react`) enforced its limit **per gunicorn
+worker**, giving effective global limits of `N × stated` at
+`--workers 20`.
+
+**This bug pattern recurs in every Flask extension configured
+after construction.** Check whenever an extension is instantiated
+at import time with a "default" value that a later `init_app()` is
+expected to override. It usually isn't.
+
+### Fix (arc)
+
+**Chose option (a1)**: move `load_dotenv()` before
+`from auth import limiter`, then read Redis env directly in
+`auth.py` at construction:
+
+```
+main.py — reordered:
+  from dotenv import load_dotenv
+  load_dotenv()                          # ← now BEFORE the import below
+  from auth import limiter               # ← auth.py sees REDIS_* env vars
+
+auth.py — env-direct construction:
+  _lim_host = os.getenv("REDIS_HOST", "localhost")
+  _lim_port = int(os.getenv("REDIS_PORT", "6379"))
+  _lim_pass = os.getenv("REDIS_PASSWORD", "")
+  _LIMITER_STORAGE_URI = f"redis://:{pass}@{host}:{port}/5"
+  limiter = Limiter(
+      key_func=get_remote_address,
+      storage_uri=_LIMITER_STORAGE_URI,
+      key_prefix="arc:auth:limiter",
+      in_memory_fallback_enabled=True,
+      swallow_errors=True,
+      ...
+  )
+```
+
+Rejected options:
+- **(a2) mirror Hunt exactly** (construct limiter in `main.py`) —
+  auth.py has 3 of its own `@limiter.limit` decorators
+  (register/login/forgot) that reference the module-level
+  `limiter`. Would need blueprint refactor.
+- **(b) deferred construction** (build inside `init_auth`) —
+  Flask-Limiter's decorator records intent against the instance
+  at import time. If `limiter` is None or not-yet-built when
+  routes are imported, decorators crash.
+
+### Storage target (matches CLAUDE.md Redis schema)
+
+- **Arc: DB 5** (shared auth) with `key_prefix="arc:auth:limiter"`.
+  Rate-limit keys live with the credentials they protect and ride
+  the shared-auth backup path; no new DB slot consumed. This is
+  what the prior (broken) code was ALREADY trying to configure via
+  `app.config.setdefault("RATELIMIT_KEY_PREFIX", "arc:auth:limiter")`.
+- **Hunt: DB 1** (its app DB) with `key_prefix="hnt:limiter"` —
+  already in use, not touched.
+
+**Add to CLAUDE.md Redis schema documentation**:
+- Arc DB 5 now also stores `LIMITS:LIMITER/arc:auth:limiter/...`
+  keys (per-IP, per-endpoint, self-TTL'd at the rate window).
+
+### Failure mode — fail open with in-memory fallback
+
+Both Limiters now constructed with `in_memory_fallback_enabled=True`
++ `swallow_errors=True`. If Redis becomes unreachable, the limiter
+falls back to per-worker in-memory storage transparently. Degraded
+(back to the old per-worker behavior), but not down — comments and
+reactions keep working.
+
+**Eviction risk**: Redis `maxmemory-policy = noeviction` (verified
+via `CONFIG GET`). Limiter keys are NEVER silently evicted; under
+OOM, new writes error → our `swallow_errors` catches the error →
+`in_memory_fallback` engages for that request. Documented; not
+re-engineered.
+
+### Verification — bug proven dead
+
+**Introspection** (the exact check that caught the bug last time):
+
+```
+Arc:  type(limiter._storage) == RedisStorage   ✅
+      key_prefix == "arc:auth:limiter"          ✅
+      in_memory_fallback_enabled == True        ✅
+      swallow_errors == True                    ✅
+
+Hunt: type(limiter._storage) == RedisStorage   ✅ (already correct)
+      key_prefix == "hnt:limiter"               ✅
+```
+
+**Live distributed burst** — 35 parallel HTTP/1.0 requests (no
+keepalive), forcing round-robin across gunicorn workers:
+
+| Stack | Workers | 200s | 429s | Verdict |
+|---|---:|---:|---:|---|
+| Arc | 20 | 30 | 5 | Shared 30/hour ✅ |
+| Hunt | 3 | 30 | 5 | Shared 30/hour ✅ |
+
+Before the fix on arc, 35 parallel would have returned all 200s
+(each worker had its own 30/hour budget, distributed 1-2 per
+worker). Now 30 total globally, 5 rejected. Math checks.
+
+**Redis-key evidence** post-burst:
+```
+DB 5:  LIMITS:LIMITER/arc:auth:limiter/38.175.170.87/react_to_comment/30/1/hour
+DB 1:  LIMITS:LIMITER/hnt:limiter/38.175.170.87/react_to_comment/30/1/hour
+```
+Real client IP correctly captured (ProxyFix + Caddy XFF). Keys
+self-expire on the rate window; they won't bloat.
+
+### Smoke suite isolation (conftest)
+
+Tests must NOT hit real Redis. conftest now:
+1. Sets `REDIS_HOST=test-redis-unreachable.invalid` before importing
+   main, so auth.py's Limiter constructor builds a URI pointing
+   nowhere real (harmless — connection is lazy).
+2. After import, swaps `main.limiter._storage = MemoryStorage()` for
+   deterministic test behavior — bypasses the fallback DNS wait.
+3. Calls `main.limiter.init_app(main.app)` — decorator enforcement
+   only fires post-init.
+
+Result: 11/11 tests pass in ~120ms. `test_react_rate_limit_burst_31`
+still asserts 30 × 200 + 1 × 429 from a single pytest process,
+proving the decorator still enforces at the swapped storage.
+
+### R16-followup CLOSED
+
+Register line from Wave D — resolved same day. Both stacks now
+have Redis-backed, correctly shared rate limits.

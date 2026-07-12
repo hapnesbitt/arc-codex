@@ -36,6 +36,14 @@ import pysolr
 import library_db
 from dotenv import load_dotenv
 
+# R16-followup (2026-07-11): load .env BEFORE `from auth import limiter` so
+# auth.py sees REDIS_HOST/PORT/PASSWORD at Limiter-construction time.
+# Was: limiter built with storage_uri="memory://" because env wasn't loaded
+# yet → Flask-Limiter 4.1.1 does not swap _storage in init_app, so every
+# rate limit enforced per gunicorn worker (~20× stated at --workers 20)
+# instead of shared. Move MUST stay above `from auth import limiter`.
+load_dotenv()
+
 # NEW: Import anti-bot utilities
 from fetch_utils import (
     fetch_with_anti_bot_handling,
@@ -47,13 +55,11 @@ from fetch_utils import (
 from catalog_loader import load_catalog
 
 # Rate-limiter singleton lives in auth.py; import at module scope so its
-# @limiter.limit decorators can attach to routes here regardless of whether
-# the Redis-init try block below runs to completion (limiter falls back to
-# in-memory storage until init_auth() rebinds it to Redis).
+# @limiter.limit decorators can attach to routes here. auth.py reads Redis
+# env at import time (post-load_dotenv above) and builds Redis-backed
+# storage from construction — matches hunt's already-working pattern.
 from auth import limiter
 from flask_limiter.util import get_remote_address
-
-load_dotenv()
 
 app = Flask(__name__)
 # Explicit same-origin CORS allowlist. Previously CORS(app) accepted any

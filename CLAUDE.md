@@ -109,7 +109,7 @@ translation:langs:{id}    SET  — available translation languages
 arc:stats:*               HASH counters
 translator:active         STRING — TTL lock prevents model thrashing (300s)
 ```
-DB 5 is shared auth across all stacks (`arc:users` SET, `arc:user:{username}` HASH).
+DB 5 is shared auth across all stacks (`arc:users` SET, `arc:user:{username}` HASH). It also holds Flask-Limiter rate-limit state under `LIMITS:LIMITER/arc:auth:limiter/*` (per-IP × endpoint, self-TTL'd at the window). Hunt's limiter lives in DB 1 under `LIMITS:LIMITER/hnt:limiter/*`.
 
 ### AI Inference
 - **Primary**: Ollama on MacBook Air M1 at `192.168.1.185:11434`

@@ -18,16 +18,25 @@ os.chdir(BACKEND_DIR)  # prompts.yaml is opened by relative path at import time
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
 os.environ.setdefault("SCRIBE_SECRET_KEY", "test-scribe-secret")
 
+# R16-followup (2026-07-11): auth.py builds Limiter's Redis URI from
+# REDIS_HOST/PORT/PASSWORD at import time. Tests must NOT hit real Redis —
+# point at a host that will never resolve so the limiter's
+# in_memory_fallback_enabled path fires transparently and per-process
+# limits still enforce (which is exactly what the test wants: 30/hour hit
+# from a single pytest process → 31st is 429).
+os.environ.setdefault("REDIS_HOST", "test-redis-unreachable.invalid")
+os.environ.setdefault("REDIS_PORT", "6379")
+os.environ.setdefault("REDIS_PASSWORD", "")
+
 import pytest
 import main as arc_main
 
-# Wave D R16 (2026-07-11): Flask-Limiter decorators on endpoints are only
-# ENFORCED after limiter.init_app(app) runs. Production does that via
-# init_auth(), which needs a live Redis. In tests we skip auth's Redis
-# wiring, so the limiter's default in-memory storage stays and we init the
-# limiter here directly — enough to make @limiter.limit fire.
-from auth import limiter as _test_limiter
-_test_limiter.init_app(arc_main.app)
+# After main imports (which imports auth's limiter), swap storage to a
+# plain MemoryStorage so tests don't spin on the unreachable host every
+# request. Fallback would kick in eventually, but this is deterministic.
+from limits.storage import MemoryStorage
+arc_main.limiter._storage = MemoryStorage()
+arc_main.limiter.init_app(arc_main.app)
 
 
 @pytest.fixture

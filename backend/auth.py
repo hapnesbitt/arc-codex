@@ -49,15 +49,43 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
-# Storage URI is read at init_auth() time via app.config, not here — the
-# limiter is instantiated with an in-memory fallback so decorators can
-# attach at import time; init_auth() rebinds it to Redis before the app
-# serves any requests.
+# R16-followup (2026-07-11): storage_uri MUST be passed at construction —
+# Flask-Limiter 4.1.1's Limiter stores its `_storage` reference at __init__
+# and init_app() does NOT rebuild it. Previously we passed "memory://" and
+# expected init_auth() to swap; it never did, so limits were per-worker
+# only. Now we read Redis env at import time and build the URI directly,
+# same shape as huntaegis_stack/backend/main.py:74-86 which has been
+# correctly Redis-backed all along.
+#
+# main.py MUST call load_dotenv() BEFORE `from auth import limiter` so
+# these values are present in os.environ when this module loads.
+#
+# Storage: DB 5 (shared auth) + key_prefix "arc:auth:limiter" — rate-limit
+# keys live with the credentials they protect, ride the shared-auth backup
+# path, no new DB slot consumed. See CLAUDE.md Redis schema for DB layout.
+#
+# Failure mode: in_memory_fallback_enabled + swallow_errors — a Redis blip
+# degrades to per-worker in-memory limiting (fail open), doesn't take down
+# comments/reactions. Redis maxmemory-policy is 'noeviction' so limiter
+# keys are never silently evicted; under OOM new writes error → fallback
+# fires. Set-and-forget.
+_LIMITER_DB = 5  # shared with auth store; scoped by key_prefix
+_lim_host = os.getenv("REDIS_HOST", "localhost")
+_lim_port = int(os.getenv("REDIS_PORT", "6379"))
+_lim_pass = os.getenv("REDIS_PASSWORD", "")
+if _lim_pass:
+    _LIMITER_STORAGE_URI = f"redis://:{_lim_pass}@{_lim_host}:{_lim_port}/{_LIMITER_DB}"
+else:
+    _LIMITER_STORAGE_URI = f"redis://{_lim_host}:{_lim_port}/{_LIMITER_DB}"
+
 limiter = Limiter(
     key_func=get_remote_address,
-    storage_uri="memory://",
+    storage_uri=_LIMITER_STORAGE_URI,
     default_limits=[],
     headers_enabled=True,
+    key_prefix="arc:auth:limiter",
+    in_memory_fallback_enabled=True,
+    swallow_errors=True,
 )
 
 # Defense-in-depth against Jinja template metacharacters landing in
