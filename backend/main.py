@@ -1788,11 +1788,20 @@ def upload_image():
 
     Returns: { "url": "/uploads/<filename>" }
     """
-    # Concurrency throttle (same pattern as pre_analyze). This endpoint is
-    # called client-side from the publish page, so under the Caddy header-
-    # strip trust boundary there is no auth context to check here — the
-    # throttle + 10MB cap bound abuse, but the auth gap is a known deferral
-    # (health audit Q2, 2026-07-11).
+    # Wave D R10 (2026-07-11): auth gate. The trusted internal header
+    # X-User-Id is set ONLY by the Next.js proxy at frontend/app/api/
+    # upload_image/route.ts after verifying an Auth.js session (or the
+    # arc:users cookie via /api/me). Caddy's arc-codex vhost /api/* handler
+    # strips X-User-Id on every external hop, so bare curl to this endpoint
+    # from off-box cannot forge it. Same invariant as /api/submit_content.
+    # Presence/absence only — never log the value (Q4 rule).
+    if not request.headers.get('X-User-Id'):
+        app.logger.warning(
+            f"⚠️  Unauthorized upload_image attempt (X-User-Id absent)"
+        )
+        return jsonify({'error': 'Unauthorized'}), 401
+    # Concurrency throttle (same pattern as pre_analyze) — kept as defense
+    # in depth alongside the auth gate.
     if not _upload_image_sem.acquire(timeout=1):
         app.logger.warning("⚠️  upload_image: concurrency limit reached, returning 429")
         return jsonify({'error': 'Server busy, please retry shortly.'}), 429
