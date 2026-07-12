@@ -193,7 +193,6 @@
 {"name": "Haps Dance Club", "url": "https://hapsdanceclub.wordpress.com/feed", "category": "Culture & Society"}
 {"name": "Harvard Business Review (HBR)", "url": "https://hbr.org/rss/regular", "category": "Finance & Economics"}
 {"name": "Hermeneutics Today", "url": "https://hermeneuticstoday.org/rss", "category": "Eggheads"}
-{"name": "Heterodox Academy", "url": "https://heterodoxacademy.org/feed/", "category": "Eggheads"}
 {"name": "Journal of Historical Linguistics", "url": "https://historicallinguisticsjournal.org/feed", "category": "Eggheads"}
 {"name": "Journal of Historical Mythology", "url": "https://historicalmythology.org/rss", "category": "Eggheads"}
 {"name": "History of Ideas", "url": "https://historyofideas.com/feed", "category": "Eggheads"}
@@ -363,7 +362,6 @@
 {"name": "Successful Farming News", "url": "https://www.agriculture.com/news/feed", "category": "Agriculture & Food"}
 {"name": "Agri-Pulse News", "url": "https://www.agripulse.com/rss", "category": "Agriculture & Food"}
 {"name": "AgWeb", "url": "https://www.agweb.com/api/rss/content.xml", "category": "Agriculture & Food"}
-{"name": "AI Trends", "url": "https://www.aitrends.com/feed/", "category": "Technology & AI"}
 {"name": "AI Weirdness", "url": "https://www.aiweirdness.com/rss/", "category": "Technology & AI"}
 {"name": "Al-Monitor", "url": "https://www.al-monitor.com/rss.xml", "category": "Geopolitics & World Affairs"}
 {"name": "AI Alignment Forum", "url": "https://www.alignmentforum.org/feed.xml", "category": "Technology & AI"}
@@ -1505,7 +1503,6 @@
 {"name": "The Marshall Project", "url": "https://www.themarshallproject.org/rss", "category": "Media & Information"}
 {"name": "Alternet", "url": "https://www.alternet.org/feed", "category": "Media & Information"}
 {"name": "The Free Press (Bari Weiss et al.)", "url": "https://www.thefp.com/feed", "category": "Philosophy & Humanities"}
-{"name": "Heterodox Academy Blog", "url": "https://heterodoxacademy.org/blog-rss.xml", "category": "Philosophy & Humanities"}
 {"name": "Techdirt", "url": "https://www.techdirt.com/feed/", "category": "Governance & Policy"}
 {"name": "The Jim Rutt Show", "url": "https://www.jimruttshow.com/feed/podcast/", "category": "Philosophy & Humanities"}
 {"name": "Ars Technica (deeper takes)", "url": "https://arstechnica.com/feed/", "category": "Media & Information"}
@@ -1891,7 +1888,6 @@
 {"name": "The Daily Scoop (Ag Retail)", "url": "https://www.thedailyscoop.com/rss/news", "category": "Agriculture & Food"}
 {"name": "The Furrow (John Deere)", "url": "https://www.deere.com/en/publications/the-furrow/index.xml", "category": "Agriculture & Food"}
 {"name": "PrecisionAg", "url": "https://www.precisionag.com/feed/", "category": "Agriculture & Food"}
-{"name": "National Farmers Union", "url": "https://nfu.org/feed/", "category": "Agriculture & Food"}
 {"name": "Progressive Farmer (DTN)", "url": "https://www.dtnpf.com/agriculture/web/ag/rss/news", "category": "Agriculture & Food"}
 {"name": "Delta Farm Press", "url": "https://www.farmprogress.com/rss/delta-farm-press", "category": "Agriculture & Food"}
 {"name": "Southeast Farm Press", "url": "https://www.farmprogress.com/rss/southeast-farm-press", "category": "Agriculture & Food"}
