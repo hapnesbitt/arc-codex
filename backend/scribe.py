@@ -228,6 +228,7 @@ PENDING_COMMENTS_DIR = os.path.join(UPLOAD_DIR, "pending_comments")
 
 SOURCE_BATCH_SIZE = 69
 NETWORK_TIMEOUT_SECONDS = 15
+FEED_TIMEOUT_SECONDS = 30
 DOMAIN_COURTESY_DELAY_SECONDS = 2.5
 MIN_ARTICLE_LENGTH = 200
 RECENTLY_PUBLISHED_MEMORY = 10
@@ -1707,7 +1708,11 @@ def main():
 
     api_client = APIClient(API_BASE_URL, SCRIBE_SECRET_KEY)
     initialize_directories()
-    socket.setdefaulttimeout(NETWORK_TIMEOUT_SECONDS)
+    # Governs feedparser.parse (urllib) only — article fetches pass
+    # NETWORK_TIMEOUT_SECONDS to requests explicitly and ignore this default.
+    # 30s because nine chronic feeds (FCC x2, USDA x2, CBC x2, Mr Porter,
+    # ACSC, Zoom Blog) timed out on most polls at 15s since late May.
+    socket.setdefaulttimeout(FEED_TIMEOUT_SECONDS)
     recently_published = deque(maxlen=RECENTLY_PUBLISHED_MEMORY)
 
     cycle_count = 0
