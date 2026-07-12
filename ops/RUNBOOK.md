@@ -1533,3 +1533,67 @@ blacklist: 403/503 can be a lifted bot-wall or recovered server (3d);
 404s rarely come back (7d). 429 and timeouts are deliberately never
 cached (throttling/transient). Mirrored in Huntaegis scribe (DB 1).
 Inspect: `redis-cli -n 0 --scan --pattern 'scribe:dead_url:*'`.
+
+## 2026-07-12 — M1 backpressure: shed-and-yield (council → Z230, translations yield)
+
+Fixes the 62-hour M1 saturation episode diagnosed this morning (recon:
+both stacks' analyzers alone ran ~128% of the M1's serial capacity;
+council starved metronomically — 1,569 failures, ~2 comments/hr).
+A second inference host (the Z230's own local Ollama) makes the fix
+possible without buying M1 capacity.
+
+### Who runs where (after this change)
+- **Analyzers (R/B/P):** own the M1. May escalate to cloud
+  (gemma4:31b-cloud) under the weekly cap. Unchanged.
+- **Council (character comments):** LOCAL generation runs on the **Z230**
+  (`COUNCIL_OLLAMA_HOST=http://localhost:11434`, both stacks). Cloud
+  personas (arc's gpt-oss:20b-cloud) still resolve cloud-first via the
+  council gate — only the *local fallback tier* moved off the M1.
+  Timeout 120s (24s typical + margin behind the Z230's serialized queue).
+- **Translations:** stay on the M1's e2b but **never escalate to cloud**
+  (tiering rule) and **yield** to a backed-up analyzer queue
+  (arc library commissions only — Hunt has no library reader).
+- **Long-term:** the inference gateway stays the registered project;
+  shed-and-yield is the interim that buys time.
+
+### Who yields to whom
+- **Council yields to the Z230's own tenants:** skips the poll cycle when
+  1-min loadavg ≥ `COUNCIL_MAX_LOAD` (3.0). The Z230 also runs two stacks,
+  Redis, Solr, Docker — it's a spare-cycles host, not dedicated.
+- **Translations yield to analyzers on the M1:** arc's library commission
+  path serves English (graceful degrade) when `analyzer:queue` depth ≥ 3.
+  Cached translations are unaffected.
+- Both yields log at **DEBUG** — a yielded cycle is the system working.
+  Per the quiet-log standard, a WARNING in these paths must be actionable.
+
+### Rollback
+Unset `COUNCIL_OLLAMA_HOST` (defaults to the M1) and restart
+character_builder — council returns to the M1 wholesale. Everything else
+is env-tunable (`COUNCIL_OLLAMA_TIMEOUT`, `COUNCIL_MAX_LOAD`,
+`LIBRARY_TRANSLATION_YIELD_DEPTH`).
+
+### Z230 radeon exile — exclude the GPU BY NAME in every framework
+The Z230's radeon GPU is a repeat offender: ROCm crashed it (killed
+Playwright, March), Vulkan auto-detection crashed Ollama (today). Assume
+the next framework's auto-probe will find it too — exclude it explicitly,
+never rely on a default. Live in the Ollama systemd override
+(`/etc/systemd/system/ollama.service.d/`), confirmed present:
+```
+Environment="OLLAMA_VULKAN=false"
+Environment="GGML_VK_VISIBLE_DEVICES="
+```
+Any new inference/render framework added to this box gets its own
+by-name GPU exclusion in the same override before first run.
+
+### Thinking flag — mandatory OFF on the Z230
+`think=false` on every council payload (consolidated into
+`_council_payload()` in arc's character_builder). Measured on the Z230:
+76s with thinking on vs 24s off — a host that forgets the flag runs 3×
+slower and can return empty (gemma4-family thinking-phase token
+exhaustion). Z230 is CPU-only (radeon exiled), 8 cores.
+
+### Cloud-valve visibility
+Analyzer's valve-closed log now names the condition (weekly cap
+exhausted / 429 breaker open / cloud host unreachable). corpus_exporter
+exposes `arc_cloud_calls_week` vs `arc_cloud_calls_week_cap` (cap 400) so
+exhaustion is a Grafana fact at 60%, not archaeology at 100%.
