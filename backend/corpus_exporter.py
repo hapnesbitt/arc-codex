@@ -215,6 +215,10 @@ g_nlp_entity             = Gauge('arc_nlp_entity_total',         'Total entity c
 # =============================================================================
 g_fetch          = Gauge('arc_fetch_total',           'Fetch outcome count by domain and tier', ['domain', 'tier'])
 g_fetch_latency  = Gauge('arc_fetch_latency_avg_ms',  'Avg fetch latency in ms by domain',      ['domain'])
+# Cloud valve (2026-07-12): exhaustion should be a Grafana fact at 60%, not
+# log archaeology at 100% — the July cap exhaustion was invisible for 5 days.
+g_cloud_calls_week = Gauge('arc_cloud_calls_week',     'Cloud escalation calls this ISO week (arc:cloud_calls:weekly:*)')
+g_cloud_week_cap   = Gauge('arc_cloud_calls_week_cap', 'Weekly cloud call cap — escalation degrades to local at 100%')
 g_quality_reject = Gauge('arc_quality_reject_total',  'Quality gate rejection count by reason',  ['reason'])
 g_rss            = Gauge('arc_rss_total',             'RSS feed parse outcome count',            ['outcome'])
 g_publish        = Gauge('arc_publish_total',         'Publish pipeline outcome count',          ['outcome'])
@@ -355,6 +359,14 @@ def scrape_pipeline_health(r):
     priority_data = r.hgetall(STATS_PRIORITY) or {}
     for origin, count in priority_data.items():
         g_priority.labels(origin=origin).set(int(count or 0))
+
+    # --- Cloud valve: weekly escalation-call counter vs cap ---
+    try:
+        from escalation import weekly_cloud_call_count, WEEKLY_CAP
+        g_cloud_calls_week.set(weekly_cloud_call_count(r))
+        g_cloud_week_cap.set(WEEKLY_CAP)
+    except Exception as e:
+        log.debug("cloud-valve gauge skipped: %s", e)
 
 
 # =============================================================================

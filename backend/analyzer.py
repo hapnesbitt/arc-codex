@@ -323,13 +323,25 @@ def analyze_article(article_id: str) -> bool:
                 except Exception as e:
                     logger.warning(f"⚠️  Cloud escalation failed for {article_id}: {e} — keeping local")
             elif decision.escalate:
-                # A-relaxed graceful degradation: signal fired but capacity,
-                # circuit breaker, or reachability blocked the cloud call.
-                # Continue with local, honestly labelled — never page.
-                logger.warning(
+                # A-relaxed graceful degradation: signal fired but the cloud
+                # valve is closed. Continue with local, honestly labelled —
+                # never page. Say WHICH condition closed the valve: during the
+                # July cap exhaustion this read "cap, breaker, or unreachable"
+                # for 5 days and the answer was archaeology. Checks ordered
+                # cheap-first; reachability (an HTTP probe) runs only when the
+                # first two pass.
+                if not cloud_capacity_available(r):
+                    valve = "weekly cap exhausted"
+                elif not is_cloud_available():
+                    valve = "429 circuit breaker open"
+                elif not is_cloud_reachable():
+                    valve = "cloud host unreachable"
+                else:
+                    valve = "transient (condition cleared between checks)"
+                logger.info(
                     f"🛑 {article_id} escalation triggered (score={decision.score}, "
-                    f"reason={decision.reason}) but cloud unavailable (cap, breaker, "
-                    f"or unreachable) — degrading to local"
+                    f"reason={decision.reason}) but cloud valve closed: {valve} "
+                    f"— degrading to local"
                 )
 
             # If cloud didn't take over, use local. Label according to shape.

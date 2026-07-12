@@ -23,7 +23,7 @@ import redis as redis_lib
 from dotenv import load_dotenv
 
 load_dotenv()
-from ollama_utils import call_ollama_with_fallback
+from ollama_utils import call_ollama_with_fallback, OLLAMA_LOCAL_FALLBACK
 import os
 
 logger = logging.getLogger(__name__)
@@ -83,10 +83,12 @@ TRANSLATABLE_FIELDS_PRO = [
 TRANSLATABLE_FIELDS = TRANSLATABLE_FIELDS_PRO  # translate all 5 fields
 
 # ---------------------------------------------------------------------------
-# Translation caller — routes through call_ollama_with_fallback
-# (cloud → gemma4:e2b on M1). Translation and analysis share the same model
-# now, so Ollama's per-model request queue serializes them; no separate
-# coordination lock is required.
+# Translation caller — LOCAL ONLY by tiering rule (2026-07-12 shed-and-yield):
+# analyzers may escalate to cloud; translations never do. Before this,
+# translations rode the default cloud-first chain WITHOUT record_cloud_call —
+# uncounted spend against the weekly cap. Translations get the graceful
+# English-degrade path in main.py instead. Ollama's per-model queue still
+# serializes translation with analysis on e2b; no separate lock required.
 # ---------------------------------------------------------------------------
 
 def _call_translation_model(text: str, language: str, source_lang: str = "English", timeout: int = 300) -> str:
@@ -97,7 +99,11 @@ def _call_translation_model(text: str, language: str, source_lang: str = "Englis
         f"Output ONLY the complete {language} translation. "
         f"Do not summarize. Do not respond in {source_lang}. Do not add any commentary.\n\n{text}"
     )
-    return call_ollama_with_fallback(prompt, timeout=timeout)[0]
+    return call_ollama_with_fallback(
+        prompt,
+        timeout=timeout,
+        models=[(OLLAMA_LOCAL_FALLBACK, "local")],
+    )[0]
 
 
 # ---------------------------------------------------------------------------
