@@ -2210,6 +2210,18 @@ except Exception:
 # Translate only the first ~8K chars: longer inputs exceed the translator's context window.
 LIBRARY_TRANSLATION_PREVIEW_CHARS = 8000
 LIBRARY_TRANSLATION_BOUNDARY_LOOKBACK = 1000
+# YIELD (2026-07-12 shed-and-yield): analyzers own the M1. A queue this deep
+# means they're behind; a new 120s translation commission would push them
+# further back. Steady-state LLEN is 0–1, so 3 is genuinely "backed up".
+LIBRARY_TRANSLATION_YIELD_DEPTH = 3
+
+
+def _analyzers_backed_up() -> bool:
+    """True when analyzer:queue says the M1 is behind on its primary job."""
+    try:
+        return bool(r) and r.llen('analyzer:queue') >= LIBRARY_TRANSLATION_YIELD_DEPTH
+    except Exception:
+        return False
 
 
 def _slice_for_translation(body: str) -> int:
@@ -2303,6 +2315,18 @@ def get_library_work(gutenberg_id):
                         pass
                     reason = 'bot_ua' if _is_bot_ua(_client_ua(request)) else 'no_sec_fetch'
                     app.logger.info(f"library translation gated: id={gutenberg_id} lang={lang} reason={reason}")
+                elif _analyzers_backed_up():
+                    # Translations yield to analyzers on the M1 — same graceful
+                    # path as the bot gate: English now beats {lang} in 120s.
+                    # Cache hits above are unaffected. DEBUG on purpose: a
+                    # yielded commission is the system working as designed.
+                    translation_error = "Translation temporarily unavailable — serving English."
+                    try:
+                        if r:
+                            r.incr("arc:stats:library_translation_yielded")
+                    except Exception:
+                        pass
+                    app.logger.debug(f"library translation yielded to analyzer backlog: id={gutenberg_id} lang={lang}")
                 else:
                     # Per-(work×lang) inflight lock. Under load, 5 concurrent readers
                     # of the same book/lang would otherwise fire 5 parallel model
