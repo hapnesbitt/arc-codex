@@ -811,6 +811,43 @@ def _domain_courtesy_wait(url):
         time.sleep(wait)
 
 
+# Negative cache for dead article URLs. Failed fetches otherwise retry every
+# cycle forever (processed_hashes only dedups on publish) — bloomberg.com alone
+# burned ~23 fetch-pairs/day on permanent 403s. TTLs, not a blacklist: a source
+# that comes back to life gets retried once the marker expires. 404 gets the
+# longer TTL because removed pages rarely return; 403/503 can be a lifted
+# bot-wall or a recovered server.
+DEAD_URL_TTLS = {403: 3 * 86400, 503: 3 * 86400, 404: 7 * 86400}
+
+_fetch_status = threading.local()
+
+
+def _dead_url_key(url):
+    return f"scribe:dead_url:{hashlib.sha256(url.encode()).hexdigest()[:16]}"
+
+
+def _is_dead_url(url):
+    try:
+        status = r.get(_dead_url_key(url))
+    except Exception:
+        return False
+    if status:
+        logger.info(f"⏭️  Skipping {url} — negative-cached (HTTP {status})")
+        return True
+    return False
+
+
+def _mark_dead_url(url, status_code):
+    ttl = DEAD_URL_TTLS.get(status_code)
+    if not ttl:
+        return
+    try:
+        r.setex(_dead_url_key(url), ttl, str(status_code))
+        logger.info(f"🪦 Negative-cached {url} for {ttl // 86400}d (HTTP {status_code})")
+    except Exception:
+        pass
+
+
 def _make_session(headers, referer=None):
     """Build a requests Session with appropriate headers."""
     session = requests.Session()
@@ -829,6 +866,7 @@ def fetch_with_requests(url, headers, stealth=False):
     Returns dict with text/image_url/html_content, or None.
     """
     session = None
+    _fetch_status.code = None
     _domain_courtesy_wait(url)
     try:
         referer = None
@@ -853,6 +891,7 @@ def fetch_with_requests(url, headers, stealth=False):
             return None
 
         if response.status_code == 403:
+            _fetch_status.code = 403
             logger.info(f"🚫 403 on {'stealth ' if stealth else ''}request for {url} — skipping")
             return None
 
@@ -878,6 +917,7 @@ def fetch_with_requests(url, headers, stealth=False):
         return None
 
     except Exception as e:
+        _fetch_status.code = getattr(getattr(e, 'response', None), 'status_code', None)
         tier = "stealth" if stealth else "simple"
         logger.warning(f"{tier} request failed for {url}: {e}")
         return None
@@ -972,6 +1012,9 @@ def fetch_article_data(url):
     if is_youtube_url(url):
         return fetch_youtube_metadata(url)
 
+    if _is_dead_url(url):
+        return None
+
     headers = {
         'User-Agent': random.choice(USER_AGENTS),
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -997,6 +1040,10 @@ def fetch_article_data(url):
     if result:
         return result
 
+    # Mark on the stealth tier's status — the last word on whether the URL is
+    # reachable. Statuses outside DEAD_URL_TTLS (429, timeouts, 5xx-transient)
+    # are never cached.
+    _mark_dead_url(url, getattr(_fetch_status, 'code', None))
     logger.warning(f"❌ Both fetch tiers failed for {url} — skipping (no browser fallback)")
     return None
 

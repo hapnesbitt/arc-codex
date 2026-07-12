@@ -108,6 +108,10 @@ analyzer:queue            LIST — on-demand analysis jobs
 translation:langs:{id}    SET  — available translation languages
 arc:stats:*               HASH counters
 translator:active         STRING — TTL lock prevents model thrashing (300s)
+scribe:dead_url:{sha16}   STRING — negative cache: article URL failed both fetch
+                          tiers with 403/503 (TTL 3d) or 404 (TTL 7d); value =
+                          HTTP status. Expiry retries the URL — never a permanent
+                          blacklist. Same key shape in Hunt's DB 1.
 ```
 DB 5 is shared auth across all stacks (`arc:users` SET, `arc:user:{username}` HASH). It also holds Flask-Limiter rate-limit state under `LIMITS:LIMITER/arc:auth:limiter/*` (per-IP × endpoint, self-TTL'd at the window). Hunt's limiter lives in DB 1 under `LIMITS:LIMITER/hnt:limiter/*`.
 

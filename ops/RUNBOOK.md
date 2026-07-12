@@ -1521,3 +1521,15 @@ proving the decorator still enforces at the swapped storage.
 
 Register line from Wave D — resolved same day. Both stacks now
 have Redis-backed, correctly shared rate limits.
+
+## 2026-07-12 — Source hygiene: negative cache for dead article URLs
+
+Scribe negative-caches article URLs that fail both fetch tiers with
+403/503 (TTL 3 days) or 404 (TTL 7 days) under
+`scribe:dead_url:{sha256[:16]}` (value = HTTP status). Rationale:
+failed fetches previously retried every cycle forever — bloomberg.com
+alone was ~23 wasted fetch-pairs/day on permanent 403s. TTLs, not a
+blacklist: 403/503 can be a lifted bot-wall or recovered server (3d);
+404s rarely come back (7d). 429 and timeouts are deliberately never
+cached (throttling/transient). Mirrored in Huntaegis scribe (DB 1).
+Inspect: `redis-cli -n 0 --scan --pattern 'scribe:dead_url:*'`.
