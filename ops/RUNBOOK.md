@@ -970,6 +970,115 @@ exist. Registered as **R6-phase-4**: run Hunt's corpus_exporter on
 - **Disk cleanup for `/`**: register that root is at 87% used — no
   headroom for another 30 GB unpacking. Separate action.
 
+## 2026-07-11 — Root disk reclaim (87% → 46%)
+
+Triggered by Wave C R6's new `DiskRootFullish` alert threshold (fires
+at 10% free = 90% used) landing next to a root already at 87%. Ran
+Phase 1 diagnosis, categorized reclaim into A/B/C/D with a
+recover-before-delete stance on anything ambiguous, then executed
+the approved subset.
+
+### The story of the missing 212 GB (du vs df)
+
+`du -xh` on root reported 172 GB used; `df` showed 384 GB — a 212 GB
+gap. Root cause: `docker system df` reports **build cache: 180.3 GB,
+119.9 GB reclaimable**, all under root-only `/var/lib/docker/overlay2`
+that `du` cannot traverse without sudo. Ten frontend rebuilds this
+week across arc + hunt accumulated 812 build-cache entries, most of
+them dead. This wave's very first reclaim (A1) removed all 180.3 GB,
+of which 165 GB was on-disk overlay (the rest was virtual
+layer-share double-counting).
+
+### Reclaim results
+
+| # | Item | Reclaimed | Notes |
+|---|---|---:|---|
+| A1 | `docker builder prune -af` | **~165 GB** (df delta of just this step) | Docker reported 180.3 GB total; overlay layer-share means on-disk delta was 165. Both stacks rebuilt clean afterward. |
+| A2 | `apt-get clean` | **0** | needs sudo — skipped, insignificant vs. A1 |
+| A3 | `journalctl --vacuum-size=500M` | **0** | needs sudo — skipped, ~3 GB left on the table |
+| B1 | Explicit `docker image rm` on 4 unreferenced images (nextcloud:latest, owncloud/ocis:latest, lightbox-agent:dev, hello-world:latest) | ~2.7 GB (rolled into A1 delta measurement window) | Pre-checked `docker ps -a --filter ancestor=` per image → zero references before removing. Nextcloud data at `/home/ross/nextcloud_data` unaffected — data lives outside container. |
+| B2 | `docker rm pt-test` (5-week-old exited Ubuntu container) | 87 MB | — |
+| C1 | `rm -rf /home/ross/kernel_build` — May-24 build artifacts for kernels 6.18.30 + 7.0.10 | **13 GB** | Neither kernel is running; deletion satisfies recover-before-delete via reproducibility (`.deb`s can be rebuilt from tarballs; tarballs are re-downloadable from kernel.org). |
+| C2 | `rm -rf /home/ross/src/linux-7.1.1` + `linux-7.1.1.tar` | **7.2 GB** | Same rationale — 7.1.1 not running; same reproducibility argument. |
+| C5 | `pip cache purge` (both venvs) | **5.09 GB** | pip reports "1891 files removed" |
+
+**Hard guard held**: kernel 7.1.3-z230 running from
+`/home/ross/src/linux-7.1.3` — pre-check echoed the path, post-check
+confirmed intact. `linux-7.1.1`, `linux-7.1.1.tar`, `kernel_build`
+gone.
+
+### Verification
+
+- `df -h /`: **87% → 46% used, 62 GB → 242 GB free, Δ 180.6 GiB**.
+  Target was <80%; landed at 46% with 41-point margin.
+- `DiskRootFullish` in Prometheus: no active alerts. Free ratio
+  0.516 (well above the 10% trigger). Threshold **unchanged** at
+  0.10 — the runway is what moved, not the goalpost.
+- Sunday's crons (cold backup 04:00, logrotate 05:00, D1 builder
+  prune 05:30) have plenty of room to run.
+
+### Cold-rebuild expectation (post-A1)
+
+The next `docker compose build frontend` on either stack will be
+**cache-cold** (~3-5 minutes vs. seconds warm). Verified once
+today after A1:
+
+- Arc frontend: **5m 04s** cache-cold, image built to
+  `arc-codex-frontend:latest`, running container untouched.
+- Hunt frontend: **3m 20s** cache-cold, image built to
+  `huntaegis-frontend:latest`, running container untouched.
+
+If a next-week deploy takes 3-5 min at the build step, that is
+expected, not a hang. Subsequent same-day rebuilds return to
+sub-30s once the D1 cache warms.
+
+### Deferred (explicit — one line each)
+
+- **B3** snap disabled revisions (~5 GB across 15 revs) — keep as
+  rollback insurance.
+- **C3** `/home/ross/videocam` 9.2 GB — personal, decision belongs
+  to Ross on Ross's timeline.
+- **C4** `/home/ross/E2938.mp4` 1.3 GB — same.
+- **C6** duplicate Ollama CUDA libs (`/usr/lib/ollama/` vs.
+  `/usr/local/lib/ollama/`) — too risky to guess which install is
+  the real one; stays registered.
+- **C7** Firefox snap `quicksuggest-amp.sql` 2.7 GB — trivial vs.
+  the delta already achieved; skip.
+
+### Growth policies now in force
+
+- **D1** — weekly `docker builder prune -f --filter until=168h` in
+  Ross's crontab (Sunday 05:30, after logrotate 05:00). `-f` but
+  **not** `-a` with the `until` filter — keeps the last 7 days of
+  cache warm so routine same-week deploys stay fast, prunes
+  everything older. This prevents the exact regrowth that took
+  180 GB last time.
+- **D3** — `pip config set global.no-cache-dir true` — written to
+  `~/.config/pip/pip.conf`. Verified via `pip config list`. Prevents
+  regrowth at the source; one less cron to own.
+
+### Register updates (all new)
+
+- **D2** — journald `SystemMaxUse=500M` in
+  `/etc/systemd/journald.conf`. Needs sudo. Currently 3.5 GB;
+  stopgap is a user-run `journalctl --vacuum-size=500M` from a
+  sudo-timed manual pass.
+- **D4** — SSD backup growth watch (arc 445M → 1.2G in 5 days;
+  hunt similar). KEEP=5 in `arc.sh` covers steady-state at
+  ~2 GB/archive × 5 = 10 GB per stack; revisit if it climbs.
+- **D5 — promoted to next-recon priority**: `arc-frontend`
+  container has a **7.55 GB writable layer**. Frontends should
+  be near-zero writable. Anything written inside overlay dies on
+  every container recreate — so if something in there expects
+  persistence, it has been silently losing data all week (with
+  today's gunicorn/caddy_exporter/prometheus restarts and the
+  builds above, some of those writes are already gone). Needs a
+  `docker diff arc-frontend` recon before the next arc-frontend
+  restart. Note: today's builds did NOT restart arc-frontend
+  (build-only path), so whatever is in that layer is still
+  present RIGHT NOW; timing-critical to look at before the next
+  deploy.
+
 ### Bug caught by the very first CI run
 
 CI's first push failed the backend job at pytest with
