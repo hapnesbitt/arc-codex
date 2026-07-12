@@ -1224,3 +1224,143 @@ one stack, loud on the other.
 No other missing production deps found in a sweep of all
 top-level `import`/`from` statements (`fpdf` is used only in
 `makehap.py`, a standalone script not on `main.py`'s graph).
+
+## 2026-07-11 — Register Wave D: auth pass (R12, R10, R16)
+
+Three items closing the register's remaining auth gaps. After this
+wave, everything left is projects (R7/R9/R13) and phase-2s.
+
+### R12 — session review (read-only, informed R10's design)
+
+Full Auth.js v5 audit per ASVS V3. No alarming findings, no
+fix-now items. Both stacks configured identically.
+
+- **Strategy**: JWT (Auth.js v5, encrypted with AUTH_SECRET). Fine.
+- **maxAge**: 30 days. Fine — standard for OAuth consumer apps.
+- **JWT contents**: ONLY `token.sub = providerAccountId`
+  (Google/GitHub public subject). No sensitive data embedded —
+  alarm case ruled out.
+- **Cookie flags** all default: httpOnly true, secure auto-true
+  in prod, sameSite lax. Fine per ASVS V3.4.
+- **Logout**: JWT cookie clear only (client-side). Inherent JWT
+  limitation — **REGISTERED** as R12-logout-limitation, not fixed.
+- **AUTH_SECRET storage**: `frontend/.env.local`. R9 owns lifecycle.
+
+**R10 verification mechanics chosen**: `await auth()` from
+`@/lib/auth` inside a Next.js route handler. Path B (Flask
+reimplementing Auth.js's HKDF-derived JWE encryption) rejected
+as fragile. Path A already IS the house convention
+(`submit_content/route.ts:26`).
+
+### R10 — upload_image auth (both stacks)
+
+Q2 deferral from the health audit — now closed.
+
+**Trust path chosen**: X-User-Id header (house pattern), NOT
+scribe-secret. Reason: submit/submit_content/submit_prompt/
+submit_comment all use `X-User-Id: session?.user?.id`. This is
+the already-hardened trust boundary; scribe-secret is for
+service-to-service (bluesky poster etc.), not user-authored
+uploads.
+
+**Caddy strip verified** on both vhosts: the arc-codex and
+huntaegis `handle /api/*` blocks explicitly
+`request_header -X-User-Id`. External clients cannot forge it.
+No new strip needed on the new `handle /api/upload_image`
+block since the Next.js proxy makes its own auth decision and
+sets X-User-Id itself, ignoring any incoming value.
+
+**Implementation**:
+- New `frontend/app/api/upload_image/route.ts` (both stacks) —
+  mirrors `submit_content/route.ts` (auth() → arc:users fallback
+  → 401 → forward multipart formData with X-User-Id).
+- `main.py:upload_image` (both stacks) rejects 401 when X-User-Id
+  absent, BEFORE the concurrency semaphore. Auth PLUS rate limit.
+- Caddyfile: `handle /api/upload_image { reverse_proxy
+  localhost:3000 }` (arc) / `localhost:3002` (hunt), inserted
+  BEFORE the `/api/*` catch-all. `caddy adapt --validate` clean.
+- Publish page `fetch('/api/upload_image', ...)` needed **no code
+  change** — the URL is identical, only Caddy routing target moved.
+
+**Verified** (four paths):
+
+| Test | Result |
+|---|---|
+| T1: public curl, no session → 401 | ✅ 401 |
+| T2: public curl with forged X-User-Id → 401 | ✅ 401 (proxy ignores incoming) |
+| T3: localhost:5005 direct, no header → 401 | ✅ 401 (Flask gate) |
+| T4: localhost:5005 direct with X-User-Id → past auth | ✅ 400 (empty body) |
+
+Log line: `⚠️ Unauthorized upload_image attempt (X-User-Id absent)`
+— presence/absence only, Q4 respected.
+
+**Hunt parity**: identical NextAuth config, identical publish
+page, identical endpoint — same fix landed.
+
+### R16 — reaction rate limit
+
+**Real-IP verdict — WORKS, not a finding.** `main.py:78`:
+`ProxyFix(x_for=1, x_proto=1, x_host=1)`. `get_remote_address()`
+reflects the real client IP behind Caddy. Worth writing down so
+future per-IP controls don't reinvent it.
+
+**Fix**: `@limiter.limit("30/hour", key_func=get_remote_address)`
+decorator on `/api/comment/<comment_id>/react` (both stacks).
+Mirrors the `submit_comment` reference case. 30/hour is generous
+for humans, ruinous for scripts. Reactions annotate, they don't
+gate — this limit protects counter integrity, not safety.
+
+**Verified**: HTTP/1.1 keepalive burst of 35 to same worker →
+27 × 200 then 8 × 429 (the 27 is because prior tests had
+already consumed 3 slots on that worker; math checks to
+30/hour per worker).
+
+### Real bug uncovered by R16's smoke test — REGISTERED, not fixed
+
+Following the behavior guard: a smoke test found a real
+pre-existing bug, worth its own line before R16 ships.
+
+**Bug**: **Flask-Limiter 4.1.1's storage is fixed at Limiter
+constructor time** (`storage_uri="memory://"` in `auth.py:58`)
+and `init_app()` does NOT swap it. Introspection confirms
+`type(limiter._storage) == MemoryStorage` after `init_auth()`
+completes, despite `RATELIMIT_STORAGE_URI` being set correctly
+on the app config. Consequence: every rate-limited endpoint
+(`submit_comment`, now `react`) enforces per gunicorn worker,
+not globally — effective global limit ≈ N × stated at
+`--workers 20`.
+
+- Impact for R16: 30/hour × 20 workers ≈ 600/hour effective
+  global. Still ruinous for a scraper's keepalive burst path
+  (hits 429 within its own worker fast), so R16 delivers its
+  spec's intent even under this bug.
+- Impact for `submit_comment`: same math. Has been the house
+  state for a long time — R16 just made it visible.
+- **R16-followup NEW** — fix Flask-Limiter storage wiring so
+  limits are shared across workers. Options: construct Limiter
+  with the Redis URI at import time (secret not yet available),
+  or swap `limiter.storage` post-init (undocumented), or upgrade
+  Limiter to an API version that respects init_app storage
+  changes. Priority MEDIUM.
+
+### Smoke suite grows (R1 phase 1)
+
+9 → 11 tests, all green in ~60 ms. New tests:
+- `test_upload_image_401_without_x_user_id` — R10 gate.
+- `test_react_rate_limit_burst_31` — R16 gate.
+
+conftest.py now runs `limiter.init_app(app)` because the
+decorator's ENFORCE path only fires post-init. Documented in the
+conftest so future-us doesn't wonder.
+
+### Wave D followup register (all new)
+
+- **R12-logout-limitation** — JWT strategy has no server-side
+  session invalidation. Documented, not a bug. Fix would need a
+  revocation list (Redis `arc:auth:revoked:<jti>` checked on
+  every session read) — separate wave if we ever need it.
+- **R16-followup** — Flask-Limiter storage wiring (per above).
+- **R10-hardening (optional)** — add
+  `request_header -X-User-Id` on the new `handle /api/upload_image`
+  Caddyfile block as belt-and-suspenders. Not urgent; the Next
+  proxy already ignores incoming X-User-Id.

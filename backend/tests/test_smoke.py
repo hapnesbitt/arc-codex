@@ -181,3 +181,46 @@ def test_post_bluesky_403_with_wrong_secret(client):
         json={"article_id": "x"},
     )
     assert resp.status_code == 403
+
+
+# ============================================================================
+# /api/upload_image — Wave D R10 auth gate (X-User-Id required)
+# ============================================================================
+
+def test_upload_image_401_without_x_user_id(client):
+    resp = client.post("/api/upload_image", data={})
+    assert resp.status_code == 401
+    assert resp.get_json() == {"error": "Unauthorized"}
+
+
+# ============================================================================
+# /api/comment/<id>/react — Wave D R16 per-IP rate limit
+# ============================================================================
+
+def test_react_rate_limit_burst_31(client, monkeypatch):
+    # Full Redis surface used by the endpoint — mock so we don't touch prod.
+    fake_r = MagicMock()
+    fake_r.hincrby.return_value = 1
+    fake_r.hgetall.return_value = {}
+    monkeypatch.setattr(main, "r", fake_r)
+
+    # Reset the limiter's storage for this key so a prior test doesn't skew
+    # the count. Flask-Limiter storage is Redis in prod but memory:// in the
+    # test process (init_auth not called by conftest); use its internal API
+    # to clear anything leftover.
+    try:
+        main.limiter.reset()
+    except Exception:
+        pass
+
+    hits = []
+    for i in range(31):
+        resp = client.post(
+            "/api/comment/abc123/react",
+            json={"reaction": "like", "action": "add"},
+        )
+        hits.append(resp.status_code)
+
+    # 30/hour → first 30 succeed, 31st is throttled
+    assert hits[:30] == [200] * 30, f"unexpected pre-limit statuses: {set(hits[:30])}"
+    assert hits[30] == 429

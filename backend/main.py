@@ -1004,6 +1004,14 @@ def submit_comment():
 VALID_REACTIONS = {'like', 'dislike', 'heart', 'happy', 'care'}
 
 @app.route('/api/comment/<comment_id>/react', methods=['POST'])
+# Wave D R16 (2026-07-11): per-IP rate limit. Reactions come via client-side
+# browser fetch through Caddy /api/* → Flask directly, so get_remote_address()
+# reflects the real client IP (ProxyFix installed at main.py:78). Doctrine:
+# reactions annotate, they do not gate — this limit protects counter integrity
+# against curl loops, not user safety. 30/hour is generous for humans and
+# ruinous for scripts. Flask-Limiter with the Redis storage that init_auth()
+# wires up implements this as INCR+EXPIRE on ratelimit:...:<ip> in DB 5.
+@limiter.limit("30/hour", key_func=get_remote_address)
 def react_to_comment(comment_id):
     """Toggle a reaction on a comment. Increments or decrements the count."""
     if not r:

@@ -21,6 +21,14 @@ os.environ.setdefault("SCRIBE_SECRET_KEY", "test-scribe-secret")
 import pytest
 import main as arc_main
 
+# Wave D R16 (2026-07-11): Flask-Limiter decorators on endpoints are only
+# ENFORCED after limiter.init_app(app) runs. Production does that via
+# init_auth(), which needs a live Redis. In tests we skip auth's Redis
+# wiring, so the limiter's default in-memory storage stays and we init the
+# limiter here directly — enough to make @limiter.limit fire.
+from auth import limiter as _test_limiter
+_test_limiter.init_app(arc_main.app)
+
 
 @pytest.fixture
 def app():
