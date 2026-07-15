@@ -3,6 +3,49 @@
 Records host-level changes that live outside git (redis.conf, fstab, sysctl),
 so the repo history stays the single narrative of what changed and why.
 
+## 2026-07-15 — scribe cloud-budget knobs (both stacks)
+
+Two `backend/scribe.py` constants are load-bearing for weekly cloud spend
+on `gemma4:31b-cloud`. **Do NOT revert either of these back to earlier
+"default" values without checking the weekly allowance dashboard first.**
+
+### `CYCLE_MINUTES = 69` (both stacks)
+
+Sweep cadence. Each sweep issues cloud calls per candidate (sentinel +
+counter-analyst pre-publish, both routed via `call_ollama_local_only`
+which falls through to cloud on local unavailability). Prior aggressive
+value of `1` was burning through the weekly gemma4 allowance well before
+reset. 69m is prime-adjacent and decoupled between Arc and Hunt so the
+two stacks don't sync-fire cloud calls.
+
+- Landed: arc a0cb52d, hunt e1a45aa (2026-07-15)
+- If cloud spend regresses: check this constant BEFORE assuming a new
+  code-path caused it. The "chosen 2026-06" comment on the prior value
+  described the OLD cadence; do not restore it.
+
+### `MAX_CONCURRENT_ANALYZERS = 10` (arc only; hunt kept at 2)
+
+Local-only NLP concurrency for `api_client.pre_analyze` →
+Flask `/api/pre_analyze` (spaCy/VADER/textstat/textblob). **Does NOT
+touch cloud** — Flask caps actual parallelism at 2 via
+`_pre_analyze_sem = Semaphore(2)`; threads above that hit 429 (1s wait)
+and fall through to `{'sentiment': 0.0}`. Bumped to 10 for parity with
+sweep shape; harmless to budget. See scribe.py:1878 for the executor.
+
+- Landed: arc a0cb52d (2026-07-15). Hunt kept at 2 — no reason to churn.
+
+### Verification (2026-07-15 trace)
+
+- `MAX_CONCURRENT_ANALYZERS` used only at scribe.py:1878 in a
+  ThreadPoolExecutor dispatching to `api_client.pre_analyze`.
+- `api_client.pre_analyze` (scribe.py:1300) POSTs to Flask
+  `/api/pre_analyze` (main.py:1158) which does local NLP only.
+- Cloud paths (`call_ollama_local_only` for sentinel + CA at
+  scribe.py:1401/1460) are per-candidate serial within a sweep, not
+  fanned by this executor. Cloud spend scales with `CYCLE_MINUTES`,
+  not `MAX_CONCURRENT_ANALYZERS`.
+
+
 ## 2026-07-09 — Cecil retired (audit findings #1, #2)
 
 **Motivation**: 2026-07-09 security audit found the Cecil email-to-publish
