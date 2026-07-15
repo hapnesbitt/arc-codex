@@ -50,7 +50,13 @@ from fetch_utils import (
 )
 import trafilatura
 
-logger = logging.getLogger(__name__)
+# Log to scribe's logger so INFO lines (browser launches, fetch counters,
+# RSS instrumentation, zombie kills) land in scribe.log alongside its own
+# events. Standalone callers (Flask, smoke tests) still get output via
+# root logger fallback. Fall back to __name__ if 'scribe' isn't registered.
+logger = logging.getLogger("scribe")
+if not logger.handlers:
+    logger = logging.getLogger(__name__)
 
 # --- Config ------------------------------------------------------------------
 
