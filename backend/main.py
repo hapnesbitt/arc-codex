@@ -616,17 +616,10 @@ def get_single_article(article_id):
     try:
         redis_start = time.perf_counter()
         article_data = r.hgetall(f"article:{article_id}")
-        if not article_data:
-            article_ids = r.zrevrange('feed', 0, -1)
-            for aid in article_ids:
-                temp_data = r.hgetall(f"article:{aid}")
-                if (temp_data.get('slug') == article_id or temp_data.get('id') == article_id or aid == article_id):
-                    article_data = temp_data
-                    break
         redis_duration = (time.perf_counter() - redis_start) * 1000
-        
+
         if not article_data:
-            app.logger.warning(f"⚠️  Article not found: {article_id}")
+            app.logger.debug(f"Article not found: {article_id}")
             return jsonify({'error': 'Article not found'}), 404
         
         try:
