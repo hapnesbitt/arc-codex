@@ -30,6 +30,7 @@ import urllib.error
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 import redis
+from comment_utils import get_counter_analyst_comment
 
 load_dotenv()
 
@@ -123,27 +124,7 @@ def post_to_linkedin(title: str, comment: str, article_id: str) -> bool:
 # REDIS HELPERS
 # ==============================================================================
 
-def get_counter_analyst_comment(r: redis.Redis, article_id: str) -> str | None:
-    """Fetch the Counter-Analyst comment for an article.
-    Comments list stores UUIDs; actual data is in comment:{uuid} hashes.
-    """
-    try:
-        comment_ids = r.lrange(f"comments:{article_id}", 0, -1)
-        for cid in comment_ids:
-            cid_str = cid.decode() if isinstance(cid, bytes) else cid
-            data = r.hgetall(f"comment:{cid_str}")
-            if not data:
-                continue
-            decoded = {k.decode(): v.decode() for k, v in data.items()}
-            if decoded.get("author") == "A.R.C. Counter-Analyst":
-                text = decoded.get("text", "")
-                # Normalize "The article" -> "This article"
-                if text.lower().startswith("the article"):
-                    text = "This article" + text[11:]
-                return text
-    except Exception as e:
-        log.warning(f"Could not fetch comments for {article_id}: {e}")
-    return None
+# get_counter_analyst_comment now lives in comment_utils (shared by all posters).
 
 
 def get_article(r: redis.Redis, article_id: str) -> dict | None:
@@ -261,14 +242,9 @@ def main():
                     log.warning(f"Article {article_id} has no title — skipping")
                     continue
 
-                # Wait for Counter-Analyst comment (posted async after article)
-                comment = None
-                for attempt in range(12):  # up to 60s
-                    comment = get_counter_analyst_comment(r, article_id)
-                    if comment:
-                        break
-                    log.info(f"⏳ Waiting for Counter-Analyst comment on {article_id[:12]}... ({attempt+1}/12)")
-                    time.sleep(5)
+                # Counter-Analyst is normally already present; shared reader
+                # polls up to 20s as a safety net (was a 60s caller loop here).
+                comment = get_counter_analyst_comment(r, article_id, wait_seconds=20)
 
                 if not comment:
                     # Fallback to purple team excerpt

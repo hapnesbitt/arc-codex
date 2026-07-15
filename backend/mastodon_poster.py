@@ -34,7 +34,7 @@ REDIS_URL            = os.environ['REDIS_URL']
 ARTICLE_BASE_URL     = os.getenv("NEXT_PUBLIC_BACKEND_URL", "https://arc-codex.com")
 
 POLL_INTERVAL  = 15          # seconds between Redis scans
-CA_WAIT        = 60          # seconds to wait for counter-analyst comment
+CA_WAIT        = 20          # seconds to wait for counter-analyst comment
 POLL_KEY       = "mastodon:autopost"
 POSTED_SET     = "mastodon:posted"
 MAX_CHARS      = 500         # Mastodon default character limit
@@ -53,6 +53,7 @@ log = logging.getLogger("mastodon_poster")
 
 # ── Redis ──────────────────────────────────────────────────────────────────────
 import redis as redis_lib
+from comment_utils import get_counter_analyst_comment
 
 def make_redis():
     return redis_lib.from_url(REDIS_URL, decode_responses=True)
@@ -158,27 +159,6 @@ def get_article(article_id: str) -> dict | None:
         log.error("Redis hgetall %s: %s", article_id, exc)
         return None
 
-def get_counter_analyst_comment(article_id: str, wait: bool = True) -> str | None:
-    deadline = time.time() + (CA_WAIT if wait else 0)
-    while True:
-        try:
-            raw = r.lrange(f"comments:{article_id}", 0, -1)
-            for item in raw:
-                try:
-                    c = json.loads(item)
-                    if c.get("author") == "A.R.C. Counter-Analyst":
-                        body = c.get("body", "")
-                        if body.startswith("The article"):
-                            body = "This article" + body[len("The article"):]
-                        return body
-                except json.JSONDecodeError:
-                    continue
-        except Exception as exc:
-            log.error("Redis lrange comments:%s: %s", article_id, exc)
-
-        if time.time() >= deadline:
-            return None
-        time.sleep(5)
 
 def build_post_text(article: dict, comment: str | None) -> tuple[str, str]:
     """Returns (post_text, article_url)."""
@@ -244,7 +224,7 @@ def main():
                     r.sadd(POSTED_SET, article_id)
                     continue
 
-                comment = get_counter_analyst_comment(article_id, wait=True)
+                comment = get_counter_analyst_comment(r, article_id, wait_seconds=CA_WAIT)
                 if not comment:
                     log.warning("No counter-analyst for %s after %ds — using purple excerpt",
                                 article_id, CA_WAIT)

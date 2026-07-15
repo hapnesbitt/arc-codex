@@ -59,7 +59,7 @@ DEFAULT_IMAGE    = f"{ARTICLE_BASE_URL}/uploads/arc-codex-default.jpg"
 POLL_INTERVAL = 15          # seconds between Redis scans
 JITTER_MIN    = 30          # seconds
 JITTER_MAX    = 180
-CA_WAIT       = 60          # seconds to wait for counter-analyst comment
+CA_WAIT       = 20          # seconds to wait for counter-analyst comment
 POLL_KEY      = "facebook:autopost"
 POSTED_SET    = "facebook:posted"
 COOLDOWN_KEY  = "facebook:rate_limit_cooldown"
@@ -81,6 +81,7 @@ log = logging.getLogger("facebook_poster")
 
 # ── Redis ──────────────────────────────────────────────────────────────────────
 import redis as redis_lib
+from comment_utils import get_counter_analyst_comment
 
 def make_redis():
     return redis_lib.from_url(REDIS_URL, decode_responses=True)
@@ -309,27 +310,6 @@ def get_article(article_id: str) -> dict | None:
         return None
 
 
-def get_counter_analyst_comment(article_id: str, wait: bool = True) -> str | None:
-    deadline = time.time() + (CA_WAIT if wait else 0)
-    while True:
-        try:
-            raw = r.lrange(f"comments:{article_id}", 0, -1)
-            for item in raw:
-                try:
-                    c = json.loads(item)
-                    if c.get("author") == "A.R.C. Counter-Analyst":
-                        body = c.get("body", "")
-                        if body.startswith("The article"):
-                            body = "This article" + body[len("The article"):]
-                        return body
-                except json.JSONDecodeError:
-                    continue
-        except Exception as exc:
-            log.error("Redis lrange comments:%s: %s", article_id, exc)
-
-        if time.time() >= deadline:
-            return None
-        time.sleep(5)
 
 
 def build_post_text(article: dict, comment: str | None) -> tuple[str, str]:
@@ -440,7 +420,7 @@ def main():
                 log.info("New article %s — waiting %ds before posting", article_id, jitter)
                 time.sleep(jitter)
 
-                comment = get_counter_analyst_comment(article_id, wait=True)
+                comment = get_counter_analyst_comment(r, article_id, wait_seconds=CA_WAIT)
                 if not comment:
                     log.warning("No counter-analyst for %s after %ds — using purple excerpt",
                                 article_id, CA_WAIT)

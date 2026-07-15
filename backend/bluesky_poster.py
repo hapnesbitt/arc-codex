@@ -47,7 +47,7 @@ SESSION_KEY    = os.getenv("BLUESKY_SESSION_KEY", "arc:bluesky_session")
 POLL_INTERVAL  = 15          # seconds between Redis scans
 JITTER_MIN     = 0
 JITTER_MAX     = 0
-CA_WAIT        = 60          # seconds to wait for counter-analyst comment
+CA_WAIT        = 20          # seconds to wait for counter-analyst comment
 POLL_KEY       = "bluesky:autopost"
 POSTED_SET     = "bluesky:posted"
 
@@ -67,6 +67,7 @@ log = logging.getLogger("bluesky_poster")
 
 # ── Redis ──────────────────────────────────────────────────────────────────────
 import redis as redis_lib
+from comment_utils import get_counter_analyst_comment
 
 def make_redis():
     return redis_lib.from_url(REDIS_URL, decode_responses=True)
@@ -324,27 +325,6 @@ def get_article(article_id: str) -> dict | None:
         log.error("Redis hgetall %s: %s", article_id, exc)
         return None
 
-def get_counter_analyst_comment(article_id: str, wait: bool = True) -> str | None:
-    deadline = time.time() + (CA_WAIT if wait else 0)
-    while True:
-        try:
-            raw = r.lrange(f"comments:{article_id}", 0, -1)
-            for item in raw:
-                try:
-                    c = json.loads(item)
-                    if c.get("author") == "A.R.C. Counter-Analyst":
-                        body = c.get("body", "")
-                        if body.startswith("The article"):
-                            body = "This article" + body[len("The article"):]
-                        return body
-                except json.JSONDecodeError:
-                    continue
-        except Exception as exc:
-            log.error("Redis lrange comments:%s: %s", article_id, exc)
-
-        if time.time() >= deadline:
-            return None
-        time.sleep(5)
 
 def build_post_text(article: dict, comment: str | None) -> tuple[str, str]:
     """Returns (post_text, article_url). URL is NOT in post_text — embed card handles it."""
@@ -441,7 +421,7 @@ def main():
                 log.info("New article %s — waiting %ds before posting", article_id, jitter)
                 time.sleep(jitter)
 
-                comment = get_counter_analyst_comment(article_id, wait=True)
+                comment = get_counter_analyst_comment(r, article_id, wait_seconds=CA_WAIT)
                 if not comment:
                     log.warning("No counter-analyst for %s after %ds — using purple excerpt",
                                 article_id, CA_WAIT)
