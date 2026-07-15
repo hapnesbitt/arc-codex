@@ -234,29 +234,29 @@ admin:
 
   ollama:
     host: "http://192.168.1.185:11434"
-    architecture: "ALL inference on M1 — Z230 never used for inference"
-    primary: "devstral-2:123b-cloud (weekly credit limit — 429 on exhaustion)"
-    fallback1: "mistral:7b (local on M1 — better JSON compliance than gemma3)"
-    fallback2: "llama3.2:latest (local on M1 — last resort)"
-    env_vars: "OLLAMA_CLOUD_MODEL, OLLAMA_LOCAL_FALLBACK, OLLAMA_LOCAL_FALLBACK2"
-    translation_model: "MedAIBase/TranslateGemma:4b (M1, 7.8GB F16 — /api/chat required)"
+    architecture: "ALL inference on M1 — Z230 never used for inference (council local tier drains on Z230 spare cycles as of 2026-07 shed-and-yield)"
+    # 2026-07-15 refresh — devstral-2/qwen3-coder/mistral:7b/llama3.2 all
+    # retired; sole cloud model is gemma4:31b, sole local is gemma4:e2b.
+    primary: "gemma4:31b-cloud (weekly credit limit — 429 on exhaustion)"
+    fallback: "gemma4:e2b (only local model; no local-to-local fallback per fleet policy 2026-07-01)"
+    env_vars: "OLLAMA_CLOUD_MODEL, OLLAMA_LOCAL_FALLBACK (OLLAMA_LOCAL_FALLBACK2 retired 2026-07-01)"
+    translation_model: "routes through call_ollama_with_fallback — dedicated TranslateGemma endpoint retired 2026-05-06, model removed from M1 2026-07-01"
     translation_fields_local: "[title, original_text] — 2 fields, speed constraint"
     translation_fields_pro: "[title, original_text, red_team_analysis, blue_team_analysis, purple_team_analysis]"
     benchmark: |
       arc_benchmark.py v3.0 — labeled runs, persistent compare file arc_benchmark_compare.json
-      Results Mar 24 2026:
-        devstral-2:123b-cloud   composite=0.948  time=4.3s   eff=0.2189  ← WINNER
+      HISTORICAL results Mar 24 2026 (SUPERSEDED by cloud model migration
+      to gemma4:31b; results kept for archaeology only, do not act on them):
+        devstral-2:123b-cloud   composite=0.948  time=4.3s   eff=0.2189
         nemotron-3-super:cloud  composite=0.944  time=36.1s  eff=0.0261
         qwen3.5:397b-cloud      composite=0.907  time=37.4s  eff=0.0242
-      Verdict: devstral-2 stays. Best free cloud model for ARC analysis pipeline.
+      All three benchmarked models retired 2026-07-15. Current cloud
+      selection (gemma4:31b) was chosen for cloud→local family
+      consistency, not on this benchmark — see CLAUDE.md.
       API uses /api/chat not /api/generate for newer models.
     m1_models: |
-      devstral-2:123b-cloud  (cloud)
-      nemotron-3-super:cloud (cloud — benchmarked)
-      qwen3.5:397b-cloud     (cloud — benchmarked)
-      mistral:7b             (local fallback1)
-      llama3.2:latest        (local fallback2)
-      MedAIBase/TranslateGemma:4b (translation)
+      gemma4:31b-cloud  (cloud — sole model)
+      gemma4:e2b        (local — sole fallback)
     fallback_resilience: |
       _repair_sentinel_json() has 5 recovery strategies + prose fallback:
       If all JSON parsing fails but response len > 50 chars, returns UNCERTAIN verdict.
@@ -313,7 +313,7 @@ developer:
     frontend: "Next.js 16.1.6 / React 19 / TypeScript / Tailwind CSS / shadcn-ui"
     database: Redis
     search: "Apache Solr — core: feeds, ~3800+ docs. Fields: category, source_lang, original_text."
-    ai: "Ollama on M1 — devstral-2:123b-cloud → mistral:7b → llama3.2:latest (3-tier fallback)"
+    ai: "Ollama on M1 — gemma4:31b-cloud → gemma4:e2b (2-tier, no local-to-local; refresh 2026-07-15)"
     auth: "Auth.js v5 (next-auth@5.0.0-beta.30) — Google + GitHub OAuth, JWT sessions"
     reverse_proxy: Caddy
 
@@ -335,7 +335,7 @@ developer:
     │   ├── manual_publisher.py        # v5.1
     │   ├── stream_consumer.py         # v1.0
     │   ├── mailer.py                  # v1.0 ACTIVE — alerts + digest, 4h cooldown
-    │   ├── ollama_utils.py            # 3-tier fallback: devstral→mistral:7b→llama3.2
+    │   ├── ollama_utils.py            # 2-tier fallback: gemma4:31b-cloud → gemma4:e2b (local)
     │   ├── bluesky_poster.py          # v1.3 — zrange feed, url field direct
     │   ├── mastodon_poster.py         # v1.1 — zrange feed, write:media fixed
     │   ├── threads_poster.py          # v1.0 READY — needs .env tokens
@@ -344,7 +344,7 @@ developer:
     │   ├── arc_benchmark.py           # v3.0 — labeled runs, compare file, --compare flag
     │   ├── stream_utils.py
     │   ├── rss_feed.py                # Arc Codex branded
-    │   ├── translation.py             # TranslateGemma:4b via /api/chat
+    │   ├── translation.py             # routes through call_ollama_with_fallback (TranslateGemma retired 2026-05-06)
     │   ├── user_prefs.py              # loopback-only security
     │   ├── prompts.yaml               # v6.2
     │   ├── directives.json            # v2.0 — 941 lines, 21 directives
@@ -439,7 +439,7 @@ developer:
     translation:  "translation:{article_id}:{lang} JSON TTL 24h — {title, original_text, rtl} (local) or 5-field (pro)"
     user_sso:     "user:{google_sub} hash — email, name, picture, preferred_lang, created_at, last_seen"
     stream:       "analysis:pending Redis Stream / consumer group: analysis_workers"
-    trans_lock:   "translation:active TTL 300s — held while TranslateGemma running"
+    trans_lock:   "translation:active TTL 300s — held while a translation job is running (was TranslateGemma-specific pre-2026-05-06)"
     mailer_dedup: "mailer:alerted:{key} TTL 14400s (4h)"
     mailer_digest: "mailer:digest:{YYYY-MM-DD} TTL 90000s"
     last_publish: "arc:last_publish — ISO UTC timestamp set by scribe on every publish"
@@ -456,18 +456,18 @@ developer:
     backend_internal_url: "BOTH route.ts and auth.ts use BACKEND_INTERNAL_URL=http://localhost:5005 for all server-side Flask calls. NEXT_PUBLIC_ is browser only. NEVER use NEXT_PUBLIC_BACKEND_URL for server-side — it routes through Caddy/WAN and the loopback guard in user_prefs.py will 403 it."
 
   ai_notes:
-    ollama_api: "Use /api/chat not /api/generate for newer cloud models (qwen3.5, nemotron). devstral-2 supports both."
+    ollama_api: "Use /api/chat not /api/generate for gemma4:31b-cloud."
     ollama_return: "call_ollama_with_fallback() returns TUPLE (text, duration_ms, model). Use result[0] for text."
-    ollama_fallback_chain: "devstral-2:123b-cloud → mistral:7b → llama3.2:latest. Configure via OLLAMA_LOCAL_FALLBACK and OLLAMA_LOCAL_FALLBACK2 in .env."
+    ollama_fallback_chain: "gemma4:31b-cloud → gemma4:e2b (local). No third tier. Configure via OLLAMA_CLOUD_MODEL and OLLAMA_LOCAL_FALLBACK in .env; OLLAMA_LOCAL_FALLBACK2 retired 2026-07-01."
     sentinel_resilience: |
       _repair_sentinel_json() tries 5 recovery strategies.
       Final fallback: if model returned prose (no JSON braces), returns UNCERTAIN with summary note.
       run_sentinel_analysis(): missing required keys filled with defaults, not None.
       Net: Sentinel never silently fails — always produces a result.
     translation_danger: "NEVER auto-translate on feed mount — 33 cards x Ollama = gunicorn starvation. Click-only."
-    translation_model: "TranslateGemma:4b needs /api/chat (NOT /api/generate), ISO 639-1 codes, system preamble, temp 0.2"
+    translation_model: "Routes through call_ollama_with_fallback (TranslateGemma retired 2026-05-06). /api/chat, ISO 639-1 codes, system preamble, temp 0.2."
     translation_lock: "translation.py sets Redis translation:active. ollama_utils waits up to 60s before analysis calls."
-    translation_fields: "Local = [title, original_text] only. Pro (devstral) = all 5 fields."
+    translation_fields: "Local = [title, original_text] only. Pro = all 5 fields."
     counter_analyst_author: "Must be exactly 'A.R.C. Counter-Analyst' — frontend styling depends on exact string"
     sentinel_fatal: false
     counter_analyst_fatal: false
@@ -637,8 +637,8 @@ developer:
         translation.py only sees article hash fields — comment fetch not implemented.
         Known gap: counter-analyst comment displays in original language during translation.
     verified: "Mar 9, 2026 — Telugu translation confirmed working for all 5 prose fields"
-    model_local: "TranslateGemma:4b on M1 — title + original_text"
-    model_pro: "devstral fallback — analysis fields if TranslateGemma fails"
+    model_local: "call_ollama_with_fallback local tier — title + original_text (TranslateGemma retired 2026-05-06)"
+    model_pro: "call_ollama_with_fallback cloud tier (gemma4:31b) — all 5 fields"
     default: "TRANSLATABLE_FIELDS_PRO — all 5 fields always attempted"
 
   seo_discovery_layer: |
