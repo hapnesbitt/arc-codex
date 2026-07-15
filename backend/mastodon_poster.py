@@ -34,7 +34,11 @@ REDIS_URL            = os.environ['REDIS_URL']
 ARTICLE_BASE_URL     = os.getenv("NEXT_PUBLIC_BACKEND_URL", "https://arc-codex.com")
 
 POLL_INTERVAL  = 15          # seconds between Redis scans
-CA_WAIT        = 20          # seconds to wait for counter-analyst comment
+CA_WAIT        = 120         # seconds to wait for counter-analyst comment
+                             # Floor, not ceiling — CA generation is async
+                             # (shed-and-yield tiering, ~72s measured, may
+                             # exceed 120s under load). Real fix: event-
+                             # driven posting (see ops/RUNBOOK.md 2026-07-15).
 POLL_KEY       = "mastodon:autopost"
 POSTED_SET     = "mastodon:posted"
 MAX_CHARS      = 500         # Mastodon default character limit

@@ -59,7 +59,11 @@ DEFAULT_IMAGE    = f"{ARTICLE_BASE_URL}/uploads/arc-codex-default.jpg"
 POLL_INTERVAL = 15          # seconds between Redis scans
 JITTER_MIN    = 30          # seconds
 JITTER_MAX    = 180
-CA_WAIT       = 20          # seconds to wait for counter-analyst comment
+CA_WAIT       = 120         # seconds to wait for counter-analyst comment
+                            # Floor, not ceiling — CA generation is async
+                            # (shed-and-yield tiering, ~72s measured, may
+                            # exceed 120s under load). Real fix: event-
+                            # driven posting (see ops/RUNBOOK.md 2026-07-15).
 POLL_KEY      = "facebook:autopost"
 POSTED_SET    = "facebook:posted"
 COOLDOWN_KEY  = "facebook:rate_limit_cooldown"

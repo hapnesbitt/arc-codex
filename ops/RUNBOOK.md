@@ -3,6 +3,59 @@
 Records host-level changes that live outside git (redis.conf, fstab, sysctl),
 so the repo history stays the single narrative of what changed and why.
 
+## 2026-07-15 — CA_WAIT 20s → 120s: coupling bug between shed-and-yield and the poster fix
+
+Sunday landed two workstreams the same day whose assumptions diverged
+under the current pipeline:
+
+1. **Poster fix (a65cc98 / 72fb8f1)** — shared `comment_utils.py`
+   reader; also reduced CA_WAIT 60s → 20s on the premise "scribe seeds
+   the CA at publish, so 20s is enough."
+2. **Shed-and-yield (52e83bf / 24ce1d2 / 171cd75 / c642531)** — council
+   local-tier CA generation rehomed M1 → Z230 spare-cycles. Made CA
+   generation ASYNCHRONOUS relative to publish (drains from a queue on
+   available cycles), not synchronous at publish.
+
+The two together give a coupling bug: the poster asks "is the CA there
+yet?" 20s after publish, but the CA now arrives whenever the Z230 spare-
+cycle drain reaches it. First measured example this morning:
+
+    11:32:39 UTC — article published to feed
+    11:32:49 UTC — bluesky_poster starts polling for CA
+    11:33:09 UTC — bluesky gives up (20s window) → posts purple excerpt
+    11:33:13 UTC — mastodon gives up too, same reason
+    11:34:21 UTC — CA finally lands (72s after publish)
+
+Landed: 120s CA_WAIT on both stacks (arc `<pending>`, hunt `<pending>`).
+Doubles the highest measured value as a safety margin. **120s is a
+FLOOR, not a ceiling** — 72s was on a quiet pipeline; under council
+yielding + backlog, CA generation can and will exceed 120s. Some posts
+will continue to fall back to the purple excerpt. That is expected under
+this architecture, not a regression.
+
+### Real fix: event-driven posting (REGISTERED, not built)
+
+The right fix removes the timing coupling entirely rather than tuning
+around it:
+
+- CA generation, on completion (inside analyzer.py / the shed-and-yield
+  drainer), enqueues the article ID to a `posters:ready` LIST (or Redis
+  Streams entry, one per channel).
+- `bluesky_poster` / `mastodon_poster` / `facebook_poster` block on
+  BLPOP of that queue instead of polling `feed` + waiting on CA.
+- Removes `CA_WAIT` from every poster (constant + call sites + doc).
+- Publisher path stays untouched — "publish like greased lightning"
+  still applies; the poster just waits on the CA-ready signal instead
+  of doing a busy-wait.
+
+Benefits: works at any CA latency (60s, 120s, 600s under load), zero
+false-negative fallbacks, no wasted hgetall polls, and posts land
+promptly the moment CA is ready. Supersedes CA_WAIT tuning permanently.
+
+Not scheduled — noted here so future-me (or a fresh session) can pick
+this up without re-diagnosing the coupling. Until then, CA_WAIT tuning
+is the escape valve.
+
 ## 2026-07-15 — LinkedIn poster + OAuth retired (both stacks)
 
 Owner no longer has a LinkedIn account. Retired the channel end-to-end

@@ -47,7 +47,11 @@ SESSION_KEY    = os.getenv("BLUESKY_SESSION_KEY", "arc:bluesky_session")
 POLL_INTERVAL  = 15          # seconds between Redis scans
 JITTER_MIN     = 0
 JITTER_MAX     = 0
-CA_WAIT        = 20          # seconds to wait for counter-analyst comment
+CA_WAIT        = 120         # seconds to wait for counter-analyst comment
+                             # Floor, not ceiling — CA generation is async
+                             # (shed-and-yield tiering, ~72s measured, may
+                             # exceed 120s under load). Real fix: event-
+                             # driven posting (see ops/RUNBOOK.md 2026-07-15).
 POLL_KEY       = "bluesky:autopost"
 POSTED_SET     = "bluesky:posted"
 
