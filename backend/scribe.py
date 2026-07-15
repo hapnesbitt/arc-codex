@@ -1012,7 +1012,10 @@ def fetch_article_data(url):
     YouTube: yt-dlp metadata extraction (no download)
     Tier 1:  Simple requests + trafilatura/BS4
     Tier 2:  Stealth requests (referer + sec-fetch headers)
-    Tier 3:  Skip — no browser on this machine (radeon GPU crash risk)
+    Tier 3:  Playwright stealth (restored 2026-07-15 — see
+             ops/RUNBOOK.md "Playwright Tier-3 restoration").
+             Gated by negative-cache: if a URL is already known-dead we
+             don't burn a browser fetch on it.
     """
     # YouTube fast path
     if is_youtube_url(url):
@@ -1046,11 +1049,24 @@ def fetch_article_data(url):
     if result:
         return result
 
+    # Tier 3: Playwright stealth. Fires only after simple AND stealth both
+    # failed, and only for URLs not in the negative cache (checked at the
+    # top of this function). See playwright_tier3.py for the constraint map
+    # (radeon exile, fd cleanup, serialized-single-browser, 45s watchdog).
+    try:
+        from playwright_tier3 import fetch_stealth as _tier3_fetch
+        logger.info(f"🎭 Tier 3 (Playwright) for {url}")
+        result = _tier3_fetch(url, headers)
+        if result:
+            return result
+    except ImportError as exc:
+        logger.warning(f"Tier 3 unavailable ({exc}) — skipping playwright fallback")
+
     # Mark on the stealth tier's status — the last word on whether the URL is
     # reachable. Statuses outside DEAD_URL_TTLS (429, timeouts, 5xx-transient)
     # are never cached.
     _mark_dead_url(url, getattr(_fetch_status, 'code', None))
-    logger.warning(f"❌ Both fetch tiers failed for {url} — skipping (no browser fallback)")
+    logger.warning(f"❌ All three fetch tiers failed for {url} — skipping")
     return None
 
 
@@ -1749,11 +1765,20 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
 def main():
     logger.info("🚀 Arc Codex Scribe v53.0")
     logger.info(f"   📡 Model: {OLLAMA_LOCAL_FALLBACK} (local only, no cloud, no fallback)")
-    logger.info(f"   🚫 Playwright/Chromium DISABLED (radeon GPU crash prevention on Z230)")
+    logger.info(f"   🎭 Playwright Tier-3: enabled (restored 2026-07-15, radeon exiled by env-signature)")
     logger.info(f"   ▶️  YouTube ingest: yt-dlp metadata mode")
     logger.info(f"   ✍️  Prompt-to-article: enabled")
     logger.info(f"   ⚡ Priority queue: scribe:priority_uploads (processed each cycle)")
     logger.info(f"   📋 Red/Blue/Purple: deferred to analyzer.py (on-demand)")
+
+    # Reap any orphan Playwright browsers left by a prior crashed scribe.
+    # Match is on /proc/<pid>/environ ARC_TIER3_PLAYWRIGHT signature —
+    # will NEVER kill Ross's desktop Chrome.
+    try:
+        from playwright_tier3 import startup_kill_zombies
+        startup_kill_zombies()
+    except ImportError:
+        pass
 
     startup_delay = random.randint(60, 180)
     logger.info(f"   ⏱️  Startup delay: {startup_delay}s (staggered to avoid Ollama contention with Huntaegis)")

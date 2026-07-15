@@ -196,18 +196,25 @@ def extract_with_beautifulsoup(html_content, url):
         logger.error(f"BeautifulSoup extraction failed: {e}")
         return None
 
-def fetch_with_anti_bot_handling(url, headers, playwright_browser=None):
+def fetch_with_anti_bot_handling(url, headers, playwright_browser=None,
+                                 enable_tier3=True):
     """
     Three-tier anti-bot strategy:
     1. Try simple requests (fast fail on 403)
-    2. Try Playwright with stealth (masks automation)
+    2. Try Playwright with stealth via playwright_tier3 module
+       (restored 2026-07-15 after March 2026 retirement — see
+       ops/RUNBOOK.md "Playwright Tier-3 restoration")
     3. Extract content even if CAPTCHA present (best effort)
-    
+
     Args:
         url: URL to fetch
         headers: Request headers dict
-        playwright_browser: Optional pre-initialized Playwright browser instance
-    
+        playwright_browser: LEGACY. Ignored — playwright_tier3 module owns
+            the browser lifecycle now. Kept only for signature stability
+            at call sites (main.py:375 already passes None).
+        enable_tier3: When True (default), fall through to playwright_tier3
+            on tier-1 failure. Set False to force simple-only (tests).
+
     Returns:
         dict with 'text' and 'image_url' keys, or None on failure
     """
@@ -252,94 +259,19 @@ def fetch_with_anti_bot_handling(url, headers, playwright_browser=None):
             except Exception:
                 pass
     
-    # Tier 2: Playwright with stealth anti-detection
-    if playwright_browser is None:
-        logger.warning(f"Playwright browser not available for {url}, cannot use Tier 2/3")
+    # Tier 2/3 → delegate to playwright_tier3 module. That module owns the
+    # single serialized browser, fd-safe context-per-fetch cleanup, the
+    # radeon exile (--disable-gpu), the process-tree kill-on-timeout, and
+    # the zombie killer. Import is lazy so environments without playwright
+    # installed still work for tier-1-only paths.
+    if not enable_tier3:
         return None
-    
-    logger.info(f"🎭 Attempting Playwright stealth extraction for {url}")
-    context = None
-    page = None
-    
     try:
-        # Create context with realistic browser fingerprint
-        context = playwright_browser.new_context(
-            user_agent=headers.get('User-Agent', random.choice(USER_AGENTS)),
-            viewport={'width': 1920, 'height': 1080},
-            locale='en-US',
-            timezone_id='America/New_York',
-            extra_http_headers=headers
-        )
-        
-        # Inject stealth scripts to mask automation
-        context.add_init_script("""
-            // Remove webdriver flag
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            });
-            
-            // Mock plugins
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3, 4, 5]
-            });
-            
-            // Mock languages
-            Object.defineProperty(navigator, 'languages', {
-                get: () => ['en-US', 'en']
-            });
-            
-            // Chrome runtime
-            window.chrome = {
-                runtime: {}
-            };
-        """)
-        
-        page = context.new_page()
-        
-        # Navigate with moderate timeout
-        page.goto(url, wait_until='load', timeout=15000)
-        
-        # Brief pause for dynamic content
-        page.wait_for_timeout(2000)
-        
-        html_content = page.content()
-        
-        # Extract content - try both methods
-        article_text = trafilatura.extract(html_content)
-        if not article_text or len(article_text) < MIN_ARTICLE_LENGTH:
-            article_text = extract_with_beautifulsoup(html_content, url)
-        
-        # Tier 3: Accept partial success even with CAPTCHA
-        if article_text and len(article_text) > MIN_ARTICLE_LENGTH:
-            has_captcha = 'captcha' in html_content.lower() or 'cloudflare' in html_content.lower()
-            
-            if has_captcha:
-                logger.warning(f"⚠️  CAPTCHA detected but extracted {len(article_text)} chars from {url}")
-            else:
-                logger.info(f"✅ Playwright stealth succeeded for {url}")
-            
-            return {
-                'text': article_text,
-                'image_url': extract_image_url(html_content) or DEFAULT_IMAGE_URL
-            }
-        
-        logger.warning(f"❌ No usable content extracted from {url}")
+        from playwright_tier3 import fetch_stealth
+    except ImportError as exc:
+        logger.warning(f"playwright_tier3 unavailable ({exc}); no tier-3 fallback for {url}")
         return None
-        
-    except Exception as e:
-        logger.error(f"Playwright stealth failed for {url}: {e}")
-        return None
-    finally:
-        if page:
-            try:
-                page.close()
-            except Exception:
-                pass
-        if context:
-            try:
-                context.close()
-            except Exception:
-                pass
+    return fetch_stealth(url, headers)
 
 def create_default_headers():
     """Create default request headers with random user agent"""

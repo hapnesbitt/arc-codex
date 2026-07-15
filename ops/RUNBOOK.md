@@ -3,6 +3,109 @@
 Records host-level changes that live outside git (redis.conf, fstab, sysctl),
 so the repo history stays the single narrative of what changed and why.
 
+## 2026-07-15 — Playwright Tier-3 restored (arc only for now)
+
+Restored after March 2026 retirement (commit 0abc395). New module
+`backend/playwright_tier3.py`. Wired through the pre-existing
+`fetch_with_anti_bot_handling()` seam and into `scribe.fetch_article_data`
+as the tier-3 fallback after simple + stealth-headers both fail.
+
+### Why it was retired (March 2026)
+
+Two independent failure modes both attributable to the Z230's AMD
+FirePro W2100 radeon:
+
+1. **Radeon UBSAN kernel lockup** — Playwright/chromium picked up the
+   radeon GPU via ROCm auto-detect on some pages. The GPU's
+   FirePro-era driver triggers UBSAN in-kernel and hard-locks the box.
+   Not survivable; scribe would take the whole machine with it.
+
+2. **fd exhaustion** — a leak in the pre-retirement code let context/
+   page handles accumulate across a long scribe run. Chromium keeps
+   many fds per page (sockets, /dev/shm, /proc entries). At ~700+
+   chromium processes the fd limit was hit and scribe wedged. The
+   pre-retirement workaround was a `BROWSER_RECYCLE_INTERVAL=20` cap,
+   never satisfying because the leak was per-context, not per-browser.
+
+### Why restore now
+
+Preconditions turned favorable in the last two weeks:
+
+- **M1 shed council** — analysis backlog runs on Z230 spare cycles;
+  scribe's own inference is off the M1's critical path.
+- **Negative cache** (2026-07-13, commit 097e747) — repeated-dead URLs
+  are cache-skipped, so tier-3 never re-hammers them on the next sweep.
+- **Radeon exile proven** — this morning (2026-07-15) Vulkan
+  auto-detection crashed Ollama on startup. The fix was to disable
+  Vulkan; same principle applies here: any subsystem that touches this
+  GPU dies. Explicit exile in every launch is a proven pattern.
+
+### Constraint map (every one is load-bearing)
+
+| Retirement reason | Mitigation in `playwright_tier3.py` |
+|---|---|
+| Radeon ROCm crash | `--disable-gpu` + `--use-gl=disabled` + `--disable-software-rasterizer` in `_LAUNCH_ARGS`, plus `DISPLAY=""` in the subprocess env to short-circuit any code that gates on display presence. |
+| Radeon Vulkan crash | Same launch args; belt-and-braces. |
+| fd exhaustion (per-context leak) | Every fetch creates its own `BrowserContext + Page` in a try/finally that closes both — even on page crash. `RESTART_EVERY = 50` fetches recycles the whole browser to bound any incremental leak. |
+| Hang → wedge | `FETCH_TIMEOUT_SECONDS = 45` wall-clock. A watchdog thread SIGTERMs/SIGKILLs the browser process tree on timeout; the main thread's playwright RPC calls then raise, the try/finally cleans up, next fetch re-launches. |
+| Parallel-fetch race | `_lock` serializes every fetch. **ONE** browser instance, no parallel pages. |
+| Redundant fetches on known-dead URLs | Tier-3 fires only after simple AND stealth fail, and only for URLs not in `scribe:dead_url:*` (checked at top of `fetch_article_data`). |
+| Playwright sync API is greenlet-bound | Fetch runs on the caller's thread. Watchdog is a separate thread that only kills the browser subprocess — greenlets are not crossed. |
+| Zombie browsers after scribe crash | Startup hook `playwright_tier3.startup_kill_zombies()` matches on `/proc/<pid>/environ` for `ARC_TIER3_PLAYWRIGHT=1`. See "zombie signature" below. |
+
+### The radeon's two-incident exile history
+
+| Date | Subsystem | Symptom | Cause | Fix |
+|------|-----------|---------|-------|-----|
+| 2026-03-13 | Playwright/chromium (ROCm) | Box hard-locked mid-fetch | AMD FirePro W2100 UBSAN kernel bug in radeon driver | Retire Playwright (commit 0abc395) |
+| 2026-07-15 | Ollama (Vulkan) | Ollama crashed on startup | Vulkan auto-detected the radeon | Disable Vulkan |
+| 2026-07-15 | Playwright/chromium (restoration) | (prevented) | Would repeat March if any GPU path opens | `--disable-gpu` + `--use-gl=disabled` + `DISPLAY=""` env + `--disable-software-rasterizer` |
+
+**Rule for this GPU:** every new subsystem must explicitly disable every
+plausible GPU/display path. Assume the radeon will find any door.
+
+### Zombie signature
+
+Every chromium subprocess launched by `playwright_tier3` inherits
+`ARC_TIER3_PLAYWRIGHT=1` in its environment (via playwright's
+`launch(env=…)`). The startup killer walks `/proc/<pid>/environ` on
+every process and terminates any that carry this marker.
+
+Why env vs a `--flag`: Playwright rejects `--user-data-dir` as a launch
+arg (must go through `launch_persistent_context`), and any generic
+chromium flag could collide with a real desktop browser and false-
+positive-kill it. Env vars are (a) accepted by playwright's launch
+API, (b) inherited only into subprocesses WE launch, and (c) invisible
+to `ps` / `pgrep` — you have to read `/proc/<pid>/environ` explicitly.
+Ross's desktop Chrome will never have this marker.
+
+### Per-fetch cost (measured 2026-07-15 pre-deploy smoke)
+
+- Browser cold start: ~1.5s
+- example.com fetch: ~2.4s (short page, MIN_ARTICLE_LENGTH gate)
+- thehill.com fetch: ~3.4s, 320 chars extracted despite CAPTCHA
+- Steady-state chromium RSS: ~325 MB
+- Peak RSS after 2 fetches: ~337 MB
+- Watchdog kills (during smoke): 0
+
+Under real load with council yielding on the M1, expect RSS to sit in
+the 300-400 MB range and drift up slowly between the 50-fetch restarts.
+Per-fetch cost is dominated by the 2s wait_for_timeout page settle.
+
+### Verify pass — TBD, runbook back-annotated after go-live
+
+Class-2 census target domains: thehill.com, nu.nl, wineenthusiast.com,
+nytimes.com, bloomberg.com. Bloomberg is an experiment, not a promise
+— walls often beat headless.
+
+### Hunt
+
+Hunt has the same bot-walled domains (bloomberg, nytimes, wsj, reuters,
+apnews, thehill, axios — 51 matches in its sources.json), so it would
+benefit from the same treatment. Recommendation: mirror to Hunt after
+Arc has a stable ~24h under the restored tier-3, not before — the
+radeon has a track record and one host at a time is safer.
+
 ## 2026-07-15 — CA_WAIT 20s → 120s: coupling bug between shed-and-yield and the poster fix
 
 Sunday landed two workstreams the same day whose assumptions diverged
