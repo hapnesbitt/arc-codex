@@ -3,6 +3,52 @@
 Records host-level changes that live outside git (redis.conf, fstab, sysctl),
 so the repo history stays the single narrative of what changed and why.
 
+## 2026-07-15 — LinkedIn poster + OAuth retired (both stacks)
+
+Owner no longer has a LinkedIn account. Retired the channel end-to-end
+across arc-codex and huntaegis rather than leave dead code, stale docs,
+and expiring tokens to maintain.
+
+Landed:
+- arc  26929a5 — delete linkedin_poster.py + linkedin_auth.py, remove
+  from arc_config.yaml (linkedin block + service entry), main.py runtime
+  block, project_context.yaml (service entry, autopost/posted-set keys,
+  auth stack, linkedin_notes), arc.sh header comment; strip 8 frontend
+  UI mentions (contact/privacy/terms/support/developer/config +
+  IntelligenceCard tooltip + auth.ts docstring); update comment_utils
+  docstring 4→3 posters.
+- hunt 7c0856a — same, plus fix a stale mislabel in support/page.tsx
+  ("The LinkedIn Poster (bluesky_poster.py)" → Bluesky Poster) and
+  drop "No LinkedIn poster" from key_differences_from_arc_codex since
+  it's no longer a difference.
+
+Owner action still required — NOT done by these commits:
+- Revoke on LinkedIn side: LinkedIn Developer app "arc-codex"
+  (client_id `77gih47e82m35z`), then delete these env vars from
+  `backend/.env` on BOTH stacks:
+    LINKEDIN_CLIENT_ID
+    LINKEDIN_CLIENT_SECRET
+    LINKEDIN_ACCESS_TOKEN
+    LINKEDIN_MEMBER_ID
+    LINKEDIN_REFRESH_TOKEN
+  The commits deliberately do not touch `.env` — needs the LinkedIn-side
+  revoke first so we don't leave stale-active tokens around after code
+  removal.
+
+Preserved deliberately:
+- `sources.json`: `LinkedIn Engineering` RSS feed (ingest source,
+  orthogonal to the retired outbound channel)
+- `linkedinbot` in bot UA lists (main.py + caddy_exporter.py) — crawler
+  detection, orthogonal
+- All `project_context.yaml` version-history entries mentioning LinkedIn
+  (accurate history)
+- `IntelligenceCard.tsx` historical comment "X/Facebook/LinkedIn removed"
+  (accurate history)
+
+Verification: `grep -rn "linkedin\|LinkedIn" ...` returns only
+intentional retirement notes on both stacks. `npx tsc --noEmit`
+passes on both frontends.
+
 ## 2026-07-15 — scribe cloud-budget knobs (both stacks)
 
 Two `backend/scribe.py` constants are load-bearing for weekly cloud spend
