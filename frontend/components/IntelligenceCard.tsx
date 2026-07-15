@@ -1057,8 +1057,16 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 <ChimeraGauge score={chimeraScore} readingLabel={readingLabel} />
                             )}
 
-                            {/* Action Buttons: flex-wrap ensures buttons drop cleanly to the next row if pinched */}
-                            <div className="flex items-center gap-2 print:hidden max-w-full flex-wrap justify-end">
+                            {/* Action Buttons: on mobile (< sm) a 4-column grid gives 2 clean
+                                rows of 4 for the 8 icons — beats the pre-fix "7+1" wrap that
+                                happened when 8×40 + 7×gap-2 (376px) exceeded the card's inner
+                                width on iPhone 11. On sm+ the original flex layout is
+                                unchanged — desktop keeps its right-aligned single-row-plus-wrap.
+                                Grid → flex swap is safe because both compile to `display:`
+                                and grid-template-columns / flex-wrap are ignored by the
+                                inactive display mode. Tooltips (data-tooltip on children)
+                                are unaffected — only the container changes. */}
+                            <div className="grid grid-cols-4 gap-2 sm:flex sm:items-center sm:flex-wrap sm:justify-end print:hidden max-w-full">
                                 <TranslateButton
                                     articleId={card.id}
                                     cachedLangs={(card as any).cached_langs ?? []}

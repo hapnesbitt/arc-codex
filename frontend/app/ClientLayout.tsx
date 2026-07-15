@@ -133,7 +133,9 @@ const MobileAuthButton = () => {
               className="rounded-full ring-1 ring-white/10"
             />
           </motion.div>
-          <span className="mt-2 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500 group-hover:text-slate-300" aria-hidden="true">
+          {/* Hidden on mobile — see nav-link label comment above.
+              aria-label on the button carries the announcement. */}
+          <span className="hidden mt-2 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500 group-hover:text-slate-300" aria-hidden="true">
             Settings
           </span>
         </button>
@@ -305,7 +307,9 @@ const MobileAuthButton = () => {
         >
           <LogIn size={20} className="text-slate-500 group-hover:text-amber-400" aria-hidden="true" />
         </motion.div>
-        <span className="mt-2 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500 group-hover:text-amber-400" aria-hidden="true">
+        {/* Hidden on mobile — see nav-link label comment above.
+            aria-label on the button carries the announcement. */}
+        <span className="hidden mt-2 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500 group-hover:text-amber-400" aria-hidden="true">
           Sign In
         </span>
       </button>
@@ -375,7 +379,16 @@ const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => {
                   {link.icon}
                 </div>
               </motion.div>
-              <span className={cn("mt-2 font-sans text-[10px] uppercase tracking-[0.25em]", isActive ? "text-slate-100" : "text-slate-500 group-hover:text-slate-300")}>
+              {/* Mobile: labels are the width-driver — a 7-char label with
+                  tracking-[0.25em] renders ~60px wide, forcing 8-9 items past
+                  the 374px inner viewport on iPhone 11 (labels wider than the
+                  44px icon min-width). Hide labels on mobile; icons are
+                  self-explanatory, and screen readers still get link.label
+                  via the parent's aria-label. Desktop sidebar keeps them. */}
+              <span className={cn(
+                "mt-2 font-sans text-[10px] uppercase tracking-[0.25em]",
+                isMobile ? "hidden" : (isActive ? "text-slate-100" : "text-slate-500 group-hover:text-slate-300"),
+              )}>
                 {link.label}
               </span>
             </>
@@ -405,6 +418,7 @@ const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => {
               key={idx}
               href={link.href}
               className={navItemClass}
+              aria-label={link.label}
               aria-current={isActive ? "page" : undefined}
               onClick={isActive ? (e: React.MouseEvent) => {
                 e.preventDefault();
