@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import os
+import queue
 import random
 import signal
 import tempfile
@@ -101,9 +102,21 @@ _STEALTH_INIT_SCRIPT = """
 
 # --- State -------------------------------------------------------------------
 
-_lock = threading.Lock()
-_pw = None                       # playwright driver handle
-_browser = None                  # single BrowserContext-parent
+# Playwright's sync API is greenlet-bound to the thread that started it —
+# any call from a different thread raises "cannot switch to a different
+# thread". Scribe calls fetch_article_data() from a ThreadPoolExecutor
+# (candidate-analysis pool), so caller thread varies. To satisfy the
+# thread-affinity constraint AND still serialize fetches, we own a
+# dedicated worker thread. Public fetch_stealth() enqueues a job on
+# _work_q and blocks on its per-job reply queue. Worker owns _pw/_browser.
+
+_worker_thread: Optional[threading.Thread] = None
+_worker_lock = threading.Lock()   # only used to start the worker once
+_work_q: "queue.Queue" = queue.Queue()  # items: (url, headers, reply_q)
+_SHUTDOWN = object()              # sentinel to stop the worker
+
+_pw = None                       # playwright driver handle (worker-owned)
+_browser = None                  # single Browser instance (worker-owned)
 _browser_pid: Optional[int] = None
 _fetch_count = 0
 _peak_rss_mb = 0.0                # highest RSS observed across the run
@@ -336,41 +349,87 @@ def _fetch_with_supervisor(headers: dict, url: str) -> Optional[dict]:
 
 # --- Public API --------------------------------------------------------------
 
+def _worker_loop():
+    """The one and only thread that touches Playwright. Serves jobs off
+    _work_q, owns _pw/_browser lifecycle, handles restart-every-N.
+    """
+    global _fetch_count, _peak_rss_mb, _browser, _browser_pid
+    logger.info("🎭 Playwright worker thread started (tid=%s)",
+                threading.get_ident())
+    while True:
+        job = _work_q.get()
+        if job is _SHUTDOWN:
+            _shutdown_browser()
+            logger.info("🎭 Playwright worker thread exiting")
+            return
+        url, headers, reply_q = job
+        try:
+            # Restart every N fetches OR if a prior kill left it gone.
+            needs_restart = (
+                _browser is None
+                or _fetch_count >= RESTART_EVERY
+                or (_browser_pid is not None and not psutil.pid_exists(_browser_pid))
+            )
+            if needs_restart and _browser is not None:
+                logger.info("🎭 Restarting Playwright browser (fetch_count=%d)",
+                            _fetch_count)
+                _shutdown_browser()
+            if _browser is None:
+                _launch_browser()
+
+            _fetch_count += 1
+            data = _fetch_with_supervisor(headers, url)
+
+            rss_mb = _browser_rss_mb()
+            if rss_mb > _peak_rss_mb:
+                _peak_rss_mb = rss_mb
+            logger.info(
+                "🎭 tier3 fetch #%d rss=%.1fMB peak=%.1fMB url=%s",
+                _fetch_count, rss_mb, _peak_rss_mb, url,
+            )
+            reply_q.put(("ok", data))
+        except Exception as exc:
+            logger.exception("Worker exception on %s: %s", url, exc)
+            reply_q.put(("err", None))
+
+
+def _ensure_worker():
+    """Start the worker thread on first use. Idempotent."""
+    global _worker_thread
+    if _worker_thread is not None and _worker_thread.is_alive():
+        return
+    with _worker_lock:
+        if _worker_thread is not None and _worker_thread.is_alive():
+            return
+        _worker_thread = threading.Thread(
+            target=_worker_loop, name="pw-worker", daemon=True,
+        )
+        _worker_thread.start()
+
+
 def fetch_stealth(url: str, headers: dict) -> Optional[dict]:
-    """Tier-3 fetch. Serialized on _lock — only one fetch at a time.
+    """Tier-3 fetch. Callable from any thread; the actual Playwright work
+    runs on the dedicated worker thread (Playwright's sync API is
+    greenlet-bound to its starting thread).
 
     Returns {'text': ..., 'image_url': ...} on success, None on failure.
     Failures are non-fatal: caller falls through to its own dead-URL cache.
     """
-    global _fetch_count, _peak_rss_mb, _browser, _browser_pid
-    with _lock:
-        # Restart every N fetches OR if a prior kill left the browser gone.
-        needs_restart = (
-            _browser is None
-            or _fetch_count >= RESTART_EVERY
-            or (_browser_pid is not None and not psutil.pid_exists(_browser_pid))
-        )
-        if needs_restart and _browser is not None:
-            logger.info("🎭 Restarting Playwright browser (fetch_count=%d)", _fetch_count)
-            _shutdown_browser()
-        if _browser is None:
-            _launch_browser()
-
-        _fetch_count += 1
-        data = _fetch_with_supervisor(headers, url)
-
-        # RSS instrumentation — steady state + peak.
-        rss_mb = _browser_rss_mb()
-        if rss_mb > _peak_rss_mb:
-            _peak_rss_mb = rss_mb
-        logger.info(
-            "🎭 tier3 fetch #%d rss=%.1fMB peak=%.1fMB url=%s",
-            _fetch_count, rss_mb, _peak_rss_mb, url,
-        )
-        return data
+    _ensure_worker()
+    reply_q: "queue.Queue" = queue.Queue(maxsize=1)
+    _work_q.put((url, headers, reply_q))
+    # Bound the wait: FETCH_TIMEOUT_SECONDS + margin for context/lock/cleanup.
+    try:
+        status, data = reply_q.get(timeout=FETCH_TIMEOUT_SECONDS + 15)
+    except queue.Empty:
+        logger.error("🔪 Worker did not respond in %ds for %s",
+                     FETCH_TIMEOUT_SECONDS + 15, url)
+        return None
+    return data if status == "ok" else None
 
 
 def shutdown() -> None:
     """Explicit shutdown for scribe exit paths. Safe to call multiple times."""
-    with _lock:
-        _shutdown_browser()
+    if _worker_thread is not None and _worker_thread.is_alive():
+        _work_q.put(_SHUTDOWN)
+        _worker_thread.join(timeout=10)
