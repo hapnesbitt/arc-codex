@@ -70,9 +70,11 @@ logger = logging.getLogger(__name__)
 # --- CONFIGURATION ---
 manual_upload_event = threading.Event()
 REDIS_PRIORITY_QUEUE_KEY = "arc:priority_uploads"
-CYCLE_MINUTES = 1  # Deliberate aggressive ingest cadence (chosen 2026-06) —
-                   # faster than the prime-spacing default; still prime.
-                   # Raise to 19, 23, 29 etc. for prime-spacing if adding more stacks.
+CYCLE_MINUTES = 69  # Cloud-budget knob (2026-07-15). Each sweep issues
+                   # cloud sentinel + counter-analyst calls per candidate;
+                   # 69m throttles weekly gemma4:31b spend into allowance.
+                   # Prime-adjacent, decoupled from Hunt's cycle.
+                   # See ops/RUNBOOK.md → "scribe cloud-budget knobs".
 
 # Retention (arc_config.yaml -> retention:). 0 or missing disables the pass.
 def _load_retention_hours() -> int:
@@ -233,7 +235,11 @@ DOMAIN_COURTESY_DELAY_SECONDS = 2.5
 MIN_ARTICLE_LENGTH = 200
 RECENTLY_PUBLISHED_MEMORY = 10
 MAX_CONCURRENT_SCRAPERS = 5
-MAX_CONCURRENT_ANALYZERS = 2
+MAX_CONCURRENT_ANALYZERS = 10  # Local-only NLP concurrency (spaCy/VADER via
+                               # /api/pre_analyze). Flask semaphore caps
+                               # actual parallelism at 2 — extra threads
+                               # hit 429 (1s wait) then fallback. No cloud
+                               # impact. See ops/RUNBOOK.md.
 
 CATEGORY_TO_DIRECTIVE = {
     'Health & Medicine':            'Healthcare and Public Health',
