@@ -245,7 +245,7 @@ export default function SupportCodex() {
         {/* Sharing */}
         <SectionShell id="sharing" eyebrow="VI · Stewardship" heading="Sharing Articles">
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            Every card has a share menu (the arrow icon) with options to copy the link, post to X, share on Facebook, share on LinkedIn, post to Bluesky, post to Mastodon, or send via email.
+            Every card has a share menu (the arrow icon) with options to copy the link, post to X, share on Facebook, post to Bluesky, post to Mastodon, or send via email.
           </p>
           <div className="border-t border-slate-800/40">
             <Panel label="What gets shared">

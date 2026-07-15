@@ -8,7 +8,7 @@
 #   - Frontend now managed as Docker container (arc-frontend)
 #   - Fixed: Solr core arc_codex → feeds in backup-cold
 #   - Fixed: Redis BGSAVE now uses password from env
-#   - LinkedIn auto-poster added as managed service
+#   - 2026-07-15: LinkedIn auto-poster retired (account closed)
 
 # ==============================================================================
 # CONFIGURATION

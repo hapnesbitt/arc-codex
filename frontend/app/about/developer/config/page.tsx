@@ -20,14 +20,12 @@ interface ConfigData {
   ollama:      Record<string, string>;
   scribe:      Record<string, number | string>;
   bluesky:     Record<string, number | boolean>;
-  linkedin:    Record<string, number | boolean>;
   mailer:      Record<string, string | number>;
   translation: Record<string, string | number>;
   feed:        Record<string, number>;
   services:    Record<string, boolean>;
   runtime:     {
     bluesky_autopost:  boolean;
-    linkedin_autopost: boolean;
     article_count:     number;
     last_publish:      string | null;
   };
@@ -186,7 +184,6 @@ const ConfigPage: React.FC = () => {
             <Card title="Runtime Toggles" icon={<Zap className="w-6 h-6 text-green-400" />} color="border-green-400/30 hover:border-green-300/50">
               <dl>
                 <Toggle label="Bluesky Autopost"  value={config.runtime.bluesky_autopost}  source="Redis: bluesky:autopost" />
-                <Toggle label="LinkedIn Autopost" value={config.runtime.linkedin_autopost} source="Redis: linkedin:autopost" />
                 <KV label="Article Count"  value={config.runtime.article_count.toLocaleString()} />
                 <KV label="Last Publish"   value={config.runtime.last_publish
                   ? new Date(config.runtime.last_publish).toLocaleString()
@@ -212,16 +209,6 @@ const ConfigPage: React.FC = () => {
                 <KV label="Jitter Max (s)"  value={String(config.bluesky.jitter_max_seconds)} />
                 <KV label="CA Wait (s)"     value={String(config.bluesky.counter_analyst_wait_seconds)} />
                 <KV label="Poll (s)"        value={String(config.bluesky.poll_interval_seconds)} />
-              </dl>
-            </Card>
-
-            {/* LinkedIn */}
-            <Card title="LinkedIn Poster" icon={<span className="text-blue-400 text-lg" aria-hidden="true">in</span>} color="border-blue-500/30 hover:border-blue-400/50">
-              <dl>
-                <KV label="Jitter Min (s)"  value={String(config.linkedin.jitter_min_seconds)} />
-                <KV label="Jitter Max (s)"  value={String(config.linkedin.jitter_max_seconds)} />
-                <KV label="CA Wait (s)"     value={String(config.linkedin.counter_analyst_wait_seconds)} />
-                <KV label="Poll (s)"        value={String(config.linkedin.poll_interval_seconds)} />
               </dl>
             </Card>
 

@@ -61,7 +61,7 @@ export default function TermsPage() {
             Account and Use
           </h2>
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            Browsing is open to all. Optional sign-in via Google, GitHub, or LinkedIn enables publishing, commenting, and private workspaces. We never store passwords — all authentication is handled by your chosen OAuth provider.
+            Browsing is open to all. Optional sign-in via Google or GitHub enables publishing, commenting, and private workspaces. We never store passwords — all authentication is handled by your chosen OAuth provider.
           </p>
           <p className="font-serif text-base text-slate-200 leading-relaxed">
             You are responsible for all activity on your account. If you believe your account has been compromised, revoke access via your OAuth provider immediately.

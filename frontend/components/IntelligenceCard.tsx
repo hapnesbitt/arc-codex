@@ -689,7 +689,7 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
                 size="icon"
                 onClick={handleShare}
                 aria-label="Share"
-                data-tooltip="Share this article on Bluesky, Mastodon, Reddit, LinkedIn, or by email — with a summary of the Purple Team's analysis attached."
+                data-tooltip="Share this article on Bluesky, Mastodon, Reddit, or by email — with a summary of the Purple Team's analysis attached."
                 aria-expanded={isOpen}
                 aria-haspopup="menu"
                 className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"

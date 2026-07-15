@@ -34,14 +34,7 @@ bluesky:
   autopost: true                           # Runtime: also controlled via Redis bluesky:autopost
   jitter_min_seconds: 0                    # Set >0 in production to avoid burst posting
   jitter_max_seconds: 0
-  counter_analyst_wait_seconds: 60
-  poll_interval_seconds: 15
-
-linkedin:
-  autopost: true                           # Runtime: also controlled via Redis linkedin:autopost
-  jitter_min_seconds: 30
-  jitter_max_seconds: 180
-  counter_analyst_wait_seconds: 60
+  counter_analyst_wait_seconds: 20
   poll_interval_seconds: 15
 
 mailer:
@@ -101,7 +94,6 @@ services:
   stream_consumer: true
   manual_publisher: true
   mailer: true
-  linkedin_poster: true
   bluesky_poster: true
   corpus_exporter: true
   frontend: true

@@ -56,7 +56,7 @@ export default function PrivacyPage() {
             Information We Do Not Collect
           </h2>
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            Arc Codex can be used anonymously for reading and browsing. Optional sign-in via Google, GitHub, or LinkedIn enables publishing and private workspaces. We never store passwords — authentication is handled entirely by your chosen provider via OAuth.
+            Arc Codex can be used anonymously for reading and browsing. Optional sign-in via Google or GitHub enables publishing and private workspaces. We never store passwords — authentication is handled entirely by your chosen provider via OAuth.
           </p>
           <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500 pt-2">
             We Never Collect
@@ -65,7 +65,7 @@ export default function PrivacyPage() {
             <li>Names, email addresses, or contact information (unless you voluntarily provide it).</li>
             <li>Social security numbers or government IDs.</li>
             <li>Financial information or payment details.</li>
-            <li>Passwords (we use OAuth only — Google, GitHub, LinkedIn sign-in).</li>
+            <li>Passwords (we use OAuth only — Google, GitHub sign-in).</li>
             <li>Personal browsing history across other websites.</li>
           </ul>
         </section>
@@ -106,7 +106,6 @@ export default function PrivacyPage() {
           <ul className="list-disc ml-6 space-y-2 font-serif text-base text-slate-200 leading-relaxed">
             <li><strong>Google OAuth</strong> — optional sign-in. Google may log authentication requests per their standard policies.</li>
             <li><strong>GitHub OAuth</strong> — optional sign-in. GitHub may log authentication requests per their standard policies.</li>
-            <li><strong>LinkedIn OAuth</strong> — optional sign-in (coming soon). LinkedIn may log authentication requests per their standard policies.</li>
             <li><strong>Google Fonts</strong> — Ubuntu font served via fonts.googleapis.com. Google may log this request per their standard infrastructure logging.</li>
             <li><strong>External article links</strong> — clicking links takes you to third-party news sites with their own privacy policies.</li>
           </ul>

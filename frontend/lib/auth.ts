@@ -2,7 +2,7 @@
  * Arc Codex — Auth.js v5 Configuration
  * frontend/lib/auth.ts
  *
- * Google + GitHub + LinkedIn SSO. JWT sessions (cookie-based, no Redis adapter needed).
+ * Google + GitHub SSO. JWT sessions (cookie-based, no Redis adapter needed).
  * On sign-in, upserts user preference record in Flask backend.
  *
  * Exports: { handlers, auth, signIn, signOut }

@@ -156,7 +156,6 @@ admin:
     bluesky_poster:   {command: "python3 bluesky_poster.py", note: "v1.3 — zrange feed (not r.keys), url field direct, on/off: redis-cli set bluesky:autopost 1|0"}
     mastodon_poster:  {command: "python3 mastodon_poster.py", note: "v1.1 — zrange feed, write:media scope fixed Mar 24 2026"}
     threads_poster:   {command: "python3 threads_poster.py", note: "v1.0 READY — awaiting THREADS_ACCESS_TOKEN + THREADS_USER_ID in .env"}
-    linkedin_poster:  {command: "python3 linkedin_poster.py", note: "v1.0 — auto-posts to LinkedIn, on/off via Redis"}
     frontend:         {command: "docker compose up -d --no-deps frontend", port: 3000, note: "Docker container arc-frontend"}
     watchdog:         {command: "./watchdog.sh", note: "v2.0 — orphan detection, 5min sweep, mastodon_poster+corpus_exporter+caddy_exporter added"}
     character_builder: {command: "python3 character_builder.py"}
@@ -219,8 +218,8 @@ admin:
     url: "redis://:$REDIS_PASSWORD@localhost:6379/0"
     admin_cli: "redis-cli -a $REDIS_PASSWORD"
     translation_lock: "translation:active — TTL 300s. Prevents model thrashing on M1."
-    autopost_keys: "bluesky:autopost, mastodon:autopost, linkedin:autopost — set 1|0 to enable/disable"
-    posted_sets: "bluesky:posted, mastodon:posted, linkedin:posted — SET of article IDs (dedup)"
+    autopost_keys: "bluesky:autopost, mastodon:autopost — set 1|0 to enable/disable"
+    posted_sets: "bluesky:posted, mastodon:posted — SET of article IDs (dedup)"
     stats_keys: |
       arc:stats:fetch          — hash: {domain}:{tier} fetch outcome counts
       arc:stats:quality        — hash: {reason} quality gate rejection counts
@@ -315,7 +314,7 @@ developer:
     database: Redis
     search: "Apache Solr — core: feeds, ~3800+ docs. Fields: category, source_lang, original_text."
     ai: "Ollama on M1 — devstral-2:123b-cloud → mistral:7b → llama3.2:latest (3-tier fallback)"
-    auth: "Auth.js v5 (next-auth@5.0.0-beta.30) — Google + GitHub + LinkedIn OAuth, JWT sessions"
+    auth: "Auth.js v5 (next-auth@5.0.0-beta.30) — Google + GitHub OAuth, JWT sessions"
     reverse_proxy: Caddy
 
   file_tree: |
@@ -444,8 +443,8 @@ developer:
     mailer_dedup: "mailer:alerted:{key} TTL 14400s (4h)"
     mailer_digest: "mailer:digest:{YYYY-MM-DD} TTL 90000s"
     last_publish: "arc:last_publish — ISO UTC timestamp set by scribe on every publish"
-    autopost:     "bluesky:autopost, mastodon:autopost, linkedin:autopost — 1|0"
-    posted_sets:  "bluesky:posted, mastodon:posted, linkedin:posted — SET of article IDs"
+    autopost:     "bluesky:autopost, mastodon:autopost — 1|0"
+    posted_sets:  "bluesky:posted, mastodon:posted — SET of article IDs"
 
   auth_notes:
     library: "next-auth@5.0.0-beta.30"
@@ -607,15 +606,9 @@ developer:
       Conflict fix after reboot: docker rm arc-prometheus arc-grafana then arc grafana-start.
       Permanent fix: /etc/tmpfiles.d/caddy-logs.conf ensures log dir ownership on boot.
 
-  linkedin_notes:
-    app_name: arc-codex
-    client_id: 77gih47e82m35z
-    scope: "openid profile w_member_social"
-    token_expiry: "~60 days — re-run linkedin_auth.py to refresh. Last refreshed: Mar 8 2026. Next due: ~May 7 2026."
-    env_vars: [LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET, LINKEDIN_ACCESS_TOKEN, LINKEDIN_MEMBER_ID, LINKEDIN_REFRESH_TOKEN]
-    troubleshooting: |
-      Token expiry is the #1 failure mode — silent 401s in the log.
-      Fix: source venv/bin/activate && cd backend && python3 linkedin_auth.py
+  # linkedin_notes retired 2026-07-15 (account closed).
+  # See ops/RUNBOOK.md for the retirement entry. Tokens flagged in .env
+  # for owner-side revocation.
 
   github_oauth_notes:
     app_name: Arc Codex

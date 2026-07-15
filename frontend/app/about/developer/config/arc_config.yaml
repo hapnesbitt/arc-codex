@@ -37,13 +37,6 @@ bluesky:
   counter_analyst_wait_seconds: 60
   poll_interval_seconds: 15
 
-linkedin:
-  autopost: true                           # Runtime: also controlled via Redis linkedin:autopost
-  jitter_min_seconds: 30
-  jitter_max_seconds: 180
-  counter_analyst_wait_seconds: 60
-  poll_interval_seconds: 15
-
 mailer:
   alert_to: "rossnesbitt@gmail.com"
   digest_hour: 7                           # 7am daily digest
@@ -75,7 +68,6 @@ services:
   stream_consumer: true
   manual_publisher: true
   mailer: true
-  linkedin_poster: true
   bluesky_poster: true
   corpus_exporter: true
   frontend: true

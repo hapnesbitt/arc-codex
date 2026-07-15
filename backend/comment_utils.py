@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Shared reader for the auto-seeded Counter-Analyst comment.
 
-Single source of truth for every social poster (facebook/bluesky/mastodon/
-linkedin) and any future consumer. Each poster used to carry its own copy of
-this reader; three of them (facebook/bluesky/mastodon) shared a byte-identical
-bug — json.loads() on a bare-UUID list entry, then reading a 'body' field that
-does not exist — so the Counter-Analyst comment never reached those channels
-(it silently fell back to a purple-team excerpt after a full 60s wait). This
-module is that reader done once, matching analyzer.py's correct hgetall pattern.
+Single source of truth for every social poster (bluesky/mastodon/facebook)
+and any future consumer. Each poster used to carry its own copy of this
+reader; all three shared a byte-identical bug — json.loads() on a bare-UUID
+list entry, then reading a 'body' field that does not exist — so the
+Counter-Analyst comment never reached any channel (silent fallback to a
+purple-team excerpt after a full 60s wait). This module is that reader
+done once, matching analyzer.py's correct hgetall pattern.
+
+(A fourth poster, linkedin, was retired 2026-07-15 — see ops/RUNBOOK.md.)
 
 Storage shape:
   comments:<article_id>   LIST of comment UUIDs

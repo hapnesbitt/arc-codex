@@ -42,13 +42,6 @@ const CONTACTS: Array<{ label: string; value: string; href: string; external: bo
     aria: 'Send email to hap@arc-codex.com',
   },
   {
-    label: 'Professional · LinkedIn',
-    value: 'arccodexsupport',
-    href: 'https://www.linkedin.com/in/arccodexsupport/',
-    external: true,
-    aria: 'Hap Nesbitt on LinkedIn (opens in new tab)',
-  },
-  {
     label: 'Source · GitHub',
     value: 'hapnesbitt',
     href: 'https://github.com/hapnesbitt',

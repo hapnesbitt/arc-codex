@@ -848,14 +848,12 @@ def get_config():
 
     runtime = {
         "bluesky_autopost":  False,
-        "linkedin_autopost": False,
         "article_count":     0,
         "last_publish":      None,
     }
     if r:
         try:
             runtime["bluesky_autopost"]  = r.get("bluesky:autopost") == "1"
-            runtime["linkedin_autopost"] = r.get("linkedin:autopost") == "1"
             runtime["article_count"]     = r.zcard("feed")
             runtime["last_publish"]      = r.get("arc:last_publish")
         except Exception:

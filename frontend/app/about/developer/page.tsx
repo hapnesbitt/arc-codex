@@ -124,12 +124,12 @@ export default function DeveloperPage() {
 # Named service control:
 ./arc.sh restart gunicorn
 ./arc.sh restart scribe
-./arc.sh restart linkedin_poster
+./arc.sh restart bluesky_poster
 ./arc.sh restart frontend
 
-# LinkedIn on/off (no restart needed):
-redis-cli -a $REDIS_PASSWORD set linkedin:autopost 1
-redis-cli -a $REDIS_PASSWORD set linkedin:autopost 0`}</Block>
+# Poster on/off (no restart needed):
+redis-cli -a $REDIS_PASSWORD set bluesky:autopost 1
+redis-cli -a $REDIS_PASSWORD set bluesky:autopost 0`}</Block>
           <dl className="border-t border-slate-800/40">
             {[
               { name: 'gunicorn', note: 'Flask API — port 5005, must run before build' },
@@ -138,7 +138,9 @@ redis-cli -a $REDIS_PASSWORD set linkedin:autopost 0`}</Block>
               { name: 'stream_consumer', note: 'Redis Streams consumer' },
               { name: 'analyzer', note: 'On-demand analysis worker' },
               { name: 'mailer', note: 'v1.0 ACTIVE — alerts + 7am digest' },
-              { name: 'linkedin_poster', note: 'v1.0 — auto-posts to LinkedIn, on/off via Redis' },
+              { name: 'bluesky_poster', note: 'v1.3 — auto-posts to Bluesky, on/off via Redis' },
+              { name: 'mastodon_poster', note: 'v1.1 — auto-posts to Mastodon, on/off via Redis' },
+              { name: 'facebook_poster', note: 'v1.0 — auto-posts to Facebook, on/off via Redis' },
               { name: 'frontend', note: 'Docker container arc-frontend — port 3000' },
               { name: 'watchdog', note: '60s check loop, restarts crashed services' },
             ].map(({ name, note }) => (
