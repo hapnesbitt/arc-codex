@@ -772,6 +772,13 @@ steady-state of the mount's ~197 GB free.
   mid-write RDB).
 - backend/.env still rides in the stack tar — known R9 issue, left for
   the encrypted-store fix; deliberately not half-solved here.
+- R9 addendum (2026-07-16): backend/.env line 59 (ARC_ADMIN_PASSWORD)
+  holds an unquoted value containing whitespace — `source`-ing the file
+  truncates the value and tries to execute the second token
+  (`after_HUMANS: command not found`), while python-dotenv parses the
+  full line. Any shell that sources .env sees a DIFFERENT password than
+  the Flask app does. Fold quoting/normalization into the R9
+  encrypted-store fix.
 - First real archive: `arc_cold_2026-07-11_0724.tar.gz`, 6.1 GB,
   14m 59s wall.
 
