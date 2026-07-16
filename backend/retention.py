@@ -22,10 +22,15 @@ import time
 
 logger = logging.getLogger(__name__)
 
+# Articles in this SET are exempt from age-based trimming (curated surfaces
+# like /plants link to them permanently). Members are article IDs/hashes.
+PINNED_SET = "arc:pinned_articles"
+
 
 def trim_by_hours(r, solr, hours: int, dry_run: bool = False) -> dict:
     """Delete articles older than `hours` from Redis + Solr.
 
+    Members of PINNED_SET are never trimmed regardless of age.
     Returns {'found': N_candidates, 'deleted': M_deleted}.
     dry_run=True reports found candidates without touching anything.
     """
@@ -34,6 +39,10 @@ def trim_by_hours(r, solr, hours: int, dry_run: bool = False) -> dict:
 
     cutoff = time.time() - (hours * 3600)
     ids_to_delete = r.zrangebyscore("feed", "-inf", cutoff)
+    if ids_to_delete:
+        pinned = r.smembers(PINNED_SET)
+        if pinned:
+            ids_to_delete = [aid for aid in ids_to_delete if aid not in pinned]
     if not ids_to_delete:
         return {"found": 0, "deleted": 0}
     if dry_run:
