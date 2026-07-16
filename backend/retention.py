@@ -30,23 +30,37 @@ PINNED_SET = "arc:pinned_articles"
 def trim_by_hours(r, solr, hours: int, dry_run: bool = False) -> dict:
     """Delete articles older than `hours` from Redis + Solr.
 
-    Members of PINNED_SET are never trimmed regardless of age.
-    Returns {'found': N_candidates, 'deleted': M_deleted}.
+    Only content_type == news (the default) is ever trimmed: reference
+    articles and members of PINNED_SET are exempt regardless of age.
+    Returns {'found': N_candidates, 'deleted': M_deleted,
+             'excluded': {'reference': X, 'pinned': Y}}.
     dry_run=True reports found candidates without touching anything.
     """
+    excluded = {"reference": 0, "pinned": 0}
     if hours is None or hours <= 0:
-        return {"found": 0, "deleted": 0}
+        return {"found": 0, "deleted": 0, "excluded": excluded}
 
     cutoff = time.time() - (hours * 3600)
     ids_to_delete = r.zrangebyscore("feed", "-inf", cutoff)
     if ids_to_delete:
         pinned = r.smembers(PINNED_SET)
-        if pinned:
-            ids_to_delete = [aid for aid in ids_to_delete if aid not in pinned]
+        pipe = r.pipeline()
+        for aid in ids_to_delete:
+            pipe.hget(f"article:{aid}", "content_type")
+        ctypes = pipe.execute()
+        keep = []
+        for aid, ct in zip(ids_to_delete, ctypes):
+            if (ct or "news") == "reference":
+                excluded["reference"] += 1
+            elif aid in pinned:
+                excluded["pinned"] += 1
+            else:
+                keep.append(aid)
+        ids_to_delete = keep
     if not ids_to_delete:
-        return {"found": 0, "deleted": 0}
+        return {"found": 0, "deleted": 0, "excluded": excluded}
     if dry_run:
-        return {"found": len(ids_to_delete), "deleted": 0}
+        return {"found": len(ids_to_delete), "deleted": 0, "excluded": excluded}
 
     deleted = 0
     for aid in ids_to_delete:
@@ -64,7 +78,7 @@ def trim_by_hours(r, solr, hours: int, dry_run: bool = False) -> dict:
         except Exception as e:
             logger.warning("Solr batch delete failed (Redis already trimmed; run purge_solr_orphans to reconcile): %s", e)
 
-    return {"found": len(ids_to_delete), "deleted": deleted}
+    return {"found": len(ids_to_delete), "deleted": deleted, "excluded": excluded}
 
 
 def regenerate_public_files(r) -> dict:

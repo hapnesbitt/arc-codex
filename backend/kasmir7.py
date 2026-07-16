@@ -235,8 +235,47 @@ def _bar(value, max_value, width=30):
     filled = int(width * value / max_value)
     return '█' * filled + '░' * (width - filled)
 
+# --- Content-protection guards ------------------------------------------------
+# Bulk remove/trim flows operate on content_type == news (the default) only.
+# reference articles (curated permanent profiles — Plantorium etc.) and
+# arc:pinned_articles members (course-referenced ephemera) are excluded from
+# every bulk path. [2f] is the single deliberate per-id override.
+from retention import PINNED_SET
+
+def _protection(r, aid):
+    """'reference' / 'pinned' / None for one article id."""
+    if (r.hget(f"article:{aid}", "content_type") or "news") == "reference":
+        return "reference"
+    if r.sismember(PINNED_SET, aid):
+        return "pinned"
+    return None
+
+def partition_protected(r, rows, aid_index=1):
+    """Split delete candidates into (deletable, {'reference': X, 'pinned': Y}).
+    Rows are the (key, aid, ...) tuples the removal flows build, or bare ids."""
+    deletable, excluded = [], {"reference": 0, "pinned": 0}
+    for row in rows:
+        aid = row[aid_index] if isinstance(row, (tuple, list)) else row
+        p = _protection(r, aid)
+        if p:
+            excluded[p] += 1
+        else:
+            deletable.append(row)
+    return deletable, excluded
+
+def _print_exclusions(n_selected, excluded):
+    print(colored(
+        f"  🛡️  {n_selected} news article(s) selected; excluded: "
+        f"{excluded['reference']} reference, {excluded['pinned']} pinned (arc:pinned_articles)",
+        "yellow"))
+
 def _delete_articles(r, solr, matching, label):
-    """Common delete loop for (key, aid, ...) tuples. Batches Solr deletes."""
+    """Common delete loop for (key, aid, ...) tuples. Batches Solr deletes.
+    Drops reference/pinned rows as a last line of defense — flows partition
+    before their DRY RUN so previews are honest; this catches new callers."""
+    matching, excluded = partition_protected(r, matching)
+    if excluded["reference"] or excluded["pinned"]:
+        _print_exclusions(len(matching), excluded)
     aids = []
     for row in matching:
         key, aid = row[0], row[1]
@@ -397,6 +436,7 @@ def emergency_removal_menu(r, solr):
     print("  [c] Remove by language         (e.g. ru, de, zh)")
     print("  [d] Remove by Chimera score    (e.g. divisive articles below threshold)")
     print("  [e] Remove by Sentinel verdict  (SYNTHETIC / UNCERTAIN / HUMAN)")
+    print("  [f] Remove ONE article by exact id (override — may target reference/pinned)")
     print("  [q] Back\n")
     sub = input("Select: ").strip().lower()
     if   sub == 'a': emergency_removal(r, solr)
@@ -404,6 +444,7 @@ def emergency_removal_menu(r, solr):
     elif sub == 'c': remove_by_language(r, solr)
     elif sub == 'd': remove_by_score(r, solr)
     elif sub == 'e': remove_by_sentinel(r, solr)
+    elif sub == 'f': remove_by_id_override(r, solr)
     elif sub in ('q', ''): return
     else: print(colored("Invalid selection.", "red"))
 
@@ -424,6 +465,12 @@ def emergency_removal(r, solr):
         print("No matches found.")
         return
 
+    matching, excluded = partition_protected(r, matching)
+    _print_exclusions(len(matching), excluded)
+    if not matching:
+        print(colored("All matches are protected content — nothing deletable. Use [2f] to override.", "green"))
+        return
+
     print(colored(f"\nDRY RUN — {len(matching)} article(s) would be deleted:", "yellow"))
     for key, aid, title in matching:
         solr_status = ''
@@ -440,6 +487,34 @@ def emergency_removal(r, solr):
         return
 
     _delete_articles(r, solr, matching, "matched")
+
+
+def remove_by_id_override(r, solr):
+    """[2f] The ONLY flow that can delete reference/pinned content. One article
+    per run, exact id required, and the id itself is the confirmation phrase —
+    no bulk selection can reach this path."""
+    print(colored("\n--- [2f] Deliberate Removal by Exact ID (override) ---", "cyan"))
+    aid = input("Exact article id: ").strip()
+    if not aid:
+        return
+    key = f"article:{aid}"
+    if not r.exists(key):
+        print(colored("No such article.", "red"))
+        return
+    title = r.hget(key, "title") or "(no title)"
+    prot = _protection(r, aid)
+    print(f"  {title[:70]}")
+    print(f"  protection: {colored(prot or 'none (news)', 'red' if prot else 'green')}")
+    print(colored("\n⚠️  Type the article id again to confirm deletion (anything else aborts):", "yellow"))
+    if input("> ").strip() != aid:
+        print("Aborted.")
+        return
+    r.delete(key)
+    r.zrem("feed", aid)
+    r.srem("processed_hashes", aid)
+    r.srem(PINNED_SET, aid)
+    solr_delete_batch(solr, [aid])
+    print(colored(f"✅ Deleted {aid} (override).", "green"))
 
 
 def remove_by_domain(r, solr):
@@ -467,6 +542,12 @@ def remove_by_domain(r, solr):
 
     if not matching:
         print(colored(f"No articles found from '{domain_input}'.", "green"))
+        return
+
+    matching, excluded = partition_protected(r, matching)
+    _print_exclusions(len(matching), excluded)
+    if not matching:
+        print(colored("All matches are protected content — nothing deletable. Use [2f] to override.", "green"))
         return
 
     print(colored(f"\nDRY RUN — {len(matching)} article(s) from '{domain_input}' would be deleted:", "yellow"))
@@ -511,6 +592,12 @@ def remove_by_language(r, solr):
 
     if not matching:
         print(colored(f"No articles found with source_lang='{lang_input}'.", "green"))
+        return
+
+    matching, excluded = partition_protected(r, matching)
+    _print_exclusions(len(matching), excluded)
+    if not matching:
+        print(colored("All matches are protected content — nothing deletable. Use [2f] to override.", "green"))
         return
 
     print(colored(f"\nDRY RUN — {len(matching)} article(s) with lang='{lang_input}' would be deleted:", "yellow"))
@@ -577,6 +664,12 @@ def remove_by_score(r, solr):
         print(colored(f"No articles found with score {op}{val}.", "green"))
         return
 
+    matching, excluded = partition_protected(r, matching)
+    _print_exclusions(len(matching), excluded)
+    if not matching:
+        print(colored("All matches are protected content — nothing deletable. Use [2f] to override.", "green"))
+        return
+
     # Sort worst-first (lowest score first for < ops, highest for > ops)
     reverse = op.startswith('>')
     matching.sort(key=lambda x: x[3], reverse=reverse)
@@ -622,6 +715,12 @@ def remove_by_sentinel(r, solr):
 
     if not matching:
         print(colored(f"No articles found with verdict '{verdict_input}'.", "green"))
+        return
+
+    matching, excluded = partition_protected(r, matching)
+    _print_exclusions(len(matching), excluded)
+    if not matching:
+        print(colored("All matches are protected content — nothing deletable. Use [2f] to override.", "green"))
         return
 
     print(colored(f"\nDRY RUN — {len(matching)} {verdict_input} article(s) would be deleted:", "yellow"))
@@ -702,6 +801,12 @@ def trim_database(r, solr):
             print(f"  {len(dir_articles)} articles in directive — nothing to trim (keep={keep}).")
             return
 
+        to_delete, excluded = partition_protected(r, to_delete)
+        _print_exclusions(len(to_delete), excluded)
+        if not to_delete:
+            print(colored("All candidates are protected content — nothing deletable.", "green"))
+            return
+
         print(colored(f"\nDRY RUN — keeping {keep} newest, deleting {len(to_delete)} oldest:", "yellow"))
         for ts, aid in to_delete[:10]:
             title = r.hget(f"article:{aid}", "title") or "(no title)"
@@ -741,6 +846,11 @@ def trim_database(r, solr):
         if not ids_to_delete:
             print("No articles matched the trim criteria.")
             return
+        ids_to_delete, excluded = partition_protected(r, ids_to_delete)
+        _print_exclusions(len(ids_to_delete), excluded)
+        if not ids_to_delete:
+            print(colored("All candidates are protected content — nothing deletable.", "green"))
+            return
         print(colored(f"\nDRY RUN — {len(ids_to_delete)} article(s) would be deleted.", "yellow"))
         if input("Proceed? (yes/no): ").lower() != 'yes':
             print("Aborted.")
@@ -766,6 +876,7 @@ def trim_database(r, solr):
         from retention import trim_by_hours
         hours = value * 24 if method == 'days' else value
         preview = trim_by_hours(r, solr, hours, dry_run=True)
+        _print_exclusions(preview['found'], preview.get('excluded', {"reference": 0, "pinned": 0}))
         if preview['found'] == 0:
             print("No articles matched the trim criteria.")
             return
@@ -774,7 +885,9 @@ def trim_database(r, solr):
             print("Aborted.")
             return
         result = trim_by_hours(r, solr, hours, dry_run=False)
-        print(colored(f"✅ Trim complete. Deleted {result['deleted']} article(s) from Redis and Solr.", "green"))
+        exc = result.get('excluded', {"reference": 0, "pinned": 0})
+        print(colored(f"✅ Trim complete. Deleted {result['deleted']} news article(s) from Redis and Solr "
+                      f"(excluded: {exc['reference']} reference, {exc['pinned']} pinned).", "green"))
         return
 
     print(colored(f"Unknown method: {method}", "red"))
@@ -1089,6 +1202,11 @@ def purge_redis_orphans(r, solr):
     all_keys = r.keys("article:*")
     orphan_keys = [k for k in all_keys if k.replace("article:", "") not in feed_ids]
 
+    protected = [k for k in orphan_keys if _protection(r, k.replace("article:", ""))]
+    if protected:
+        print(colored(f"  🛡️  {len(protected)} orphan(s) are reference/pinned — excluded from purge", "yellow"))
+        orphan_keys = [k for k in orphan_keys if k not in set(protected)]
+
     print(f"Feed articles    : {colored(str(len(feed_ids)), 'cyan')}")
     print(f"article:* keys   : {colored(str(len(all_keys)), 'cyan')}")
     print(f"Orphaned hashes  : {colored(str(len(orphan_keys)), 'yellow' if orphan_keys else 'green')}")
@@ -1140,6 +1258,7 @@ def intelligence_dashboard(r, solr):
     lang_counts      = Counter()
     directive_counts = Counter()
     sentinel_counts  = Counter()
+    ctype_counts     = Counter()
     scores           = []
     score_buckets    = Counter()
     missing_fields   = Counter()
@@ -1162,6 +1281,8 @@ def intelligence_dashboard(r, solr):
 
         cat = data.get('category') or data.get('directive') or '(unknown)'
         directive_counts[cat] += 1
+
+        ctype_counts[data.get('content_type') or 'news'] += 1
 
         # sentinel_verdict lives inside sentinel_analysis JSON blob
         sentinel_verdict = data.get('sentinel_verdict', '')
@@ -1205,6 +1326,8 @@ def intelligence_dashboard(r, solr):
     scored_count = len(scores)
     if total:
         print(f"  Scored articles        : {scored_count} ({scored_count/total*100:.1f}%)")
+    ctype_str = ", ".join(f"{k}={v}" for k, v in ctype_counts.most_common())
+    print(f"  Content types          : {colored(ctype_str, 'cyan')}; pinned={colored(str(r.scard(PINNED_SET)), 'cyan')}")
     print()
 
     # --- Top sources ---
@@ -1287,8 +1410,78 @@ def intelligence_dashboard(r, solr):
         print(f"  {field:<28}  {colored(f'{present:>5}/{total}', status_color)}  "
               f"{pct_present:>5.1f}%  {bar}")
 
+    # --- Course reference integrity (SoC) ---
+    print()
+    print(colored("  COURSE REFERENCE INTEGRITY (SoC db 2 + /plants catalog)", "yellow"))
+    try:
+        dangling = _soc_dangling_refs(r)
+        if dangling is None:
+            print(colored("  SoC Redis (db 2) unreachable — check skipped", "yellow"))
+        elif not dangling:
+            print(colored("  ✅ every course/badge/catalog reference resolves to a live article", "green"))
+        else:
+            print(colored(f"  ⚠️  {len(dangling)} dangling reference(s) — restore or unlink:", "red"))
+            for aid, src in dangling[:10]:
+                print(f"    {aid}  ← {src}")
+            if len(dangling) > 10:
+                print(f"    ... and {len(dangling) - 10} more")
+    except Exception as e:
+        print(colored(f"  integrity check failed: {e}", "red"))
+
     print()
     input(colored("  Press Enter to return to menu...", "dark_grey"))
+
+
+def _soc_dangling_refs(r):
+    """Article ids referenced by SoC durable keys (badges/passes/certs, db 2)
+    and the /plants catalog that no longer resolve to a live article in arc
+    (db 0), huntaegis (db 1), or SoC's own injected content (db 2). Returns
+    [(aid, referencing_source)], or None if SoC's db is unreachable. Cache and
+    feed keys are deliberately ignored — they expire and self-heal."""
+    try:
+        soc  = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD,
+                           db=2, decode_responses=True)
+        hunt = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD,
+                           db=1, decode_responses=True)
+        soc.ping()
+    except Exception:
+        return None
+
+    hex32 = re.compile(r"[0-9a-f]{32}")
+    refs = {}
+    for pattern in ("soc:badge_issued:*", "soc:dynamic_pass:*", "soc:cert*", "soc:user*"):
+        for key in soc.scan_iter(pattern):
+            blob = key + " "
+            t = soc.type(key)
+            if t == "string":
+                blob += soc.get(key) or ""
+            elif t == "hash":
+                blob += json.dumps(soc.hgetall(key))
+            elif t == "set":
+                blob += " ".join(soc.smembers(key))
+            elif t == "list":
+                blob += " ".join(soc.lrange(key, 0, -1))
+            for aid in hex32.findall(blob):
+                refs.setdefault(aid, key)
+
+    try:
+        import urllib.request
+        with urllib.request.urlopen("http://localhost:5005/api/plants", timeout=10) as resp:
+            catalog = json.loads(resp.read())
+        for group in catalog.values():
+            for entry in group:
+                m = hex32.search(entry.get("url", ""))
+                if m:
+                    refs.setdefault(m.group(0), "/plants catalog")
+    except Exception:
+        pass
+
+    dangling = []
+    for aid, src in sorted(refs.items()):
+        if not (r.exists(f"article:{aid}") or hunt.exists(f"article:{aid}")
+                or soc.exists(f"article:{aid}")):
+            dangling.append((aid, src))
+    return dangling
 
 
 # ==============================================================================
@@ -1705,6 +1898,13 @@ def generate_news_sitemap(r):
                 vis_raw = article.get(b'visibility') or article.get('visibility')
                 vis = vis_raw.decode('utf-8') if isinstance(vis_raw, bytes) else vis_raw
                 if vis == 'private':
+                    continue
+
+                # News sitemap is for 48h news velocity — reference articles
+                # (permanent profiles) belong in the standard sitemap instead.
+                ct_raw = article.get(b'content_type') or article.get('content_type')
+                ct = ct_raw.decode('utf-8') if isinstance(ct_raw, bytes) else ct_raw
+                if ct == 'reference':
                     continue
 
                 ts_raw = article.get(b'timestamp') or article.get('timestamp')
