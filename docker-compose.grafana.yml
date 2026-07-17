@@ -55,6 +55,24 @@ services:
       - '--web.listen-address=localhost:9093'
     restart: unless-stopped
 
+  # R-PT2 (2026-07-17) — brought under compose from a standalone `docker run`
+  # (same image/flags/mounts as before), plus the textfile collector so cron
+  # jobs can drop .prom files into monitoring/textfile/ (first user: the
+  # prediger pull-backup job on this box). Runs as `nobody`, so the spool dir
+  # and its files must be world-readable.
+  node-exporter:
+    image: prom/node-exporter
+    container_name: node-exporter
+    network_mode: host
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+      - ./monitoring/textfile:/textfile:ro
+    command:
+      - '--path.rootfs=/host'
+      - '--collector.textfile.directory=/textfile'
+    restart: unless-stopped
+
   grafana:
     image: grafana/grafana:10.2.7
     container_name: arc-grafana

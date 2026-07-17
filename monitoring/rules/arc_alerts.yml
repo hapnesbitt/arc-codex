@@ -62,3 +62,34 @@ groups:
         annotations:
           summary: "Redis memory > 80% of maxmemory"
           description: "used_memory / maxmemory = {{ $value | humanizePercentage }}. maxmemory is 16 GB; investigate keyspace growth."
+
+  - name: prediger_offsite
+    # R-PT2 (2026-07-17) — metrics come from ops/pull_prod_backups.sh in the
+    # prediger repo, via the node-exporter textfile collector
+    # (monitoring/textfile/prediger_backup.prom). The pull runs once daily at
+    # 04:30, so short `for` windows cost nothing: these gauges cannot flap.
+    interval: 60s
+    rules:
+      - alert: PredigerBackupStale
+        # The last pull failed, or the newest dump on Horst's box is >48h old
+        # (backup.py there silently dead). age -1 = unknown; the exit-code arm
+        # of the expression covers that case.
+        expr: prediger_backup_newest_dump_age_seconds > 172800 or prediger_backup_pull_exit_code != 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prediger offsite backup stale or last pull failed"
+          description: "Check logs/pull_backup_cron.log on Resolute for R-PT1 ALERT lines; then backup_cron.log on predigertoday.com."
+      - alert: PredigerPullDead
+        # Dead-man switch: fires when the pull job stops REPORTING at all —
+        # crontab lost, box rebooted wrong, key revoked, spool unmounted. A
+        # tripwire that only fires when the script runs is half a tripwire.
+        # 26h = daily cadence + 2h grace.
+        expr: absent(prediger_backup_last_pull_timestamp) or (time() - prediger_backup_last_pull_timestamp) > 93600
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prediger pull-backup job has not reported in >26h"
+          description: "No prediger_backup_last_pull_timestamp metric or it is too old — the cron may not be running at all. Check Resolute's crontab and logs/pull_backup_cron.log."

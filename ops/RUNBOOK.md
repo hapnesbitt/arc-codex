@@ -1849,3 +1849,27 @@ Analyzer's valve-closed log now names the condition (weekly cap
 exhausted / 429 breaker open / cloud host unreachable). corpus_exporter
 exposes `arc_cloud_calls_week` vs `arc_cloud_calls_week_cap` (cap 400) so
 exhaustion is a Grafana fact at 60%, not archaeology at 100%.
+
+## 2026-07-17 — R-PT2: prediger offsite-backup alerts (2 rules, textfile collector)
+
+The prediger pull-backup job on this box (see the prediger repo's
+RUNBOOK.md, R-PT1/R-PT2) now reports into Arc's monitoring. Arc-side
+changes:
+
+- **node-exporter brought under compose** (`docker-compose.grafana.yml`,
+  was a standalone `docker run` with identical image/flags/mounts) and
+  given `--collector.textfile.directory=/textfile`, bind-mounted from
+  `monitoring/textfile/`. Any cron on this box can now drop `.prom`
+  files there — it runs as `nobody`, so spool dir + files must be
+  world-readable. Runtime `*.prom` files are gitignored.
+- **Rules are now 7 in 4 groups**: `arc_alerts.yml` gained group
+  `prediger_offsite` — `PredigerBackupStale` (warning: newest dump >48h
+  old or last pull exited nonzero; `for: 5m` is safe because the gauges
+  update once daily and cannot flap) and `PredigerPullDead` (critical
+  dead-man: `absent()` or last report >26h old — fires when the cron
+  stops running at all, the failure the script cannot self-report).
+- Both rules **live-fired and cleared** on 2026-07-17 by injecting a
+  stale spool file / deleting it, confirmed through the full chain:
+  Prometheus firing → Alertmanager → `/api/alert` webhook log line.
+- Container recreate verified harmless: all four targets `up`,
+  Prometheus/Grafana/Alertmanager healthy after.
