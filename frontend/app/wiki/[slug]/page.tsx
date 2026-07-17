@@ -25,6 +25,10 @@ interface WikiArticle {
 interface DirectiveEntry { name: string; }
 interface TopicGroup { topic: string; directives: DirectiveEntry[]; }
 
+// Anonymous ISR — public directive index, no per-user personalization.
+// Backend already filters visibility != 'private' (main.py /api/wiki route).
+export const revalidate = 300;
+
 const toSlug = (name: string) =>
   name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 

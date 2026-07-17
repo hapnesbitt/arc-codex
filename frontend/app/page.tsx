@@ -1,9 +1,13 @@
-export const dynamic = "force-dynamic";
-import React from 'react';
+import React, { Suspense } from 'react';
 import type { Metadata } from 'next';
-import { auth } from "@/lib/auth";
 import FeedClient from '@/components/FeedClient';
 import PageWrapper from '@/components/layout/PageWrapper';
+
+// Anonymous ISR: SSR render is stable for all visitors between scribe cycles
+// (~13 min). No cookies/headers/auth in this path, so Next.js cannot
+// personalize and then cache. Client-side FeedClient + ClientLayout still
+// handle sign-in state and authed feed loads via useSession.
+export const revalidate = 60;
 
 const BACKEND = process.env.BACKEND_INTERNAL_URL ?? "http://localhost:5005";
 
@@ -17,11 +21,10 @@ export const metadata: Metadata = {
   },
 };
 
-async function getInitialFeed(userId: string) {
+async function getInitialFeed() {
   try {
     const feedRes = await fetch(`${BACKEND}/api/get_feed?limit=1`, {
-      cache: 'no-store',
-      headers: { 'X-User-Id': userId },
+      next: { revalidate: 60 },
     });
     return feedRes.ok ? await feedRes.json() : [];
   } catch (e) {
@@ -31,16 +34,15 @@ async function getInitialFeed(userId: string) {
 }
 
 export default async function Home() {
-  const session = await auth();
-  const userId = session?.user?.id ?? "";
-
-  const feed = await getInitialFeed(userId);
+  const feed = await getInitialFeed();
   return (
     <PageWrapper>
-      <FeedClient
-        initialFeed={feed}
-        initialComments={[]}
-      />
+      <Suspense fallback={null}>
+        <FeedClient
+          initialFeed={feed}
+          initialComments={[]}
+        />
+      </Suspense>
     </PageWrapper>
   );
 }

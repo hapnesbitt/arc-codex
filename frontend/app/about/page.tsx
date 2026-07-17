@@ -8,6 +8,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 
+export const revalidate = 3600;
+
 export const metadata: Metadata = {
   title: 'About — Arc Codex',
   description: 'An instrument for stewarding the process of knowing — A.R.C. cognitive analysis applied to news and discourse.',
