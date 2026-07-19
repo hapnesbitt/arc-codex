@@ -70,7 +70,7 @@ logger = logging.getLogger(__name__)
 # --- CONFIGURATION ---
 manual_upload_event = threading.Event()
 REDIS_PRIORITY_QUEUE_KEY = "arc:priority_uploads"
-CYCLE_MINUTES = 69  # Cloud-budget knob (2026-07-15). Each sweep issues
+CYCLE_MINUTES = 1  # Cloud-budget knob (2026-07-15). Each sweep issues
                    # cloud sentinel + counter-analyst calls per candidate;
                    # 69m throttles weekly gemma4:31b spend into allowance.
                    # Prime-adjacent, decoupled from Hunt's cycle.
