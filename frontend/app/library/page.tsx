@@ -45,9 +45,21 @@ async function getShelves(): Promise<Shelf[]> {
   }
 }
 
+// Distinct works count from the API. NOT the sum of shelf book_count, which
+// double-counts works that sit on more than one shelf.
+async function getTotalWorks(): Promise<number> {
+  try {
+    const res = await fetch(`${BACKEND}/api/library/stats`, { next: { revalidate: 3600 } });
+    if (!res.ok) return 0;
+    const d = await res.json();
+    return d.works ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 export default async function LibraryPage() {
-  const shelves = await getShelves();
-  const totalWorks = shelves.reduce((acc, s) => acc + (s.book_count || 0), 0);
+  const [shelves, totalWorks] = await Promise.all([getShelves(), getTotalWorks()]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">

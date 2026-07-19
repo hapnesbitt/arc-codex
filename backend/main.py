@@ -2466,6 +2466,23 @@ def get_library_shelves():
         return jsonify([]), 500
 
 
+@app.route('/api/library/stats', methods=['GET'])
+def get_library_stats():
+    """Distinct works + shelf counts for the library landing header. Public, no auth.
+    Note: DISTINCT works — not the sum of per-shelf book_count, which
+    double-counts works that sit on multiple shelves."""
+    try:
+        with library_db.db() as conn:
+            works = conn.execute("SELECT COUNT(*) FROM works").fetchone()[0]
+            shelves = conn.execute("SELECT COUNT(DISTINCT slug) FROM shelf_members").fetchone()[0]
+        resp = jsonify({'works': works, 'shelves': shelves})
+        resp.headers['Cache-Control'] = 'public, max-age=3600'
+        return resp
+    except Exception as e:
+        app.logger.error(f"🔥 /api/library/stats error: {e}", exc_info=True)
+        return jsonify({'works': 0, 'shelves': 0}), 500
+
+
 @app.route('/api/library/shelf/<slug>', methods=['GET'])
 def get_library_shelf(slug):
     """Return a single shelf's metadata + member works (no body text)."""
