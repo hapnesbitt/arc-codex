@@ -56,11 +56,16 @@ def publish_analysis(r, article_id: str, mission: str, analysis: str):
         The stream message ID, or None on failure
     """
     try:
+        # MAXLEN ~10k (approximate): the consumer group reads only new
+        # entries ('>'), so processed history is dead weight. Without a cap
+        # the stream grew unbounded (85k entries / ~5 months by 2026-07-18).
+        # Approximate trimming (~) trims in whole macro-nodes — cheap, and the
+        # working set here is tiny (pending stays ~0).
         msg_id = r.xadd(STREAM_NAME, {
             "article_id": article_id,
             "mission": mission,
             "analysis": analysis
-        })
+        }, maxlen=10000, approximate=True)
         logger.info(f"📡 Published {mission} analysis for {article_id[:12]}... → stream {msg_id}")
         return msg_id
     except Exception as e:
