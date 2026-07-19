@@ -29,6 +29,15 @@ it (see the dated entry for depth).
 | 4 | Frontend down right after a deploy | `docker compose up -d frontend` (no `--no-deps`) tries to recreate the `gunicorn` dependency, which conflicts with the bare-metal gunicorn on `:5005`, and leaves the container down | Deploy via **`./arc.sh build`** (it already uses `up -d --no-deps`), or `docker compose up -d --no-deps frontend`. **Never** the bare form. See *Bounce & deploy* below. |
 | 5 | After a reboot — is arc actually up? | arc auto-starts via **`itc-stack.service`** (systemd system unit, `enabled`, legacy "itc" name; runs `arc.sh start` at boot). Earlier belief "arc has no systemd unit" was **wrong** (Phase 0 correction, 2026-07-18) | `systemctl status itc-stack.service` → should be `active (exited)`. If services are down, `./arc.sh start` (as user `ross`) or `sudo systemctl start itc-stack.service`. `./arc.sh status` / `./arc.sh checkup` confirm per-service health. |
 
+> **M1 Ollama — CLI instance, not the GUI app.** The pipeline's inference host
+> (`192.168.1.185:11434`) must be the **`brew services` CLI Ollama bound to
+> `0.0.0.0:11434`** — reachable from Resolute — **not** the macOS **GUI app**,
+> which grabs the port as the wrong (Mac-localhost-only) instance and breaks
+> remote calls. The GUI login-item was **disabled 2026-07-18**. Verify from
+> Resolute: `curl -s http://192.168.1.185:11434/api/version` must answer, and
+> `/api/tags` must list `gemma4:e2b`. (Both confirmed green 2026-07-18 — v0.32.1,
+> `gemma4:e2b` present.)
+
 ## Bounce & deploy procedures
 
 Verbs verified against `arc.sh` (2026-07-18). `VALID_SERVICES`: gunicorn, scribe,
