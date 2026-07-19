@@ -1051,8 +1051,9 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             </a>
                         </div>
 
-                        {/* Right column: Chimera gauge + action buttons */}
-                        <div className="flex flex-col items-end gap-2 w-full sm:w-auto">
+                        {/* Right column: Chimera gauge + action buttons — one row
+                            (gauge beside the 2×4 icon grid), not stacked. */}
+                        <div className="flex flex-row items-center justify-end gap-3 flex-wrap w-full sm:w-auto">
                             {chimeraScore > 0 && (
                                 <ChimeraGauge score={chimeraScore} readingLabel={readingLabel} />
                             )}
