@@ -92,6 +92,7 @@ export default function DeveloperPage() {
               { label: 'Backend', value: 'Python / Flask / gunicorn (port 5005)' },
               { label: 'Frontend', value: 'Next.js 16.1.6 / React 19 / TypeScript' },
               { label: 'Database', value: 'Redis (in-memory, port 6379)' },
+              { label: 'Library DB', value: 'SQLite (public-domain book corpus)' },
               { label: 'Search', value: 'Apache Solr (full-text, port 8983)' },
               { label: 'AI Inference', value: 'Ollama on MacBook Air M1 (192.168.1.185)' },
               { label: 'Auth', value: 'Auth.js v5 beta — Google OAuth, JWT sessions' },
@@ -280,7 +281,7 @@ text = result[0]
 # Wrong — raises ValueError:
 text, duration = call_ollama_with_fallback(prompt, model)`}</Block>
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            Models: <Code>gpt-oss:20b</Code> (cloud, primary) → <Code>gemma4:e2b</Code> (local M1, fallback). devstral-2 retired 2026-07-15; gemma4:e2b handles simple tasks but struggles with large JSON translation payloads. Translation failures on 429 are graceful — &ldquo;model unavailable&rdquo; is shown to the user.
+            Inference is tiered and demand-gated: a compact local model handles the bulk of the work, and a larger cloud model is reached only on escalation, within a weekly budget. The Red / Blue / Purple analyses are computed lazily — on an article&rsquo;s first view rather than at ingest — so inference cost tracks readership, not ingest volume. Published articles are retained for roughly a month before they are pruned. Translation degrades gracefully when a model is unavailable: &ldquo;model unavailable&rdquo; is shown rather than a hard failure.
           </p>
           <Warn>
             <span><strong className="not-italic">Do not auto-translate on component mount in feed view.</strong> The feed lazy-loads on a tribonacci ramp, but a scrolled session holds dozens of mounted cards — that many simultaneous Ollama requests blocks all gunicorn threads and takes down the site. <Code>preferred_lang</Code> is a click shortcut — it skips the language dropdown, it does not auto-fire.</span>
@@ -357,9 +358,7 @@ text, duration = call_ollama_with_fallback(prompt, model)`}</Block>
               <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">Future roadmap</div>
               <ul className="font-serif text-base text-slate-300 leading-relaxed space-y-2 list-disc ml-6">
                 <li>Auto-translate on article detail page /article/[slug] only (safe — one article).</li>
-                <li>Email digest notifications (mailer.py stub ready).</li>
                 <li>Topic/category preferences per user.</li>
-                <li>GitHub SSO (second OAuth provider).</li>
                 <li>Article deduplication (SimHash/MinHash).</li>
                 <li>Ollama model auto-switching on credit exhaustion.</li>
                 <li>Netdata integration for custom pipeline metrics.</li>
