@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **This file is agent orientation** — architecture, conventions, how to behave —
+> and stays lean. For **operations** (troubleshooting, bounce/deploy procedures,
+> host coordinates, recovery, escalation, change log) see the enterprise runbook:
+> [`ops/RUNBOOK.md`](ops/RUNBOOK.md). Its quick-reference block is at the top.
+
 ## Stack Overview
 
 Arc Codex is a news intelligence platform that ingests RSS feeds, analyzes articles via the A.R.C. framework (three independent AI perspectives), and serves them through a Next.js frontend. It runs alongside **Huntaegis** (`/home/www/huntaegis_stack`) as a sibling stack on the same server — same Redis instance (different DB), same Ollama/Solr, same code structure.

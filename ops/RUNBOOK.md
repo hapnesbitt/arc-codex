@@ -3,6 +3,81 @@
 Records host-level changes that live outside git (redis.conf, fstab, sysctl),
 so the repo history stays the single narrative of what changed and why.
 
+> **Division of labor.** This file is the **enterprise operational runbook** —
+> procedures, coordinates, recovery, troubleshooting. Agent orientation
+> (architecture, conventions, how to behave) lives in
+> [`../CLAUDE.md`](../CLAUDE.md) and stays lean. Operational truth lives here.
+>
+> The **quick-reference block below** (troubleshooting, bounce, escalation,
+> change log) is curated. Everything after it is the **append-only incident
+> journal** — dated entries, kept for the full narrative.
+
+---
+
+# Quick reference
+
+## Top-5 troubleshooting
+
+Built from real incidents this week; each fix is the one that actually resolved
+it (see the dated entry for depth).
+
+| # | Symptom | Diagnosis | Fix (verified) |
+|---|---------|-----------|----------------|
+| 1 | Analysis/translation stalls; "model unavailable"; scribe local calls time out | M1 inference host (`192.168.1.185:11434`) unreachable or saturated — the whole fleet leans on it | Confirm reachable: `curl -s 192.168.1.185:11434/api/tags`. Fleet policy (2026-07-12) sheds council work to the Z230 and makes translations yield; local model is `gemma4:e2b`, cloud escalation `gemma4:31b-cloud` (weekly cap). If the Z230 GPU is implicated, the radeon is exiled **by name** — see 2026-07-12 entry. Scribe ingest is local-only by design, so ingestion survives a cloud outage. |
+| 2 | Redis writes fail (OOM); site errors on write paths | Redis `maxmemory 16G`, policy **`noeviction`** (2026-07-08) — at the ceiling, writes fail rather than evict (this *protects* pins/reference from LRU) | Check headroom: `redis-cli -a "$REDIS_PASSWORD" info memory` (`used_memory_human` vs 16G). The corpus is capped by retention (`retention_hours: 720`); if pressure is real, verify retention is pruning (scribe log `🗑️ Retention: pruned`) and that a runaway producer isn't in play (e.g. an unbounded stream — see 2026-07-18 stream cap). Swap (6 GB) exists as backstop. |
+| 3 | Weekly cloud credit drained | Cloud escalation over-firing; or scribe cranked too hot | Scribe analysis is **local-default** (ingest = Sentinel + Counter-Analyst via `call_ollama_local_only`; R/B/P are lazy-on-view, local-first). Cloud (`gemma4:31b-cloud`) is escalation-only behind a **weekly cap**. Throttle ingest with `CYCLE_MINUTES` (2026-07-15 budget knobs). Do **not** pair full-capacity scribe with anything cloud-heavy on the same budget. |
+| 4 | Frontend down right after a deploy | `docker compose up -d frontend` (no `--no-deps`) tries to recreate the `gunicorn` dependency, which conflicts with the bare-metal gunicorn on `:5005`, and leaves the container down | Deploy via **`./arc.sh build`** (it already uses `up -d --no-deps`), or `docker compose up -d --no-deps frontend`. **Never** the bare form. See *Bounce & deploy* below. |
+| 5 | After a reboot — is arc actually up? | arc auto-starts via **`itc-stack.service`** (systemd system unit, `enabled`, legacy "itc" name; runs `arc.sh start` at boot). Earlier belief "arc has no systemd unit" was **wrong** (Phase 0 correction, 2026-07-18) | `systemctl status itc-stack.service` → should be `active (exited)`. If services are down, `./arc.sh start` (as user `ross`) or `sudo systemctl start itc-stack.service`. `./arc.sh status` / `./arc.sh checkup` confirm per-service health. |
+
+## Bounce & deploy procedures
+
+Verbs verified against `arc.sh` (2026-07-18). `VALID_SERVICES`: gunicorn, scribe,
+manual_publisher, stream_consumer, analyzer, mailer, bluesky_poster,
+mastodon_poster, facebook_poster, character_builder, quiz_generator, frontend,
+watchdog, corpus_exporter, caddy_exporter.
+
+| Bounce | Command | Behavior |
+|--------|---------|----------|
+| **Single** | `./arc.sh restart <service>` | Holds the watchdog (`watchdog.hold`), `stop → sleep 1 → start` for that one service. The safe way — the hold prevents the 60s watchdog from spawning a duplicate in the gap. |
+| **Rolling** | `for s in gunicorn scribe frontend; do ./arc.sh restart "$s"; done` | No native rolling verb — a rolling bounce is just sequential single restarts. Order matters: gunicorn before frontend (frontend build needs the API). |
+| **Hard (full stack)** | `./arc.sh restart` (no service) | `stop` all → `sleep 2` → `start` all. Brief full outage. |
+| **Frontend deploy** | `./arc.sh build` | Ensures gunicorn is up, stops the frontend container, `docker compose build frontend`, then **`up -d --no-deps frontend`**. `./arc.sh build --no-cache` for a clean rebuild. |
+
+**The `--no-deps` trap (named procedure):** the frontend is Docker; gunicorn is
+bare-metal on `:5005`. `docker compose up -d frontend` (without `--no-deps`)
+makes Compose try to recreate the `gunicorn` compose-dependency, which collides
+with the real bare-metal process and fails, leaving the frontend down. Always
+`--no-deps` (which `./arc.sh build` does for you). This bit us mid-deploy on
+2026-07-17; recovery is `docker compose up -d --no-deps frontend`.
+
+## Upstream / escalation — external failure domains
+
+| Domain | Dependency | Failure signature | Owner / action |
+|--------|-----------|-------------------|----------------|
+| Content ingest | ~2,000+ RSS sources (`backend/sources.json`) | Fewer/no new articles | Per-source; dead URLs are negative-cached (2026-07-12). Not a single point of failure. |
+| Cloud inference | Ollama cloud `gemma4:31b-cloud` (weekly credit) | Escalations degrade to local | Cloud Ollama account/credits. Local fallback keeps the site working. |
+| Local inference | M1 host `192.168.1.185:11434` (Spectre secondary `192.168.1.189`) | Analysis/translation stalls | LAN + Mac host availability. See Troubleshooting #1. |
+| DNS / TLS | Domain registrar for `arc-codex.com` / `huntaegis.com` / `athena.arc-codex.com`; Caddy + Let's Encrypt | Site unreachable / cert expiry | Registrar owns DNS; Caddy auto-renews TLS. |
+| Reverse proxy | Caddy (host service) | 502/no route | `systemctl status caddy`; config in `/etc/caddy/Caddyfile`. |
+
+## Change log — structural changes (lightweight)
+
+Newest first. Deep detail in the dated entry of the same date.
+
+| Date | Change | Note |
+|------|--------|------|
+| 2026-07-18 | `analysis:pending` stream capped `MAXLEN ~10000` | Was unbounded (85k). Commit `f777470`. |
+| 2026-07-18 | Pin model → news-only; unpinned 76 reference plants | `arc:pinned_articles` 80→4; reference still type-protected. |
+| 2026-07-18 | Operational coordinates stripped from public `/about/developer` → this runbook | Page = capabilities, not coordinates. |
+| 2026-07-18 | Retention `48h → 720h` (30 days) | Lets news live long enough to index. `arc_config.yaml`. |
+| 2026-07-17 | R-PT2: prediger offsite-backup alerts (2 rules) | Textfile collector + dead-man. |
+| 2026-07-15 | scribe cloud-budget knobs (`CYCLE_MINUTES`, `MAX_CONCURRENT_ANALYZERS`) | Budget throttle. |
+| 2026-07-08 | Redis `maxmemory 16G` + `noeviction`; 6 GB swap | OOM remediation. |
+
+---
+
+# Incident journal (append-only)
+
 ## 2026-07-15 — Playwright Tier-3 restored (arc only for now)
 
 Restored after March 2026 retirement (commit 0abc395). New module
