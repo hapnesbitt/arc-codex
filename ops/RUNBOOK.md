@@ -66,6 +66,7 @@ Newest first. Deep detail in the dated entry of the same date.
 
 | Date | Change | Note |
 |------|--------|------|
+| 2026-07-18 | Hero-image subject cropping — **diagnosed, deferred** | Pipeline center-crop to 16:9; CSS can't fix. See known-issue entry. |
 | 2026-07-18 | `analysis:pending` stream capped `MAXLEN ~10000` | Was unbounded (85k). Commit `f777470`. |
 | 2026-07-18 | Pin model → news-only; unpinned 76 reference plants | `arc:pinned_articles` 80→4; reference still type-protected. |
 | 2026-07-18 | Operational coordinates stripped from public `/about/developer` → this runbook | Page = capabilities, not coordinates. |
@@ -2007,3 +2008,28 @@ non-127.0.0.1; `X-User-Id` injected by the Next.js proxy.
   `backups/orphan_shelf_members.backup-20260718-*.json` (gitignored).
   `shelf_members` 34,717→34,711; 0 orphans remain. Data-only op, no code
   artifact.
+
+## 2026-07-18 — KNOWN ISSUE: hero images crop the subject (pipeline, not CSS)
+
+**Diagnosed, NOT implemented — own focused session later. Do not re-diagnose.**
+
+- **Root cause:** `scribe.py` `_rehost_image` scales-to-cover then
+  **center-crops every hero to 16:9 (`REHOST_W×REHOST_H = 1200×675`) at ingest**;
+  the **original is discarded** — only the cropped JPEG + its WebP downscales
+  (`-480/-800/-1200`, all 16:9) are stored. Manual uploads (`main.py`) do the same
+  to 1200×630. The CSS `object-cover` on `aspect-video sm:h-80`
+  (`IntelligenceCard.tsx`) is a second, minor crop on an already-16:9 asset.
+- **Symptom:** tall/portrait sources lose top+bottom; ultra-wide lose left+right —
+  whatever doesn't fit 16:9. Affects feed **and** article detail (both render the
+  same `IntelligenceCard` hero off the same asset).
+- **CSS CANNOT fix it** — the pixels are gone upstream. `object-fit: contain` on the
+  stored asset only letterboxes the already-cropped 16:9. This is a **pipeline fix.**
+- **Chosen direction (Ross):** (b) replace the dumb center-crop with a
+  **focal/saliency-aware crop** so the subject survives the 16:9, **PLUS** start
+  **retaining an uncropped max-width derivative** (e.g. `{id}-full.webp`) going
+  forward so the whole image is never unrecoverable again.
+- **Caveat:** fixes **new** articles only. Existing articles kept no original, and
+  source URLs rot — backfill is partial at best.
+- Feed-card 16:9 crop is *intended* (uniform grid); the harm is the subject being
+  amputated on tall/infographic sources. Full read-only diagnosis: session
+  2026-07-18.
