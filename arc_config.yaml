@@ -66,8 +66,14 @@ backups:
 # Redis (article: hash + feed zset + processed_hashes set) and Solr, then
 # regenerates sitemap.xml, rss.xml, news-sitemap.xml if anything was deleted.
 # Set to 0 to disable. Shared trim library: backend/retention.py.
+# 2026-07-18: 48h → 720h (30d). A 48h news lifetime is shorter than Google's
+# crawl-to-index lag, so indexed /article/ URLs 404'd before ranking; 30d lets
+# news live long enough to be crawled + indexed. Memory: at ~271 news/day this
+# is ~8k articles (~0.6 GB hash payload, well under the 16 GB noeviction cap).
+# NOTE: do NOT combine 720h with full-capacity ingest (~1440/day → ~43k news)
+# without watching the shared-instance memory ceiling.
 retention:
-  retention_hours: 48
+  retention_hours: 720
 
 # ── Cloud escalation gate (Option A-tightened) ────────────────────────────────
 # Analyzer runs local first; article escalates to cloud only when one of
