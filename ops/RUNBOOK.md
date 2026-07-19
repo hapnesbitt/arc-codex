@@ -1919,3 +1919,16 @@ auth.
 
 **Scribe:** v53.0 (page said v50.0). Auth: loopback-only prefs write rejects
 non-127.0.0.1; `X-User-Id` injected by the Next.js proxy.
+
+## 2026-07-18 — Small-items cleanup
+
+- **`analysis:pending` stream capped** at `MAXLEN ~10000` (was unbounded, 85k
+  entries / ~5 months). `stream_utils.publish_analysis` now trims per write
+  (approximate); one-time exact XTRIM reclaimed 85k→10k. Consumer group
+  `pending=0` throughout — no in-flight loss. (commit `f777470`)
+- **6 orphan `shelf_members` rows deleted** from `/mnt/arcdata/library.db` —
+  rows referencing works that no longer exist (dead entries on shelf pages,
+  never in the sitemap). Backed up first to
+  `backups/orphan_shelf_members.backup-20260718-*.json` (gitignored).
+  `shelf_members` 34,717→34,711; 0 orphans remain. Data-only op, no code
+  artifact.
