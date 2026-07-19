@@ -1,15 +1,15 @@
 // Filename: /frontend/app/about/developer/page.tsx
 // Infrastructure of Meaning — Developer Documentation.
-// Librarian aesthetic. Reconstructed from page.tsx.Apr20 (full architecture
-// content: stack, arc.sh services, Caddy routing, API reference, Redis schemas,
-// auth, AI pipeline, frontend gotchas, Solr, roadmap). Server component.
+// Librarian aesthetic. Public page: describes capabilities and design, NOT
+// operational coordinates (ports, hosts, paths, internal schemas, routing
+// tables live in ops/RUNBOOK.md — see 2026-07-18 relocation entry). Server component.
 
 import React from 'react';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Developer Documentation — Arc Codex',
-  description: 'Architecture, API contracts, data schemas, and the hard-won gotchas behind Arc Codex.',
+  description: 'Architecture, design choices, and the philosophy behind Arc Codex.',
 };
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -29,12 +29,6 @@ const Code: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <code className="font-mono text-sm text-slate-300 bg-slate-900 border border-slate-800 rounded-sm px-1.5 py-0.5">
     {children}
   </code>
-);
-
-const Block: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <pre className="bg-slate-900 border border-slate-800 rounded-sm p-4 text-sm font-mono text-slate-300 overflow-x-auto leading-relaxed whitespace-pre-wrap">
-    {children}
-  </pre>
 );
 
 const Warn: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -72,14 +66,14 @@ export default function DeveloperPage() {
             Developer Documentation
           </h1>
           <p className="font-serif text-lg text-slate-400 italic leading-relaxed max-w-2xl mx-auto">
-            Architecture, API contracts, data schemas, and the hard-won gotchas.
+            The architecture and design choices behind Arc Codex.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 pt-2 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
             <span>Flask + Next.js 16.1.6</span>
             <span aria-hidden="true">·</span>
             <span>Redis + Solr</span>
             <span aria-hidden="true">·</span>
-            <span>Ollama on M1</span>
+            <span>Local + cloud inference</span>
             <span aria-hidden="true">·</span>
             <span>Auth.js v5 Beta</span>
           </div>
@@ -89,15 +83,15 @@ export default function DeveloperPage() {
         <SectionShell id="stack" eyebrow="I" heading="Stack Overview">
           <dl className="grid sm:grid-cols-2 gap-x-6">
             {[
-              { label: 'Backend', value: 'Python / Flask / gunicorn (port 5005)' },
+              { label: 'Backend', value: 'Python / Flask / gunicorn' },
               { label: 'Frontend', value: 'Next.js 16.1.6 / React 19 / TypeScript' },
-              { label: 'Database', value: 'Redis (in-memory, port 6379)' },
+              { label: 'Database', value: 'Redis (in-memory)' },
               { label: 'Library DB', value: 'SQLite (public-domain book corpus)' },
-              { label: 'Search', value: 'Apache Solr (full-text, port 8983)' },
-              { label: 'AI Inference', value: 'Ollama on MacBook Air M1 (192.168.1.185)' },
-              { label: 'Auth', value: 'Auth.js v5 beta — Google OAuth, JWT sessions' },
+              { label: 'Search', value: 'Apache Solr (full-text)' },
+              { label: 'AI Inference', value: 'Ollama — local model + cloud escalation' },
+              { label: 'Auth', value: 'Auth.js v5 beta — Google + GitHub OAuth, JWT sessions' },
               { label: 'Proxy', value: "Caddy (automatic TLS via Let's Encrypt)" },
-              { label: 'Process Mgr', value: 'arc.sh + systemd itc-stack.service' },
+              { label: 'Process Mgr', value: 'arc.sh + systemd (auto-starts on boot)' },
             ].map(({ label, value }) => (
               <div key={label} className="py-3 border-b border-slate-800/40">
                 <dt className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500 mb-1">{label}</dt>
@@ -107,200 +101,120 @@ export default function DeveloperPage() {
           </dl>
         </SectionShell>
 
-        {/* Services & arc.sh */}
-        <SectionShell id="services" eyebrow="II" heading="Services & arc.sh">
+        {/* Services */}
+        <SectionShell id="services" eyebrow="II" heading="Services & Supervision">
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            All services are managed by <Code>arc.sh</Code>. The stack auto-starts on boot via{' '}
-            <Code>/etc/systemd/system/itc-stack.service</Code> (legacy name from the itc era — paths are correct).
+            The stack is managed by a single control script and <strong>auto-starts on boot</strong>.
+            A <strong>watchdog</strong> supervises the services at runtime and restarts any that
+            crash, distinguishing a deliberately-stopped service from a failed one.
           </p>
-          <Block>{`./arc.sh start|stop|restart [service]
-./arc.sh status          # service states + log/backup sizes
-./arc.sh build           # Docker build + restart frontend
-./arc.sh backup          # fast SSD backup, code only (stack stops briefly)
-./arc.sh backup-cold     # full archive to /mnt/data (stack stays up)
-./arc.sh checkup         # health check + error scan + CPU/RAM
-./arc.sh logs [service]  # tail logs for a service
-./arc.sh prune [dry]     # rotate old backups
-
-# Named service control:
-./arc.sh restart gunicorn
-./arc.sh restart scribe
-./arc.sh restart bluesky_poster
-./arc.sh restart frontend
-
-# Poster on/off (no restart needed):
-redis-cli -a $REDIS_PASSWORD set bluesky:autopost 1
-redis-cli -a $REDIS_PASSWORD set bluesky:autopost 0`}</Block>
-          <dl className="border-t border-slate-800/40">
-            {[
-              { name: 'gunicorn', note: 'Flask API — port 5005, must run before build' },
-              { name: 'scribe', note: 'v50.0 — RSS scraper + full A.R.C. pipeline' },
-              { name: 'manual_publisher', note: 'v5.1 — URL/text/file submissions' },
-              { name: 'stream_consumer', note: 'Redis Streams consumer' },
-              { name: 'analyzer', note: 'On-demand analysis worker' },
-              { name: 'mailer', note: 'v1.0 ACTIVE — alerts + 7am digest' },
-              { name: 'bluesky_poster', note: 'v1.3 — auto-posts to Bluesky, on/off via Redis' },
-              { name: 'mastodon_poster', note: 'v1.1 — auto-posts to Mastodon, on/off via Redis' },
-              { name: 'facebook_poster', note: 'v1.0 — auto-posts to Facebook, on/off via Redis' },
-              { name: 'frontend', note: 'Docker container arc-frontend — port 3000' },
-              { name: 'watchdog', note: '60s check loop, restarts crashed services' },
-            ].map(({ name, note }) => (
-              <div key={name} className="py-3 border-b border-slate-800/40 flex items-baseline gap-4 flex-wrap">
-                <dt className="min-w-[180px]"><Code>{name}</Code></dt>
-                <dd className="font-serif text-sm text-slate-300 leading-relaxed">{note}</dd>
-              </div>
-            ))}
-          </dl>
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            What runs: RSS ingestion and the full A.R.C. analysis pipeline (the <em>Scribe</em>);
+            on-demand and manual publishing of user submissions; background analysis workers;
+            automated posting to Bluesky, Mastodon, and Facebook (each toggleable at runtime with
+            no restart); an email digest; and the Next.js frontend.
+          </p>
           <Warn>
-            <span><strong className="not-italic">Watchdog restart logic:</strong> only restarts a service if its PID file exists. A missing PID file means intentionally stopped. A stale PID file means crashed.</span>
+            <span><strong className="not-italic">Posting is fail-safe, not fire-and-forget:</strong> the posters
+            track which articles they have published separately, so a mid-publish failure re-tries on the
+            next cycle rather than double-posting or silently dropping.</span>
           </Warn>
         </SectionShell>
 
-        {/* Caddy Routing */}
-        <SectionShell id="caddy" eyebrow="III" heading="Reverse Proxy · Caddy Routing">
-          <Warn>
-            <span><strong className="not-italic">/api/auth/* and /api/user/* must appear before the /api/* catch-all.</strong> These routes go to Next.js (3000), not Flask (5005). Getting the order wrong silently breaks all auth and user prefs.</span>
-          </Warn>
-          <Block>{`arc-codex.com, www.arc-codex.com {
-  handle /api/auth/* { reverse_proxy localhost:3000 }  # Auth.js
-  handle /api/user/* { reverse_proxy localhost:3000 }  # Prefs proxy
-  handle /api/*      { reverse_proxy localhost:5005 }  # Flask
-  handle             { reverse_proxy localhost:3000 }  # Next.js
-  tls rossnesbitt@gmail.com
-}`}</Block>
-        </SectionShell>
-
-        {/* API Reference */}
-        <SectionShell id="api" eyebrow="IV" heading="API Reference">
-          <ul className="border-t border-slate-800/40">
-            {[
-              { method: 'GET',    path: '/api/articles',          desc: 'Paginated feed — ?limit=N&offset=N' },
-              { method: 'GET',    path: '/api/articles/<id>',     desc: 'Single article with full analysis' },
-              { method: 'POST',   path: '/api/submit',            desc: 'Submit URL/text/file for processing' },
-              { method: 'GET',    path: '/api/search',            desc: 'Solr full-text — ?q=query&limit=N' },
-              { method: 'GET',    path: '/api/translate/<id>',    desc: 'Translate article + analysis — ?lang=<language>' },
-              { method: 'DELETE', path: '/api/translate/<id>/cache', desc: 'Admin cache bust' },
-              { method: 'GET',    path: '/api/user/prefs',        desc: 'Fetch prefs (via Next.js proxy)' },
-              { method: 'POST',   path: '/api/user/prefs',        desc: 'Upsert on login (loopback only)' },
-              { method: 'PATCH',  path: '/api/user/prefs',        desc: 'Update preferred_lang (via proxy)' },
-              { method: 'DELETE', path: '/api/user/prefs',        desc: 'GDPR self-service deletion' },
-              { method: 'GET',    path: '/api/rss',               desc: 'RSS 2.0 — full analysis per item' },
-            ].map(({ method, path, desc }) => (
-              <li key={path} className="py-3 border-b border-slate-800/40 flex items-start gap-3 flex-wrap">
-                <span
-                  aria-label={`HTTP ${method}`}
-                  className="font-sans text-[10px] uppercase tracking-[0.2em] font-semibold text-slate-400 min-w-[60px]"
-                >
-                  {method}
-                </span>
-                <Code>{path}</Code>
-                <span className="font-serif text-sm text-slate-300 leading-relaxed flex-1 min-w-[240px]">{desc}</span>
-              </li>
-            ))}
-          </ul>
+        {/* Reverse proxy */}
+        <SectionShell id="proxy" eyebrow="III" heading="Reverse Proxy">
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            All blueprints registered in <Code>backend/main.py</Code> inside the Redis try block. Flask restart required after adding a new blueprint.
+            A Caddy reverse proxy terminates TLS and routes requests: authentication and
+            user-preference calls are handled by the Next.js application server, and the remaining
+            API traffic goes to the Flask backend. Everything else renders from Next.js. Automatic
+            certificate management is handled by Caddy.
           </p>
         </SectionShell>
 
-        {/* Redis Schemas */}
-        <SectionShell id="redis" eyebrow="V" heading="Redis Data Schemas">
+        {/* Public API */}
+        <SectionShell id="api" eyebrow="IV" heading="Public API">
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            Arc Codex exposes a read-only public HTTP API over the same domain. It serves the
+            article feed, individual articles with their full analysis, full-text search, an RSS
+            feed, the wiki directive pages, the public-domain library, and the machine-readable
+            sitemap. Signed-in users can additionally submit content for processing and manage
+            their own preferences.
+          </p>
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            Machine-readable discovery surfaces — <Code>/rss.xml</Code>, <Code>/sitemap.xml</Code>,
+            <Code>/news-sitemap.xml</Code>, and <Code>/opensearch.xml</Code> — are published and kept
+            current automatically.
+          </p>
+        </SectionShell>
+
+        {/* Data model */}
+        <SectionShell id="data" eyebrow="V" heading="Data Model">
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            Live application data is held in Redis for speed; the public-domain book corpus behind the
+            Library lives in SQLite; and full-text search is served from Solr. At a conceptual level the
+            system stores:
+          </p>
           <div className="border-t border-slate-800/40">
-            <Panel label="article:{id}  (hash)">
-              <Block>{`id, title, url, source, original_text, timestamp, directive,
-chimera_score, red_team_analysis, blue_team_analysis,
-purple_team_analysis, sentinel_verdict, og_image, slug`}</Block>
+            <Panel label="Articles">
+              Each article carries its source text, metadata, editorial directive, a reading-difficulty
+              score, the three A.R.C. analyses, and an AI-content verdict. Articles are typed as either
+              rolling <em>news</em> or durable <em>reference</em> content.
             </Panel>
-            <Panel label="comments:{article_id}  (list of JSON strings)">
-              <Block>{`{ id, article_id, author, content, timestamp, is_ai }`}</Block>
-              <p>
-                Counter-Analyst author must be exactly <Code>A.R.C. Counter-Analyst</Code> — frontend cyan styling depends on exact string match.
-              </p>
+            <Panel label="Comments & reactions">
+              Reader comments and per-comment reaction counts. The adversarial Counter-Analyst comment
+              is a first-class, distinctly-styled entry.
             </Panel>
-            <Panel label="reactions:{comment_id}  (hash)">
-              <Block>{`like, dislike, heart, happy, sad, angry  (integer counts)`}</Block>
+            <Panel label="Translations">
+              Per-article, per-language translations are cached for a day so a repeat request is instant.
             </Panel>
-            <Panel label="translation:{article_id}:{lang}  (string, 24h TTL)">
-              <Block>{`{
-  title, original_text, red_team_analysis,
-  blue_team_analysis, purple_team_analysis,
-  rtl: bool
-}`}</Block>
-            </Panel>
-            <Panel label="user:{google_sub}  (hash)">
-              <Block>{`email, name, picture, preferred_lang, created_at, last_seen
-
-Note: google_sub is a long numeric string (e.g. 106447029965347101642)
-LightBox uses user:{username} — no collision risk`}</Block>
-            </Panel>
-            <Panel label="analysis:pending  (Redis Stream)">
-              <Block>{`Consumer group: analysis_workers
-Used by: stream_consumer.py
-Delivery: real-time, zero polling, no filesystem writes`}</Block>
+            <Panel label="Accounts">
+              A minimal profile per signed-in user — identity from the OAuth provider plus a preferred
+              language. Authentication is stateless (JWT); no server-side session store is required.
             </Panel>
           </div>
         </SectionShell>
 
-        {/* Auth Architecture */}
-        <SectionShell id="auth" eyebrow="VI" heading="Authentication Architecture">
+        {/* Authentication */}
+        <SectionShell id="auth" eyebrow="VI" heading="Authentication">
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            Soft auth model — the site is fully public. Google login is optional and unlocks preferences only. No username/password fallback.
+            Soft auth — the site is fully public. Signing in with Google or GitHub is optional and
+            unlocks preferences, publishing, and private articles. There is no username/password
+            fallback and no third-party tracking.
           </p>
-          <Block>{`Browser
-  → Next.js /api/auth/[...nextauth]  (Auth.js catch-all)
-  → Google OAuth callback
-  → JWT session cookie set (30 days)
-
-Browser requests /api/user/prefs
-  → Next.js app/api/user/prefs/route.ts  (server-side proxy)
-  → Adds X-User-Id: {google_sub} header
-  → Flask /api/user/prefs (loopback only — rejects if not 127.0.0.1)`}</Block>
-          <Warn>
-            <span><strong className="not-italic">trustHost: true is required in auth.ts.</strong> Without it, all auth routes return UntrustedHost error when behind a reverse proxy.</span>
-          </Warn>
-          <Warn>
-            <span><strong className="not-italic">Use account.providerAccountId for the Google sub</strong>, not user.id. The JWT strategy populates these differently.</span>
-          </Warn>
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            <Code>@auth/redis-adapter</Code> does not exist as a standalone package. The <Code>adapters.js</Code> in this beta is empty. JWT sessions are the correct approach — no adapter needed.
+            Sessions are JWT-based (stateless), and preference writes are accepted only from the
+            application server itself — never directly from the public internet — so a user can only
+            ever change their own settings.
           </p>
         </SectionShell>
 
         {/* AI Pipeline */}
         <SectionShell id="ai" eyebrow="VII" heading="AI Pipeline">
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            All AI inference routes through <Code>ollama_utils.py</Code>. Never duplicate <Code>call_ollama_with_fallback()</Code> in other files.
+            Inference is tiered and demand-gated: a compact local model handles the bulk of the work,
+            and a larger cloud model is reached only on escalation, within a weekly budget. The
+            Red / Blue / Purple analyses are computed lazily — on an article&rsquo;s first view rather
+            than at ingest — so inference cost tracks readership, not ingest volume. Published articles
+            are retained for roughly a month before they are pruned. Translation degrades gracefully
+            when a model is unavailable: &ldquo;model unavailable&rdquo; is shown rather than a hard failure.
           </p>
           <Warn>
-            <span><strong className="not-italic">call_ollama_with_fallback() returns a TUPLE.</strong> Always use <Code>result[0]</Code> for text. Never unpack as <Code>text, duration = result</Code> — it returns more than 2 values and raises ValueError.</span>
-          </Warn>
-          <Block>{`# Correct:
-result = call_ollama_with_fallback(prompt, model)
-text = result[0]
-
-# Wrong — raises ValueError:
-text, duration = call_ollama_with_fallback(prompt, model)`}</Block>
-          <p className="font-serif text-base text-slate-200 leading-relaxed">
-            Inference is tiered and demand-gated: a compact local model handles the bulk of the work, and a larger cloud model is reached only on escalation, within a weekly budget. The Red / Blue / Purple analyses are computed lazily — on an article&rsquo;s first view rather than at ingest — so inference cost tracks readership, not ingest volume. Published articles are retained for roughly a month before they are pruned. Translation degrades gracefully when a model is unavailable: &ldquo;model unavailable&rdquo; is shown rather than a hard failure.
-          </p>
-          <Warn>
-            <span><strong className="not-italic">Do not auto-translate on component mount in feed view.</strong> The feed lazy-loads on a tribonacci ramp, but a scrolled session holds dozens of mounted cards — that many simultaneous Ollama requests blocks all gunicorn threads and takes down the site. <Code>preferred_lang</Code> is a click shortcut — it skips the language dropdown, it does not auto-fire.</span>
+            <span><strong className="not-italic">Translation is a click, not an auto-fire in the feed.</strong>
+            A scrolled feed holds many mounted cards; firing translation on each mount would overwhelm the
+            inference tier. A preferred language is a shortcut that skips the picker — it does not translate
+            the whole feed automatically.</span>
           </Warn>
         </SectionShell>
 
         {/* Frontend Gotchas */}
-        <SectionShell id="gotchas" eyebrow="VIII" heading="Frontend Gotchas">
+        <SectionShell id="gotchas" eyebrow="VIII" heading="Frontend Notes">
           <ul className="border-t border-slate-800/40">
             {[
-              { title: 'FeedClient.tsx',        warn: true,  text: 'NEVER restructure. Surgical deletions only. Keep React.Fragment structure.' },
-              { title: 'LayoutTheme.module.css', warn: true,  text: 'ALWAYS check here first for color issues. It overrides everything else.' },
-              { title: 'UserPrefsContext',       warn: false, text: 'Single source of truth for prefs. Import from @/components/UserPrefsContext — NOT @/hooks/useUserPrefs.' },
-              { title: 'postcss.config.js',     warn: true,  text: 'CommonJS (.js) only. The .mjs version references @tailwindcss/postcss which is not installed — build will fail.' },
-              { title: 'npm install',           warn: false, text: 'Always use --legacy-peer-deps (set permanently in .npmrc — automatic).' },
-              { title: 'Next.js version',       warn: false, text: '16.1.6 — not 14. App Router. Turbopack enabled.' },
-              { title: 'spaCy install',         warn: false, text: 'Use pip wheel URL. NOT python3 -m spacy download (typer conflict).' },
-              { title: 'Ads',                   warn: true,  text: 'Fully removed. Do not re-add AdSense, GAM, or any ad network components.' },
-              { title: 'CopyAllButton',         warn: false, text: "Client component — import separately, never inline 'use client' in server components." },
+              { title: 'Feed rendering',   warn: true,  text: 'The lazy-loading feed structure is load-bearing — changes are surgical, never structural.' },
+              { title: 'Theme layer',       warn: true,  text: 'A single stylesheet layer is the source of truth for colours and overrides everything else.' },
+              { title: 'Preferences',       warn: false, text: 'One context is the single source of truth for user preferences across the app.' },
+              { title: 'App Router',         warn: false, text: 'Next.js 16 App Router with Turbopack. Not the pages router.' },
+              { title: 'No ads',            warn: true,  text: 'Fully ad-free by design. No ad networks, no analytics beacons.' },
             ].map(({ title, warn, text }) => (
               <li key={title} className="py-3 border-b border-slate-800/40 flex items-start gap-3">
                 {warn && (
@@ -316,61 +230,33 @@ text, duration = call_ollama_with_fallback(prompt, model)`}</Block>
           </ul>
         </SectionShell>
 
-        {/* Solr */}
-        <SectionShell id="solr" eyebrow="IX" heading="Search · Solr">
+        {/* Search */}
+        <SectionShell id="solr" eyebrow="IX" heading="Search">
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            Full-text search via <Code>pysolr</Code>. Endpoint: <Code>http://localhost:8983/solr/articles</Code>.
-          </p>
-          <p className="font-serif text-base text-slate-200 leading-relaxed">
-            <strong>Schema fields:</strong> id, title, content, source, url, timestamp, directive, chimera_score (Chimera Difficulty Score, 0–100).
-          </p>
-          <p className="font-serif text-base text-slate-200 leading-relaxed">
-            <strong>Lazy reconnect:</strong> both <Code>main.py</Code> and <Code>scribe.py</Code> use a <Code>global solr</Code> lazy reconnect pattern. This fixes the boot-order race condition where Solr starts after application services.
-          </p>
-          <p className="font-serif text-base text-slate-200 leading-relaxed">
-            Admin tool: <Code>kasmir7.py</Code> functions 5–8 handle re-index, diagnostics, and orphan purging. 31,924 Solr orphans were purged during the v5.0 migration.
+            Full-text search is served by Apache Solr, indexed over the article corpus (title, content,
+            source, directive, and the reading-difficulty score). Search reconnects lazily so a
+            restart of either the search engine or the application resolves itself without manual
+            intervention.
           </p>
         </SectionShell>
 
         {/* Planned Features */}
         <SectionShell id="roadmap" eyebrow="X" heading="Planned Features">
-          <div className="space-y-6">
-            {[
-              {
-                tag: 'Next session',
-                title: 'arc.sh restore',
-                desc: 'List available backup tarballs, interactive selection, confirmation prompt, extract to stack root, auto-restart affected services. Fits the existing arc.sh bash pattern.',
-              },
-              {
-                tag: 'Next session',
-                title: 'arc_admin.py — Curses TUI',
-                desc: <>Python stdlib curses. Password-protected terminal menu. Sections: System, Backups, Articles, Users, Ollama. Auth via Redis <Code>is_admin</Code> flag. Launch via <Code>./arc.sh admin</Code>.</>,
-              },
-            ].map(({ tag, title, desc }) => (
-              <div key={title} className="py-4 border-b border-slate-800/40 space-y-2">
-                <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">{tag}</div>
-                <h3 className="font-serif text-xl text-slate-100 leading-snug">{title}</h3>
-                <p className="font-serif text-base text-slate-300 leading-relaxed">{desc}</p>
-              </div>
-            ))}
-
-            <div className="py-4 space-y-3">
-              <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">Future roadmap</div>
-              <ul className="font-serif text-base text-slate-300 leading-relaxed space-y-2 list-disc ml-6">
-                <li>Auto-translate on article detail page /article/[slug] only (safe — one article).</li>
-                <li>Topic/category preferences per user.</li>
-                <li>Article deduplication (SimHash/MinHash).</li>
-                <li>Ollama model auto-switching on credit exhaustion.</li>
-                <li>Netdata integration for custom pipeline metrics.</li>
-                <li>TLS for IMAP (port 993) via Let&apos;s Encrypt.</li>
-              </ul>
-            </div>
+          <div className="space-y-3">
+            <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">Future roadmap</div>
+            <ul className="font-serif text-base text-slate-300 leading-relaxed space-y-2 list-disc ml-6">
+              <li>Auto-translate on the single-article page (safe — one article at a time).</li>
+              <li>Topic / category preferences per user.</li>
+              <li>Article deduplication (SimHash / MinHash).</li>
+              <li>Model auto-switching on cloud-credit exhaustion.</li>
+              <li>Custom pipeline metrics dashboards.</li>
+            </ul>
           </div>
         </SectionShell>
 
         {/* Project context + repo */}
         <section className="py-10 border-b border-slate-800/60 text-center space-y-3 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
-          <p>© {new Date().getFullYear()} Arc Codex · Project context v6.2</p>
+          <p>© {new Date().getFullYear()} Arc Codex</p>
           <p>
             <a
               href="https://github.com/hapnesbitt/arc-codex"

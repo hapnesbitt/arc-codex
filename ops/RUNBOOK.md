@@ -1873,3 +1873,49 @@ changes:
   Prometheus firing → Alertmanager → `/api/alert` webhook log line.
 - Container recreate verified harmless: all four targets `up`,
   Prometheus/Grafana/Alertmanager healthy after.
+
+## 2026-07-18 — Operational coordinates relocated off public /about/developer
+
+The public developer page (`arc-codex.com/about/developer`, no auth) carried
+operational coordinates. Moved here first, then stripped from the page and
+replaced with capability wording (commit "security: remove operational
+coordinates from public /about/developer → runbook"). Canonical values:
+
+**Ports (loopback):** Flask/gunicorn `5005`, Redis `6379`, Solr `8983`,
+Next.js frontend `3000`, Caddy admin `2019`.
+
+**Inference host:** MacBook Air M1 at `192.168.1.185:11434` (Ollama). Local
+model `gemma4:e2b`; cloud escalation model `gemma4:31b-cloud` (weekly cap).
+Spectre secondary at `192.168.1.189:11434`.
+
+**Boot / process management:** arc auto-starts on boot via
+`itc-stack.service` (systemd system unit, `enabled`; legacy "itc" name;
+`Type=oneshot`, `ExecStart=/home/www/arc_stack/arc.sh start`, `User=ross`).
+**Phase 0 correction (2026-07-18):** arc DOES have working systemd
+auto-start — the earlier "arc has no systemd unit" was wrong; the unit was
+missed by grepping "arc/scribe" not "itc". `arc.sh` is the service manager;
+`watchdog` supervises at runtime.
+
+**Backup paths:** cold backup → `/mnt/arcdata/backups` (the page's `/mnt/data`
+was stale — that old location was root-owned/unwritable). Library SQLite at
+`/mnt/arcdata/library.db` (via `library_db.py`).
+
+**Admin tool:** `kasmir7.py` (interactive console — re-index, diagnostics,
+orphan purge, trim, pins, sitemap/rss regen options).
+
+**Retention:** `arc_config.yaml retention_hours: 720` (30d, 2026-07-18; was
+48h); scribe end-of-cycle hook prunes news > window and regenerates
+sitemap/rss/news-sitemap on delete.
+
+**Caddy routing (order-sensitive):** `/api/auth/*` and `/api/user/*` →
+`localhost:3000` (Next.js) MUST precede the `/api/*` → `localhost:5005`
+(Flask) catch-all; bare path → `localhost:3000`. Wrong order silently breaks
+auth.
+
+**Public read API (Flask, port 5005):** `/api/get_feed`, `/api/article/<id>`,
+`/api/search`, `/api/rss`, `/api/wiki/<directive>`, `/api/sitemap`,
+`/api/library/*`, `/api/plants`, `/api/syndromes`, `/api/submit`. (The page's
+`/api/articles` and `/api/translate/<id>` were stale/removed.)
+
+**Scribe:** v53.0 (page said v50.0). Auth: loopback-only prefs write rejects
+non-127.0.0.1; `X-User-Id` injected by the Next.js proxy.
