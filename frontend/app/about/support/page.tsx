@@ -66,7 +66,7 @@ export default function SupportCodex() {
         {/* Reading the Feed */}
         <SectionShell id="feed" eyebrow="I · Observation" heading="Reading the Feed">
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            The main feed shows articles collected from 2,088 sources worldwide, analyzed by the A.R.C. framework as they arrive. Each card represents one article with its full analysis inline.
+            The main feed shows articles collected from over 2,000 sources worldwide, analyzed by the A.R.C. framework as they arrive. Each card represents one article with its full analysis inline.
           </p>
           <div className="border-t border-slate-800/40">
             <Panel label="The Chimera Difficulty Score (circle gauge)">
@@ -174,7 +174,7 @@ export default function SupportCodex() {
         {/* Translation */}
         <SectionShell id="translation" eyebrow="IV · Universal Availability" heading="Translation">
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            Arc Codex supports 162 languages via the TranslateGemma model running locally on the M1. Translations are cached for 24 hours per article/language pair.
+            Arc Codex translates articles and their analysis on demand, into a wide range of languages, through its inference pipeline. Each translation is cached per article and language for 24 hours, so a repeat request is instant.
           </p>
           <div className="border-t border-slate-800/40">
             <Panel label="How to translate an article">
