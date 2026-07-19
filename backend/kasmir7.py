@@ -876,10 +876,21 @@ def trim_database(r, solr):
         from retention import trim_by_hours
         hours = value * 24 if method == 'days' else value
         preview = trim_by_hours(r, solr, hours, dry_run=True)
-        _print_exclusions(preview['found'], preview.get('excluded', {"reference": 0, "pinned": 0}))
+        exc = preview.get('excluded', {"reference": 0, "pinned": 0})
+        protected = exc['reference'] + exc['pinned']
         if preview['found'] == 0:
-            print("No articles matched the trim criteria.")
+            # Distinguish "nothing that old" from "matched, but all protected" —
+            # a zero-delete on a corpus full of pinned/reference must never again
+            # read as a bug (it cost an hour on 2026-07-18).
+            if protected:
+                print(colored(
+                    f"  {protected} article(s) older than {value} {method} matched, but ALL are "
+                    f"protected ({exc['pinned']} pinned, {exc['reference']} reference) — nothing "
+                    f"deletable. Not an error.", "green"))
+            else:
+                print(f"No articles older than {value} {method} — nothing to trim.")
             return
+        _print_exclusions(preview['found'], exc)
         print(colored(f"\nDRY RUN — {preview['found']} article(s) would be deleted.", "yellow"))
         if input("Proceed? (yes/no): ").lower() != 'yes':
             print("Aborted.")
