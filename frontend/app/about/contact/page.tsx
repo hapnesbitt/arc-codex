@@ -36,10 +36,10 @@ const EXPERTISE = [
 const CONTACTS: Array<{ label: string; value: string; href: string; external: boolean; aria: string }> = [
   {
     label: 'Direct Inquiry',
-    value: 'hap@arc-codex.com',
-    href: 'mailto:hap@arc-codex.com',
+    value: 'ross@arc-codex.com',
+    href: 'mailto:ross@arc-codex.com',
     external: false,
-    aria: 'Send email to hap@arc-codex.com',
+    aria: 'Send email to ross@arc-codex.com',
   },
   {
     label: 'Source · GitHub',
