@@ -4,6 +4,17 @@ Items diagnosed but not landed. A fresh session should pick up cold from here.
 
 ---
 
+## /library UI: "works" count double-counts shelf memberships
+
+`/library` reports **34,717 works**, but that is the `shelf_members`
+row count — a book on N shelves is counted N times. Distinct works =
+**25,415** (verified 2026-07-18: `SELECT COUNT(*) FROM works`). The
+sitemap is already correct (all 25,415 works + 34 shelves indexed) — this
+is a display-label bug only. Fix: report distinct works, not
+shelf-membership rows, in the `/library` count (frontend/library-endpoint
+change — its own commit, separate from the /about accuracy pass). While in
+there: 6 orphan `shelf_members` rows reference deleted works (cheap cleanup).
+
 ## SW: stop caching HTML (deferred from PWA audit)
 
 **Source**: [`docs/pwa-audit-2026-07-17.md`](docs/pwa-audit-2026-07-17.md) §2, §3.
