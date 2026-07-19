@@ -15,8 +15,8 @@ export const metadata: Metadata = {
 };
 
 const STATS = [
-  '2,088 Sources',
-  '162 Languages',
+  '2,000+ Sources',
+  'Multilingual',
   '48 A.R.C. Patterns',
   'Docker-Ready',
 ];
@@ -99,7 +99,7 @@ export default function SalesPage() {
             How It Works
           </h2>
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            Arc Codex monitors over 2,088 RSS sources across 162 languages in real time. Every article is automatically fetched, scored for reading difficulty, and run through three independent AI analytical passes:
+            Arc Codex monitors over 2,000 RSS sources in many languages in real time. Every article is automatically fetched, scored for reading difficulty, and run through three independent AI analytical passes:
           </p>
           <ul className="border-t border-slate-800/40">
             {PASSES.map((p) => (
@@ -110,7 +110,7 @@ export default function SalesPage() {
             ))}
           </ul>
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            Every article also gets a Sentinel forensic pass for AI-generated content detection, a Counter-Analyst adversarial comment, and a Chimera Difficulty Score synthesizing four readability metrics. Translation into any of 162 languages is one click away.
+            Every article also gets a Sentinel forensic pass for AI-generated content detection, a Counter-Analyst adversarial comment, and a Chimera Difficulty Score synthesizing four readability metrics. Translation into many languages is one click away.
           </p>
         </section>
 
