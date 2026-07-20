@@ -499,6 +499,35 @@ def publish_article():
         redis_duration = (time.perf_counter() - redis_start) * 1000
         
         app.logger.info(f"✅ Published article '{data['title']}' to Redis (ID: {article_id}) in {redis_duration:.2f}ms")
+
+        # --- INGEST-TIME ANALYSIS DISPATCH ---
+        # Lazy dispatch (get_single_article) only fires when a human opens an
+        # article, and the bot-UA gate there correctly declines to fire for
+        # crawlers. Articles nobody opened therefore never received Red/Blue/
+        # Purple at all, leaving the feed full of analysis-free (SEO-thin) pages.
+        # Dispatching here covers EVERY ingest route in one hook — scribe,
+        # manual_publisher, priority uploads, and the /api/submit* family all
+        # funnel through this endpoint.
+        #
+        # RPUSH (tail), deliberately NOT LPUSH: get_single_article pushes
+        # reader-triggered jobs to the HEAD, so a live reader's article always
+        # jumps ahead of this ingest backlog. Analyzer pops with BRPOP.
+        #
+        # Uses the same SET NX EX dedup lock as the read path, so the two
+        # producers can never double-enqueue the same article.
+        #
+        # Never fails the publish: the article is already committed to Redis
+        # above, so a queueing error must not turn a successful publish into a
+        # 500 — scribe would then retry and duplicate.
+        try:
+            _analysis_fields = ('red_team_analysis', 'blue_team_analysis', 'purple_team_analysis')
+            if not all(len(article_data.get(f) or '') > 10 for f in _analysis_fields):
+                if r.set(f"analyzer:queued:{article_id}", '1', ex=21600, nx=True):
+                    r.rpush('analyzer:queue', article_id)
+                    app.logger.info(f"📋 Queued {article_id} for analysis at ingest (tail)")
+        except Exception as e:
+            app.logger.warning(f"⚠️  Ingest-time analysis dispatch failed for {article_id}: {e}")
+
         return jsonify({"success": True, "message": "Article published."}), 201
     except Exception as e:
         app.logger.error(f"🔥 Failed to publish article to Redis: {e}", exc_info=True)
