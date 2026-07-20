@@ -1902,3 +1902,123 @@
 {"name":"RTÉ Nuacht","url":"https://www.rte.ie/feeds/rss/?index=/news","category":"General News (Irish)"}
 {"name":"Heterodox Academy Blog","url":"https://heterodoxacademy.org/blog-rss.xml","category":"Heterodox Thinking"}
 {"name":"National Farmers Union","url":"https://nfu.org/feed/","category":"Farming & Agriculture"}
+{"name":"NASA Earth Observatory","url":"https://science.nasa.gov/feed/?science_org=19791%2C22453","category":"Culture & Society"}
+{"name":"NASA Science","url":"https://science.nasa.gov/feed/","category":"Science & Environment"}
+{"name":"European Southern Observatory News","url":"https://www.eso.org/public/news/feed/","category":"Science & Environment"}
+{"name":"ALMA Observatory News","url":"https://www.almaobservatory.org/en/feed/","category":"Science & Environment"}
+{"name":"NOIRLab News","url":"https://noirlab.edu/public/news/feed/","category":"Science & Environment"}
+{"name":"NOAA Ocean Service News","url":"https://oceanservice.noaa.gov/rss/oceanservice_news.xml","category":"Science & Environment"}
+{"name":"Fermilab News","url":"https://news.fnal.gov/feed/","category":"Science & Environment"}
+{"name":"Lawrence Berkeley Lab News","url":"https://newscenter.lbl.gov/feed/","category":"Technology & AI"}
+{"name":"EMBL News","url":"https://www.embl.org/news/feed/","category":"Science & Environment"}
+{"name":"European Molecular Biology Laboratory Blog","url":"https://www.embl.org/news/category/science/feed/","category":"Science & Environment"}
+{"name":"Santa Fe Institute News","url":"https://www.santafe.edu/news-center/feed/","category":"Science & Environment"}
+{"name":"Simons Foundation News","url":"https://www.simonsfoundation.org/feed/","category":"Science & Environment"}
+{"name":"Caltech News","url":"https://www.caltech.edu/about/news/rss","category":"Science & Environment"}
+{"name":"Missouri Botanical Garden Science","url":"https://discoverandshare.org/feed/","category":"Science & Environment"}
+{"name":"Royal Botanic Garden Edinburgh Science","url":"https://stories.rbge.org.uk/feed","category":"Science & Environment"}
+{"name":"BirdLife International News","url":"https://www.birdlife.org/feed/","category":"Science & Environment"}
+{"name":"MBARI News","url":"https://www.mbari.org/feed/","category":"Science & Environment"}
+{"name":"US Forest Service Research","url":"https://research.fs.usda.gov/rss.xml","category":"Science & Environment"}
+{"name":"Copernicus Climate Change Service","url":"https://climate.copernicus.eu/rss.xml","category":"Science & Environment"}
+{"name":"Met Office Blog","url":"https://www.metoffice.gov.uk/blog","category":"Science & Environment"}
+{"name":"Archaeological Institute of America News","url":"https://www.archaeological.org/feed/","category":"Culture & Society"}
+{"name":"Institute for the Study of Ancient Cultures News","url":"https://isac.uchicago.edu/rss.xml","category":"Culture & Society"}
+{"name":"Library of Congress Blog","url":"https://blogs.loc.gov/loc/feed/","category":"Culture & Society"}
+{"name":"Library of Congress Preservation","url":"https://blogs.loc.gov/preservation/feed/","category":"Culture & Society"}
+{"name":"British Library Blog","url":"https://www.bl.uk/stories/blogs","category":"Culture & Society"}
+{"name":"UK National Archives Blog","url":"https://webarchive.nationalarchives.gov.uk/ukgwa/20250613000000/https://blog.nationalarchives.gov.uk/feed/","category":"Culture & Society"}
+{"name":"Internet Archive Blog","url":"https://blog.archive.org/feed/","category":"Culture & Society"}
+{"name":"UNESCO World Heritage News","url":"https://whc.unesco.org/en/news/rss/","category":"Culture & Society"}
+{"name":"Python Software Foundation Blog","url":"https://pyfound.blogspot.com/feeds/posts/default","category":"Technology & AI"}
+{"name":"Linux Foundation Blog","url":"https://www.linuxfoundation.org/blog/rss.xml","category":"Technology & AI"}
+{"name":"Mozilla Hacks","url":"https://hacks.mozilla.org/feed/","category":"Technology & AI"}
+{"name":"Debian News","url":"https://www.debian.org/News/news","category":"Technology & AI"}
+{"name":"Fedora Magazine","url":"https://fedoramagazine.org/feed/","category":"Technology & AI"}
+{"name":"KDE News","url":"https://kde.org/announcements/index.xml","category":"Technology & AI"}
+{"name":"Blender News","url":"https://www.blender.org/feed/","category":"Technology & AI"}
+{"name":"LibreOffice Blog","url":"https://blog.documentfoundation.org/feed/","category":"Technology & AI"}
+{"name":"Rust Blog","url":"https://blog.rust-lang.org/feed.xml","category":"Technology & AI"}
+{"name":"Go Blog","url":"https://go.dev/blog/feed.atom","category":"Technology & AI"}
+{"name":"PostgreSQL News","url":"https://www.postgresql.org/news.rss","category":"Technology & AI"}
+{"name":"OpenStreetMap Blog","url":"https://blog.openstreetmap.org/feed/","category":"Science & Environment"}
+{"name":"QGIS Blog","url":"https://blog.qgis.org/feed/","category":"Technology & AI"}
+{"name":"Open Knowledge Foundation","url":"https://blog.okfn.org/feed/","category":"Science & Environment"}
+{"name":"CNCF Blog","url":"https://www.cncf.io/blog/feed/","category":"Technology & AI"}
+{"name":"Raspberry Pi News","url":"https://www.raspberrypi.com/news/feed/","category":"Technology & AI"}
+{"name":"Arduino Blog","url":"https://blog.arduino.cc/feed/","category":"Technology & AI"}
+{"name":"Prusa Research Blog","url":"https://blog.prusa3d.com/feed/","category":"Technology & AI"}
+{"name":"Framework Blog","url":"https://frame.work/blog.rss","category":"Technology & AI"}
+{"name":"ASCE Source","url":"https://www.asce.org/publications-and-news/civil-engineering-source","category":"Technology & AI"}
+{"name":"Engineering at Cambridge","url":"https://www.eng.cam.ac.uk/news/rss.xml","category":"Technology & AI"}
+{"name":"Imperial College Engineering News","url":"https://www.imperial.ac.uk/news/engineering/rss/","category":"Technology & AI"}
+{"name":"Cooper Hewitt Stories","url":"https://www.cooperhewitt.org/feed/","category":"Culture & Society"}
+{"name":"Make Magazine","url":"https://makezine.com/feed/","category":"Technology & AI"}
+{"name":"Fine Woodworking Blog","url":"https://www.finewoodworking.com/feed","category":"Technology & AI"}
+{"name":"Popular Woodworking","url":"https://www.popularwoodworking.com/feed/","category":"Technology & AI"}
+{"name":"King Arthur Baking Blog","url":"https://www.kingarthurbaking.com/blog/feed","category":"Agriculture & Food"}
+{"name":"Garden Professors","url":"https://gardenprofessors.com/feed/","category":"Science & Environment"}
+{"name":"Merriam-Webster Word of the Day","url":"https://www.merriam-webster.com/wotd/feed/rss2","category":"Culture & Society"}
+{"name":"Omniglot Blog","url":"https://www.omniglot.com/bloggle/?feed=rss2","category":"Culture & Society"}
+{"name":"Public Domain Review","url":"https://publicdomainreview.org/rss.xml","category":"Culture & Society"}
+{"name":"Paris Review Daily","url":"https://www.theparisreview.org/blog/feed/","category":"Culture & Society"}
+{"name":"Open Culture","url":"https://www.openculture.com/feed","category":"Culture & Society"}
+{"name":"Cochrane News","url":"https://www.cochrane.org:443/about-us/news/all/rss","category":"Health & Medicine"}
+{"name":"Our World in Data","url":"https://ourworldindata.org/atom.xml","category":"Finance & Economics"}
+{"name":"Bank for International Settlements Research","url":"https://www.bis.org/research/index.htm?r","category":"Finance & Economics"}
+{"name":"Canadian Space Agency Blog","url":"https://www.asc-csa.gc.ca/eng/blog/","category":"Science & Environment"}
+{"name":"Chandra X-ray Observatory Blog","url":"https://chandra.harvard.edu/press/","category":"Science & Environment"}
+{"name":"SKAO News","url":"https://www.skao.int/en/news","category":"Science & Environment"}
+{"name":"SETI Institute News","url":"https://www.seti.org/news","category":"Science & Environment"}
+{"name":"USGS News","url":"https://www.usgs.gov/news","category":"Culture & Society"}
+{"name":"CERN News","url":"https://home.cern/feed/","category":"Science & Environment"}
+{"name":"SLAC News","url":"https://www6.slac.stanford.edu/news-and-events/news-center","category":"Science & Environment"}
+{"name":"Brookhaven National Laboratory News","url":"https://www.bnl.gov/newsroom/","category":"Technology & AI"}
+{"name":"Oak Ridge National Laboratory News","url":"https://www.ornl.gov/news","category":"Technology & AI"}
+{"name":"CSIRO News","url":"https://www.csiro.au/en/news","category":"Science & Environment"}
+{"name":"RIKEN Research News","url":"https://www.riken.jp/en/news_pubs/research_news/","category":"Science & Environment"}
+{"name":"Wellcome Sanger Institute News","url":"https://www.sanger.ac.uk/feed/","category":"Science & Environment"}
+{"name":"Allen Institute News","url":"https://alleninstitute.org/news","category":"Science & Environment"}
+{"name":"Perimeter Institute News","url":"https://perimeterinstitute.ca/news-and-ideas","category":"Science & Environment"}
+{"name":"Royal Society News","url":"https://royalsociety.org/news/","category":"Science & Environment"}
+{"name":"National Academies News","url":"https://www.nationalacademies.org/news","category":"Science & Environment"}
+{"name":"ETH Zurich News","url":"https://ethz.ch/en/news-and-events/eth-news.html","category":"Science & Environment"}
+{"name":"University of Cambridge Research","url":"https://www.cam.ac.uk/research/news","category":"Science & Environment"}
+{"name":"EPFL News","url":"https://actu.epfl.ch/","category":"Science & Environment"}
+{"name":"National University of Singapore Research","url":"https://news.nus.edu.sg/category/research/","category":"Science & Environment"}
+{"name":"University of Cape Town Research","url":"https://www.news.uct.ac.za/","category":"Science & Environment"}
+{"name":"Smithsonian National Zoo News","url":"https://nationalzoo.si.edu/news","category":"Science & Environment"}
+{"name":"eBird Science","url":"https://science.ebird.org/en","category":"Science & Environment"}
+{"name":"Scripps Institution of Oceanography","url":"https://scripps.ucsd.edu/news","category":"Science & Environment"}
+{"name":"National Park Service News","url":"https://www.nps.gov/aboutus/news/index.htm","category":"Science & Environment"}
+{"name":"UNEP News and Stories","url":"https://www.unep.org/news-and-stories","category":"Science & Environment"}
+{"name":"ECMWF News","url":"https://www.ecmwf.int/en/about/media-centre/news","category":"Science & Environment"}
+{"name":"Smithsonian Human Origins","url":"https://humanorigins.si.edu/research","category":"Science & Environment"}
+{"name":"ASOR Ancient Near East Today","url":"https://anetoday.org/feed/","category":"Culture & Society"}
+{"name":"Getty Iris","url":"https://www.getty.edu/news/","category":"Culture & Society"}
+{"name":"Getty Conservation Institute","url":"https://www.getty.edu/conservation-institute/","category":"Culture & Society"}
+{"name":"Rijksmuseum Stories","url":"https://www.rijksmuseum.nl/en/stories","category":"Culture & Society"}
+{"name":"National Gallery London Stories","url":"https://www.nationalgallery.org.uk/stories","category":"Culture & Society"}
+{"name":"Museum of Modern Art Magazine","url":"https://www.moma.org/magazine/","category":"Culture & Society"}
+{"name":"Royal Horticultural Society Science","url":"https://www.rhs.org.uk/science","category":"Science & Environment"}
+{"name":"Los Angeles Review of Books","url":"https://lareviewofbooks.org/","category":"Culture & Society"}
+{"name":"Poetry Foundation","url":"https://www.poetryfoundation.org/articles","category":"Culture & Society"}
+{"name":"Royal Institution News","url":"https://www.rigb.org/explore-science/browse?type=34","category":"Culture & Society"}
+{"name":"NIH Research Matters","url":"https://www.nih.gov/news-events/nih-research-matters","category":"Health & Medicine"}
+{"name":"World Bank Blogs","url":"https://blogs.worldbank.org/en/home","category":"Finance & Economics"}
+{"name":"FAO News","url":"https://www.fao.org/newsroom/en","category":"Agriculture & Food"}
+{"name":"FAO Stories","url":"https://www.fao.org/newsroom/stories/en","category":"Agriculture & Food"}
+{"name":"CGIAR News","url":"https://www.cgiar.org/news","category":"Agriculture & Food"}
+{"name":"UNDP Blog","url":"https://www.undp.org/blog","category":"Finance & Economics"}
+{"name":"CNRS Le Journal","url":"https://lejournal.cnrs.fr/rss","category":"Science & Environment"}
+{"name":"Helmholtz News","url":"https://www.helmholtz.de/newsroom/","category":"Science & Environment"}
+{"name":"CSIC Noticias","url":"https://www.csic.es/es/actualidad-del-csic","category":"Science & Environment"}
+{"name":"Agencia SINC","url":"https://www.agenciasinc.es/","category":"Science & Environment"}
+{"name":"Agência FAPESP","url":"https://agencia.fapesp.br/","category":"Science & Environment"}
+{"name":"Fiocruz Notícias","url":"https://fiocruz.br/noticias","category":"Health & Medicine"}
+{"name":"Embrapa Notícias","url":"https://www.embrapa.br/busca-de-noticias","category":"Agriculture & Food"}
+{"name":"RIKEN 研究成果","url":"https://www.riken.jp/press/2026/index.html","category":"Science & Environment"}
+{"name":"Institute for Basic Science News","url":"https://www.ibs.re.kr/cop/bbs/BBSMSTR_000000000738/selectBoardList.do","category":"Science & Environment"}
+{"name":"INAF News","url":"https://www.media.inaf.it/feed/","category":"Science & Environment"}
+{"name":"NWO Nieuws","url":"https://www.nwo.nl/nieuws","category":"Science & Environment"}
+{"name":"KAUST Discovery","url":"https://discovery.kaust.edu.sa/","category":"Science & Environment"}
