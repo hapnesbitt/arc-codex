@@ -70,11 +70,21 @@ logger = logging.getLogger(__name__)
 # --- CONFIGURATION ---
 manual_upload_event = threading.Event()
 REDIS_PRIORITY_QUEUE_KEY = "arc:priority_uploads"
-CYCLE_MINUTES = 1  # Cloud-budget knob (2026-07-15). Each sweep issues
-                   # cloud sentinel + counter-analyst calls per candidate;
-                   # 69m throttles weekly gemma4:31b spend into allowance.
-                   # Prime-adjacent, decoupled from Hunt's cycle.
+CYCLE_MINUTES = 30  # Sweep cadence (2026-07-19). Arc ingests ~20 articles/day,
+                   # which is ~3.75% of the M1's analysis capacity at ANY cadence
+                   # (utilisation = ingest_rate x seconds_per_article, independent
+                   # of how often we sweep). 30m is therefore chosen for freshness,
+                   # not budget — there is ~96% headroom either way.
+                   # Arc runs against the M1; Hunt runs against Spectre
+                   # (192.168.1.189), so the two stacks no longer contend for the
+                   # same inference host and cadence collision is not a concern.
                    # See ops/RUNBOOK.md → "scribe cloud-budget knobs".
+
+# Deterministic startup offset so Arc and Hunt don't sweep together at boot.
+# NOTE: the cycle loop sleeps AFTER work (period = sweep_duration + CYCLE_MINUTES),
+# so phase drifts and this is an anti-collision-at-boot measure, NOT true clock
+# alignment. That is acceptable because the stacks target different Ollama hosts.
+STARTUP_DELAY_SECONDS = 900  # Arc waits; Hunt starts immediately (0s).
 
 # Retention (arc_config.yaml -> retention:). 0 or missing disables the pass.
 def _load_retention_hours() -> int:
@@ -1780,8 +1790,8 @@ def main():
     except ImportError:
         pass
 
-    startup_delay = random.randint(60, 180)
-    logger.info(f"   ⏱️  Startup delay: {startup_delay}s (staggered to avoid Ollama contention with Huntaegis)")
+    startup_delay = STARTUP_DELAY_SECONDS
+    logger.info(f"   ⏱️  Startup delay: {startup_delay}s (offset from Huntaegis, which starts at 0s)")
     time.sleep(startup_delay)
 
     api_client = APIClient(API_BASE_URL, SCRIBE_SECRET_KEY)
