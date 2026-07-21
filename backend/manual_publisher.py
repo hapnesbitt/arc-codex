@@ -348,6 +348,37 @@ def fetch_og_image(url: str, timeout: int = 15) -> str | None:
         logger.warning(f"  🖼️  Failed to fetch og:image from {url[:60]}: {e}")
         return None
 
+def image_url_renders(image_url: str, max_bytes: int = 10 * 1024 * 1024) -> bool:
+    """True if the URL fetches as an image Pillow can decode. The manual
+    path bypasses scribe's rehost pipeline, so this is its equivalent guard:
+    an image that won't decode (SVG, timeout, 403, oversize, junk) must not
+    ship as the final imageUrl — callers fall back to the category default.
+    Local paths (already-hosted uploads) pass without a fetch. Pillow-only —
+    SVG has no decoder here and correctly fails closed."""
+    if not image_url.startswith(('http://', 'https://')):
+        return True
+    try:
+        resp = requests.get(image_url, timeout=10, stream=True, headers={
+            'User-Agent': 'Mozilla/5.0 (compatible; ArcCodex/1.0)'
+        })
+        if resp.status_code != 200:
+            return False
+        if not resp.headers.get('content-type', '').startswith('image/'):
+            return False
+        raw = b''
+        for chunk in resp.iter_content(chunk_size=65536):
+            raw += chunk
+            if len(raw) > max_bytes:
+                return False
+        import io
+        from PIL import Image
+        with Image.open(io.BytesIO(raw)) as img:
+            img.verify()
+        return True
+    except Exception as e:
+        logger.info(f"  🖼️  Image validation failed ({type(e).__name__}): {image_url[:80]}")
+        return False
+
 def parse_upload_file(filepath):
     """
     Parse an upload file with format:
@@ -422,10 +453,15 @@ def process_manual_upload(filepath, api_client):
         category = metadata.get('category', 'general')
         source_url = metadata.get('original_url', '')
         
-        # Image priority: explicit metadata > og:image from URL > category default
+        # Image priority: explicit metadata > og:image from URL > category default.
+        # External candidates must actually render (see image_url_renders) —
+        # a failed source URL never ships as the final imageUrl.
         image_url = metadata.get('image_url', '')
         if not image_url and source_url:
             image_url = fetch_og_image(source_url) or ''
+        if image_url and not image_url_renders(image_url):
+            logger.info(f"  🖼️  Image failed validation — using category default instead: {image_url[:80]}")
+            image_url = ''
         if not image_url:
             image_url = CATEGORY_IMAGES.get(category, DEFAULT_IMAGE_URL)
         

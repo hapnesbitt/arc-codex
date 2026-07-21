@@ -604,8 +604,9 @@ def rehost_article_image(article_id, image_url):
     """Fetch an external hero image, normalize to 1200x675 JPEG (center-crop,
     same PIL pattern as the manual-upload resize in main.py), save as
     /uploads/scraped/{article_id}.jpg — idempotent per article. Returns the
-    relative serving path, or None on any failure: callers keep the hotlink
-    and the article publishes regardless."""
+    relative serving path, or None on any failure: callers must then fall
+    back to the site default image (never ship the failed hotlink); the
+    article publishes regardless."""
     try:
         if not image_url.startswith(('http://', 'https://')):
             return None
@@ -625,7 +626,7 @@ def rehost_article_image(article_id, image_url):
         for chunk in resp.iter_content(chunk_size=65536):
             raw += chunk
             if len(raw) > REHOST_MAX_BYTES:
-                logger.info(f"🖼️  Rehost over size cap, keeping hotlink: {image_url[:80]}")
+                logger.info(f"🖼️  Rehost over size cap: {image_url[:80]}")
                 return None
 
         import io
@@ -659,7 +660,7 @@ def rehost_article_image(article_id, image_url):
 
         return f"/uploads/scraped/{article_id}.jpg"
     except Exception as e:
-        logger.info(f"🖼️  Rehost failed ({type(e).__name__}) for {image_url[:80]} — keeping hotlink")
+        logger.info(f"🖼️  Rehost failed ({type(e).__name__}) for {image_url[:80]}")
         return None
 
 
@@ -1673,14 +1674,20 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
         article['imageUrl'] = smart_image
         logger.info(f"🖼️  Using category default image for '{directive.get('name', '')}' / '{article.get('source_category', '')}': {smart_image}")
 
-    # Self-host external hero images. On any failure the hotlink stays and
-    # publishing proceeds — an image must never block an article.
+    # Self-host external hero images. A failed rehost (SVG, timeout, 403,
+    # oversize) falls back to the site default image — the failed source URL
+    # must never ship as the final imageUrl, since the same failure usually
+    # renders broken client-side too. Publishing proceeds either way.
     hero_url = article.get('imageUrl', '')
     if hero_url.startswith(('http://', 'https://')) and 'arc-codex.com' not in hero_url:
         local_path = rehost_article_image(article_id, hero_url)
         if local_path:
             article['image_source_url'] = hero_url
             article['imageUrl'] = local_path
+        else:
+            fallback = get_default_image(directive.get('name', ''), article.get('source_category', ''))
+            logger.info(f"🖼️  Rehost failed for {article_id} — default image replaces hotlink: {fallback}")
+            article['imageUrl'] = fallback
 
     # Ingest-side XSS defense: sanitize once, reuse for both Redis publish and
     # Solr indexing below. Strips active HTML (script/meta/iframe/etc) so any
