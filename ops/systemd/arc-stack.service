@@ -1,0 +1,34 @@
+# arc-stack.service — Arc Codex stack unit (2026-07-21)
+#
+# Replaces the legacy itc-stack.service, which was Type=forking against a
+# non-forking arc.sh (start never registered cleanly at boot) and ordered
+# After= a dangling "redis.service" name (real unit: redis-server.service),
+# so a power cycle ended with Arc waiting for an operator.
+#
+# Install (root):
+#   cp ops/systemd/arc-stack.service /etc/systemd/system/
+#   mkdir -p /etc/systemd/system/arc-stack.service.d
+#   cp ops/systemd/limits.conf /etc/systemd/system/arc-stack.service.d/
+#   systemctl disable --now itc-stack.service   # legacy unit must not double-manage
+#   systemctl daemon-reload && systemctl enable arc-stack.service
+
+[Unit]
+Description=Arc Codex Stack
+After=network-online.target redis-server.service solr.service docker.service
+Requires=redis-server.service
+Wants=network-online.target solr.service docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=ross
+WorkingDirectory=/home/www/arc_stack
+ExecStart=/home/www/arc_stack/arc.sh start
+ExecStop=/home/www/arc_stack/arc.sh stop
+# Arc starts ~15 services incl. the frontend container — more generous than
+# Hunt's 120/60.
+TimeoutStartSec=180
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
