@@ -61,6 +61,9 @@ LOG_FILE = os.path.join(LOG_DIR, 'analyzer.log')
 QUEUE_KEY = 'analyzer:queue'
 REPLY_QUEUE_KEY = 'counteranalyst:reply_queue'
 BLOCK_TIMEOUT = 5  # seconds to block on BRPOP before looping
+# Crash-safe expiry for the dedup flag held during a run — ~2x worst observed
+# inference time, so a dead analyzer releases the article within ~10 min.
+ANALYSIS_HOLD_TTL = int(os.getenv('ANALYSIS_HOLD_TTL', '600'))
 
 # --- LOGGING ---
 log_formatter = logging.Formatter('%(asctime)s - [ANALYZER v1.0] - %(levelname)s - %(message)s')
@@ -516,12 +519,16 @@ def main():
                 # Article analysis request
                 article_id = payload.strip()
                 if article_id:
-                    # Clear dedup flag on pickup so a fresh view arriving during
-                    # this run re-enqueues the next pass (latest view wins).
-                    r.delete(f"analyzer:queued:{article_id}")
+                    # Hold the dedup flag through the whole run so page views
+                    # during a slow analysis can't re-enqueue the same ID.
+                    # Deleted only on a successful publish; on failure or a
+                    # crash the TTL is the release.
+                    dedup_key = f"analyzer:queued:{article_id}"
+                    r.set(dedup_key, '1', ex=ANALYSIS_HOLD_TTL)
                     logger.info(f"📥 Received article {article_id} from analysis queue")
                     try:
-                        analyze_article(article_id)
+                        if analyze_article(article_id):
+                            r.delete(dedup_key)
                     except Exception as e:
                         logger.error(f"🔥 Error analyzing {article_id}: {e}", exc_info=True)
 

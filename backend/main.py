@@ -674,8 +674,10 @@ def get_single_article(article_id):
                 try:
                     # Atomic dedup via SET NX EX. 6h window absorbs deep backlogs
                     # without letting the same article re-enqueue as duplicates when
-                    # the analyzer can't drain fast enough; analyzer clears this key
-                    # on pickup so a fresh view during processing re-enqueues cleanly.
+                    # the analyzer can't drain fast enough; the analyzer holds this
+                    # key through the whole run (crash-safe TTL) and deletes it only
+                    # after a successful publish, so views during a slow analysis
+                    # can't double-enqueue.
                     queue_key = f"analyzer:queued:{actual_id}"
                     if r.set(queue_key, '1', ex=21600, nx=True):
                         r.lpush('analyzer:queue', actual_id)
