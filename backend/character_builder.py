@@ -50,27 +50,34 @@ from ollama_utils import is_cloud_reachable
 # ── env ────────────────────────────────────────────────────────────────────────
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
+# ── site config (schema v2) ────────────────────────────────────────────────────
+# Per-site tunables come from the stack-root cfg; committed cfg values are
+# canonical. Fails loud if the cfg is missing or incomplete.
+from site_config import load_site_config
+site = load_site_config()
+_pipeline = site["pipeline"]
+
 REDIS_URL        = os.environ['REDIS_URL']
-OLLAMA_HOST      = os.getenv("OLLAMA_HOST", "http://192.168.1.185:11434")
-OLLAMA_MODEL     = os.getenv("OLLAMA_MODEL", "gemma3:4b")
-ARTICLE_BASE_URL = os.getenv("NEXT_PUBLIC_BACKEND_URL", "https://arc-codex.com")
+OLLAMA_MODEL     = site["models"]["character"]
+ARTICLE_BASE_URL = site.base_url
 
-# Shed-and-yield (2026-07-12): council LOCAL generation is shed to the Z230's
-# own Ollama so the M1 belongs to the analyzers. Cloud models stay pinned to
-# the M1 via ollama_client (cloud creds live only there). Defaulting to the M1
-# means unsetting COUNCIL_OLLAMA_HOST is a complete rollback.
-COUNCIL_OLLAMA_HOST    = os.getenv("COUNCIL_OLLAMA_HOST", OLLAMA_HOST)
+# Shed-and-yield (2026-07-12): council LOCAL generation runs on the cfg's
+# council_url (the Z230's own Ollama) so the M1 belongs to the analyzers.
+# Cloud models stay pinned to the M1 via ollama_client (cloud creds live only
+# there). Rollback to the M1 is now a cfg edit: [inference].council_url.
+COUNCIL_OLLAMA_HOST    = site.council_url
 COUNCIL_OLLAMA_TIMEOUT = int(os.getenv("COUNCIL_OLLAMA_TIMEOUT", "120"))  # 24s typical + serialized-queue margin
-COUNCIL_MAX_LOAD       = float(os.getenv("COUNCIL_MAX_LOAD", "3.0"))     # 1-min loadavg gate — spare-cycles host
+COUNCIL_MAX_LOAD       = _pipeline["council_load_gate"]  # 1-min loadavg gate — spare-cycles host
 
-POLL_INTERVAL        = 20    # seconds between feed scans
-ANALYSIS_WAIT        = 120   # seconds to wait for full analysis before giving up
-ANALYSIS_CHECK_EVERY = 10    # seconds between analysis completion checks
-ENABLED_KEY          = "characters:enabled"
-RETRY_BACKOFF        = 600            # min seconds between retries of a skipped article
-RETRY_MAX_AGE        = 7 * 24 * 3600  # drop a skipped article for good after a week
+POLL_INTERVAL        = _pipeline["character_feed_poll_s"]
+ANALYSIS_WAIT        = _pipeline["character_analysis_wait_s"]
+ANALYSIS_CHECK_EVERY = _pipeline["character_analysis_poll_s"]
+ENABLED_KEY          = "characters:enabled"   # generic — isolated by unique Redis DB
+RETRY_BACKOFF        = _pipeline["character_retry_backoff_s"]
+RETRY_MAX_AGE        = _pipeline["character_giveup_days"] * 24 * 3600
 SWEEP_BATCH          = 3              # skipped retries per character per cycle
-MAX_GENERATION_ATTEMPTS = 12          # real generation failures before give-up;
+MAX_GENERATION_ATTEMPTS = _pipeline["character_max_attempts"]
+                                      # real generation failures before give-up;
                                       # quota/429 failures do NOT consume attempts
 
 CHARACTERS_YAML = os.path.join(os.path.dirname(__file__), "..", "characters.yaml")
@@ -89,6 +96,14 @@ log = logging.getLogger("character_builder")
 
 # ── Redis ──────────────────────────────────────────────────────────────────────
 r = redis.from_url(REDIS_URL, decode_responses=True)
+# Fail loud if the .env Redis URL disagrees with the cfg's DB — pointing one
+# site's council at a sibling's DB is the failure the cfg exists to prevent.
+_env_db = r.connection_pool.connection_kwargs.get("db", 0)
+if _env_db != site.redis_db:
+    raise SystemExit(
+        f"REDIS_URL points at DB {_env_db} but {site.path} says redis_db = "
+        f"{site.redis_db} — refusing to start"
+    )
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 def load_characters() -> dict:
@@ -509,7 +524,17 @@ def sweep_skipped(cfg: dict):
 
 # ── Main loop ──────────────────────────────────────────────────────────────────
 def main():
-    log.info("character_builder v1.0 starting")
+    # Cross-site isolation validation at startup (spec: run in CI and at
+    # service startup) — refuse to run against colliding site cfgs.
+    import validate_sites
+    _cfg_errors = validate_sites.check(
+        validate_sites.discover(os.environ.get("SITES_ROOT", "/home/www")))
+    if _cfg_errors:
+        for _e in _cfg_errors:
+            log.critical("site cfg violation: %s", _e)
+        raise SystemExit(1)
+
+    log.info("character_builder v1.0 starting [%s]", site.path)
 
     cfg = load_characters()
     log.info("Loaded %d characters", len(cfg.get("characters", {})))

@@ -59,20 +59,27 @@ PROMPTS_FILE = os.path.join(BASE_DIR, 'prompts.yaml')
 LOG_DIR = os.path.join(os.path.dirname(BASE_DIR), 'logs')
 os.makedirs(LOG_DIR, exist_ok=True)
 LOG_FILE = os.path.join(LOG_DIR, 'analyzer.log')
-QUEUE_KEY = 'analyzer:queue'
+# --- SITE CONFIG (schema v2) ---
+# Per-site tunables come from the stack-root cfg; committed cfg values are
+# canonical. Fails loud if the cfg is missing or incomplete.
+from site_config import load_site_config
+site = load_site_config()
+_pipeline = site["pipeline"]
+
+QUEUE_KEY = 'analyzer:queue'          # generic — isolated by unique Redis DB
 REPLY_QUEUE_KEY = 'counteranalyst:reply_queue'
-BLOCK_TIMEOUT = 5  # seconds to block on BRPOP before looping
-# Crash-safe expiry for the dedup flag held during a run — ~2x worst observed
-# inference time, so a dead analyzer releases the article within ~10 min.
-ANALYSIS_HOLD_TTL = int(os.getenv('ANALYSIS_HOLD_TTL', '600'))
-# Truncation caps (2026-07-21, decided): 100k chars covers the p95 truncated
-# article (94k) and fits the 32k-token num_ctx with prompt + output budget.
-# Above the garbage line it's a page dump — analyzing the first N chars of
-# one produces confident noise, so skip analysis and leave the article
-# published. num_ctx stays 32768: raising it balloons KV-cache memory on the
-# inference Macs (tuning-pass experiment, not a default).
-ANALYSIS_MAX_CHARS = 100_000
-ANALYSIS_GARBAGE_CHARS = 250_000
+BLOCK_TIMEOUT = _pipeline["analyzer_pop_s"]  # seconds to block on BRPOP
+# Crash-safe expiry for the dedup flag held during a run — sized ~2x worst
+# observed inference so a dead analyzer releases the article promptly.
+ANALYSIS_HOLD_TTL = _pipeline["analysis_hold_ttl_s"]
+# Truncation caps (2026-07-21, decided): analysis_max_chars covers the p95
+# truncated article (94k) and fits the 32k-token num_ctx with prompt +
+# output budget. Above the garbage line it's a page dump — analyzing the
+# first N chars of one produces confident noise, so skip analysis and leave
+# the article published. num_ctx stays 32768: raising it balloons KV-cache
+# memory on the inference Macs (tuning-pass experiment, not a default).
+ANALYSIS_MAX_CHARS = _pipeline["analysis_max_chars"]
+ANALYSIS_GARBAGE_CHARS = _pipeline["analysis_garbage_chars"]
 
 # --- LOGGING ---
 log_formatter = logging.Formatter('%(asctime)s - [ANALYZER v1.0] - %(levelname)s - %(message)s')
@@ -96,7 +103,7 @@ except Exception as e:
 # --- REDIS ---
 r = None
 try:
-    r = redis.Redis(decode_responses=True, password=os.environ['REDIS_PASSWORD'])
+    r = redis.Redis(decode_responses=True, password=os.environ['REDIS_PASSWORD'], db=site.redis_db)
     r.ping()
     logger.info("✅ Redis connection successful")
     ensure_stream_group(r)
@@ -511,7 +518,17 @@ Do NOT start with "Great question" or any generic praise.
 # --- MAIN WORKER LOOP ---
 
 def main():
-    logger.info("🚀 Arc Codex Analyzer v1.0 - On-Demand Analysis Worker")
+    # Cross-site isolation validation at startup (spec: run in CI and at
+    # service startup) — refuse to run against colliding site cfgs.
+    import validate_sites
+    _cfg_errors = validate_sites.check(
+        validate_sites.discover(os.environ.get("SITES_ROOT", "/home/www")))
+    if _cfg_errors:
+        for _e in _cfg_errors:
+            logger.critical(f"🔥 site cfg violation: {_e}")
+        raise SystemExit(1)
+
+    logger.info(f"🚀 {site.name} Analyzer v1.0 - On-Demand Analysis Worker [{site.path}]")
     if ENSEMBLE_AVAILABLE and is_ensemble_enabled():
         cfg = get_ensemble_config()
         logger.info(f"🧬 ENSEMBLE MODE: {cfg['analyst_1']} + {cfg['analyst_2']} + {cfg['analyst_3']} → {cfg['synthesizer']}")
