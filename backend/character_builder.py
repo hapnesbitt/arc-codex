@@ -11,7 +11,14 @@ dossier (article + red + blue + purple + sentinel + counter-analyst)
 and comment on the whole picture.
 
 On/off:  redis-cli set characters:enabled 1|0
-Posted set: characters:posted:{character_handle} (SET of article IDs)
+
+Article state per character (three-state, replaces the old posted-on-pickup
+model that permanently dropped articles whose analysis timed out):
+  characters:pending:{handle}  SET  — picked up, no terminal state yet
+  characters:posted:{handle}   SET  — comment landed, or deliberate drop
+  characters:skipped:{handle}  ZSET — retryable skip (score = last attempt
+                                      time); the sweep retries once analysis
+                                      lands, idempotently
 
 Architecture:
   - Polls Redis feed for new articles every POLL_INTERVAL seconds
@@ -60,6 +67,9 @@ POLL_INTERVAL        = 20    # seconds between feed scans
 ANALYSIS_WAIT        = 120   # seconds to wait for full analysis before giving up
 ANALYSIS_CHECK_EVERY = 10    # seconds between analysis completion checks
 ENABLED_KEY          = "characters:enabled"
+RETRY_BACKOFF        = 600            # min seconds between retries of a skipped article
+RETRY_MAX_AGE        = 7 * 24 * 3600  # drop a skipped article for good after a week
+SWEEP_BATCH          = 3              # skipped retries per character per cycle
 
 CHARACTERS_YAML = os.path.join(os.path.dirname(__file__), "..", "characters.yaml")
 
@@ -243,6 +253,41 @@ def post_comment(article_id: str, author: str, body: str) -> bool:
         log.error("Failed to post comment for %s: %s", article_id, e)
         return False
 
+# ── Article state transitions ──────────────────────────────────────────────────
+# pending → posted   comment landed, or the article is a deliberate drop
+# pending → skipped  retryable failure (analysis missing, model down, post failed)
+
+def mark_posted(handle: str, article_id: str):
+    pipe = r.pipeline()
+    pipe.sadd(f"characters:posted:{handle}", article_id)
+    pipe.srem(f"characters:pending:{handle}", article_id)
+    pipe.zrem(f"characters:skipped:{handle}", article_id)
+    pipe.execute()
+
+def mark_skipped(handle: str, article_id: str):
+    pipe = r.pipeline()
+    pipe.zadd(f"characters:skipped:{handle}", {article_id: time.time()})
+    pipe.srem(f"characters:pending:{handle}", article_id)
+    pipe.execute()
+
+def has_comment_by(article_id: str, author: str) -> bool:
+    """Retry idempotency guard: a crash between post_comment and mark_posted
+    must not produce a second comment on retry."""
+    try:
+        for entry in r.lrange(f"comments:{article_id}", 0, -1):
+            author_name = r.hget(f"comment:{entry}", "author")
+            if author_name is None:
+                # Legacy entries stored full JSON in the list instead of a UUID
+                try:
+                    author_name = json.loads(entry).get("author")
+                except Exception:
+                    continue
+            if author_name == author:
+                return True
+    except Exception as e:
+        log.error("Comment idempotency check failed for %s: %s", article_id, e)
+    return False
+
 # ── Topic triggers ─────────────────────────────────────────────────────────────
 def should_character_speak(character: dict, article_data: dict) -> bool:
     """Return True if character has no triggers (always speaks when on shift),
@@ -320,6 +365,122 @@ def seed_posted_sets(cfg: dict):
     except Exception as e:
         log.error("Seed failed: %s", e)
 
+def recover_pending(cfg: dict):
+    """Crash recovery: anything still pending at startup was in flight when the
+    daemon died. Park it in skipped so the sweep retries it (idempotently — the
+    comment may or may not have landed). Must run BEFORE seed_posted_sets,
+    which would otherwise bury these as posted without a comment."""
+    try:
+        for handle in cfg.get("characters", {}):
+            leftovers = r.smembers(f"characters:pending:{handle}")
+            for article_id in leftovers:
+                mark_skipped(handle, article_id)
+            if leftovers:
+                log.warning("Recovered %d in-flight articles for %s into skipped",
+                            len(leftovers), handle)
+    except Exception as e:
+        log.error("Pending recovery failed: %s", e)
+
+# ── Per-article processing ─────────────────────────────────────────────────────
+def process_article(handle: str, character: dict, article_id: str) -> None:
+    """Run one character over one article, ending in exactly one terminal
+    state: posted (comment landed or deliberate drop) or skipped (retryable)."""
+    # Topic-trigger gate — directive/category fields are set by
+    # scribe at publish time, so they're available without
+    # waiting on analysis. Skip off-topic articles cheaply.
+    article_data = r.hgetall(f"article:{article_id}")
+    if not should_character_speak(character, article_data):
+        log.info("Character %s skipping %s — triggers do not match",
+                 handle, article_id)
+        mark_posted(handle, article_id)
+        return
+
+    # Wait for full analysis if character is eager
+    if character.get("eager", True):
+        if not wait_for_analysis(article_id):
+            log.warning("Analysis incomplete for %s after %ds — parking %s for retry",
+                        article_id, ANALYSIS_WAIT, handle)
+            mark_skipped(handle, article_id)
+            return
+
+    if has_comment_by(article_id, character["name"]):
+        log.info("Character %s already commented on %s — marking posted",
+                 handle, article_id)
+        mark_posted(handle, article_id)
+        return
+
+    dossier = build_dossier_text(article_id)
+    if not dossier:
+        log.warning("Empty dossier for %s — parking for retry", article_id)
+        mark_skipped(handle, article_id)
+        return
+
+    # Council gate — cloud characters downgrade to local unless
+    # the article's escalation_score meets the council threshold
+    # AND the weekly cloud cap has capacity. Council still runs
+    # locally; only the voice weakens on non-escalated articles.
+    resolved_model = resolve_character_model(
+        character,
+        {'id': article_id},
+        r,
+    )
+    if resolved_model.endswith('-cloud'):
+        # Reachability BEFORE record — an unreachable cloud
+        # host must never increment the weekly cap counter.
+        if is_cloud_reachable():
+            record_cloud_call(r)
+        else:
+            # INFO, not WARNING: a closed cloud valve is a
+            # normal degraded state (council lands on the Z230
+            # local tier), not an actionable failure.
+            log.info("Council gate: cloud host unreachable — "
+                     "downgrading %s to local", resolved_model)
+            resolved_model = OLLAMA_MODEL
+    if resolved_model != character.get("model"):
+        log.info("Council gate: %s → %s for article %s",
+                 character.get("model"), resolved_model, article_id)
+    comment_text = call_ollama(
+        character["instruction"],
+        dossier,
+        model=resolved_model,
+    )
+    if not comment_text:
+        log.error("No comment generated for %s by %s — parking for retry",
+                  article_id, handle)
+        mark_skipped(handle, article_id)
+        return
+
+    if post_comment(article_id, character["name"], comment_text):
+        log.info("✅ %s commented on %s", character["name"], article_id)
+        mark_posted(handle, article_id)
+    else:
+        log.error("Failed to post comment by %s on %s — parking for retry",
+                  handle, article_id)
+        mark_skipped(handle, article_id)
+
+# ── Retry sweep ────────────────────────────────────────────────────────────────
+def sweep_skipped(cfg: dict):
+    """Second chance for skipped articles. Each cycle, take the oldest few per
+    character; retry when the backoff has elapsed and analysis has landed; drop
+    for good past RETRY_MAX_AGE (analysis is never coming or the article is
+    gone). mark_skipped stamps the current time, so a failed retry re-arms its
+    own backoff."""
+    now = time.time()
+    for handle, character in cfg.get("characters", {}).items():
+        skipped_key = f"characters:skipped:{handle}"
+        due = r.zrangebyscore(skipped_key, 0, now - RETRY_BACKOFF,
+                              start=0, num=SWEEP_BATCH, withscores=True)
+        for article_id, ts in due:
+            if now - ts > RETRY_MAX_AGE:
+                log.warning("Giving up on %s for %s after %d days in skipped",
+                            article_id, handle, RETRY_MAX_AGE // 86400)
+                mark_posted(handle, article_id)
+                continue
+            if not is_analysis_complete(article_id):
+                continue  # keeps its original score; ages out at RETRY_MAX_AGE
+            log.info("Retry sweep: %s retrying %s", handle, article_id)
+            process_article(handle, character, article_id)
+
 # ── Main loop ──────────────────────────────────────────────────────────────────
 def main():
     log.info("character_builder v1.0 starting")
@@ -327,6 +488,7 @@ def main():
     cfg = load_characters()
     log.info("Loaded %d characters", len(cfg.get("characters", {})))
 
+    recover_pending(cfg)
     seed_posted_sets(cfg)
 
     while True:
@@ -355,8 +517,12 @@ def main():
             # Find articles not yet processed by any active character
             for handle in characters:
                 posted_key  = f"characters:posted:{handle}"
+                pending_key = f"characters:pending:{handle}"
+                skipped_key = f"characters:skipped:{handle}"
                 posted_ids  = r.smembers(posted_key)
-                new_ids     = all_ids - posted_ids
+                pending_ids = r.smembers(pending_key)
+                skipped_ids = set(r.zrange(skipped_key, 0, -1))
+                new_ids     = all_ids - posted_ids - pending_ids - skipped_ids
 
                 if not new_ids:
                     continue
@@ -373,71 +539,14 @@ def main():
                 character = characters[handle]
 
                 for article_id in new_ids:
-                    # Mark immediately to prevent double-posting
-                    r.sadd(posted_key, article_id)
-
+                    # Pending until process_article reaches a terminal state —
+                    # a crash here is recovered into skipped at next startup
+                    r.sadd(pending_key, article_id)
                     log.info("Character %s processing article %s", handle, article_id)
+                    process_article(handle, character, article_id)
 
-                    # Topic-trigger gate — directive/category fields are set by
-                    # scribe at publish time, so they're available without
-                    # waiting on analysis. Skip off-topic articles cheaply.
-                    article_data = r.hgetall(f"article:{article_id}")
-                    if not should_character_speak(character, article_data):
-                        log.info("Character %s skipping %s — triggers do not match",
-                                 handle, article_id)
-                        # already marked posted above, just continue
-                        continue
-
-                    # Wait for full analysis if character is eager
-                    if character.get("eager", True):
-                        if not wait_for_analysis(article_id):
-                            log.warning("Analysis incomplete for %s after %ds — skipping %s",
-                                        article_id, ANALYSIS_WAIT, handle)
-                            continue
-
-                    dossier = build_dossier_text(article_id)
-                    if not dossier:
-                        log.warning("Empty dossier for %s — skipping", article_id)
-                        continue
-
-                    # Council gate — cloud characters downgrade to local unless
-                    # the article's escalation_score meets the council threshold
-                    # AND the weekly cloud cap has capacity. Council still runs
-                    # locally; only the voice weakens on non-escalated articles.
-                    resolved_model = resolve_character_model(
-                        character,
-                        {'id': article_id},
-                        r,
-                    )
-                    if resolved_model.endswith('-cloud'):
-                        # Reachability BEFORE record — an unreachable cloud
-                        # host must never increment the weekly cap counter.
-                        if is_cloud_reachable():
-                            record_cloud_call(r)
-                        else:
-                            # INFO, not WARNING: a closed cloud valve is a
-                            # normal degraded state (council lands on the Z230
-                            # local tier), not an actionable failure.
-                            log.info("Council gate: cloud host unreachable — "
-                                     "downgrading %s to local", resolved_model)
-                            resolved_model = OLLAMA_MODEL
-                    if resolved_model != character.get("model"):
-                        log.info("Council gate: %s → %s for article %s",
-                                 character.get("model"), resolved_model, article_id)
-                    comment_text = call_ollama(
-                        character["instruction"],
-                        dossier,
-                        model=resolved_model,
-                    )
-                    if not comment_text:
-                        log.error("No comment generated for %s by %s", article_id, handle)
-                        continue
-
-                    success = post_comment(article_id, character["name"], comment_text)
-                    if success:
-                        log.info("✅ %s commented on %s", character["name"], article_id)
-                    else:
-                        log.error("Failed to post comment by %s on %s", handle, article_id)
+            # Second chance for parked articles whose analysis has since landed
+            sweep_skipped(cfg)
 
         except Exception as e:
             log.exception("Outer loop error: %s", e)
