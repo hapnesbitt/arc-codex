@@ -23,6 +23,7 @@ import uuid
 import logging
 import yaml
 import redis
+from urllib.parse import urlparse
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from stream_utils import publish_analysis, ensure_stream_group
@@ -64,6 +65,14 @@ BLOCK_TIMEOUT = 5  # seconds to block on BRPOP before looping
 # Crash-safe expiry for the dedup flag held during a run — ~2x worst observed
 # inference time, so a dead analyzer releases the article within ~10 min.
 ANALYSIS_HOLD_TTL = int(os.getenv('ANALYSIS_HOLD_TTL', '600'))
+# Truncation caps (2026-07-21, decided): 100k chars covers the p95 truncated
+# article (94k) and fits the 32k-token num_ctx with prompt + output budget.
+# Above the garbage line it's a page dump — analyzing the first N chars of
+# one produces confident noise, so skip analysis and leave the article
+# published. num_ctx stays 32768: raising it balloons KV-cache memory on the
+# inference Macs (tuning-pass experiment, not a default).
+ANALYSIS_MAX_CHARS = 100_000
+ANALYSIS_GARBAGE_CHARS = 250_000
 
 # --- LOGGING ---
 log_formatter = logging.Formatter('%(asctime)s - [ANALYZER v1.0] - %(levelname)s - %(message)s')
@@ -238,14 +247,25 @@ def analyze_article(article_id: str) -> bool:
         logger.warning(f"⚠️  Article {article_id} has insufficient text ({len(article_text)} chars)")
         return False
 
-    # Truncate to a safe size for local model context windows.
-    # Stored original_text can be larger; we cap what goes to Ollama so the
-    # model doesn't run out of context and return a truncated response that
-    # only contains <BLUE> with missing </RED> and </PURPLE> closing tags.
-    OLLAMA_MAX_CHARS = 20_000
-    if len(article_text) > OLLAMA_MAX_CHARS:
-        logger.warning(f"⚠️  Article text ({len(article_text)} chars) truncated to {OLLAMA_MAX_CHARS} chars for Ollama")
-        article_text = article_text[:OLLAMA_MAX_CHARS]
+    # Cap what goes to Ollama so the model doesn't run out of context and
+    # return a truncated response with missing closing tags. Source domain in
+    # the log lines so oversized offenders are attributable without
+    # archaeology (three past monsters aged out of Redis unnamed).
+    _source_url = r.hget(redis_key, 'sourceUrl') or ''
+    _source_domain = urlparse(_source_url).netloc or 'unknown-source'
+    if len(article_text) > ANALYSIS_GARBAGE_CHARS:
+        logger.warning(
+            f"🗑️  Article {article_id} is {len(article_text)} chars "
+            f"(> {ANALYSIS_GARBAGE_CHARS}) — page dump, skipping analysis; "
+            f"source: {_source_domain} ({_source_url[:100]})"
+        )
+        return False
+    if len(article_text) > ANALYSIS_MAX_CHARS:
+        logger.warning(
+            f"⚠️  Article {article_id} text ({len(article_text)} chars) truncated "
+            f"to {ANALYSIS_MAX_CHARS} for Ollama; source: {_source_domain}"
+        )
+        article_text = article_text[:ANALYSIS_MAX_CHARS]
 
     logger.info(f"🧠 Analyzing article {article_id} ({len(article_text)} chars)")
     analysis_start = time.perf_counter()
