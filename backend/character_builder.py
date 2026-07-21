@@ -70,6 +70,8 @@ ENABLED_KEY          = "characters:enabled"
 RETRY_BACKOFF        = 600            # min seconds between retries of a skipped article
 RETRY_MAX_AGE        = 7 * 24 * 3600  # drop a skipped article for good after a week
 SWEEP_BATCH          = 3              # skipped retries per character per cycle
+MAX_GENERATION_ATTEMPTS = 12          # real generation failures before give-up;
+                                      # quota/429 failures do NOT consume attempts
 
 CHARACTERS_YAML = os.path.join(os.path.dirname(__file__), "..", "characters.yaml")
 
@@ -192,7 +194,10 @@ def _council_payload(model: str, system_prompt: str, prompt: str) -> dict:
 
 
 def call_ollama(system_prompt: str, dossier: str, model: str | None = None) -> str | None:
-    """Call Ollama with character instruction + dossier. Returns comment text.
+    """Call Ollama with character instruction + dossier.
+
+    Returns (comment_text | None, quota_blocked). quota_blocked marks a 429 —
+    callers must not count those failures toward the give-up limit.
 
     When `model` is None, the global OLLAMA_MODEL is used (legacy behavior).
     Per-character overrides come in via characters.yaml `model:` field
@@ -219,10 +224,17 @@ def call_ollama(system_prompt: str, dossier: str, model: str | None = None) -> s
             )
         resp.raise_for_status()
         text = resp.json().get("response", "").strip()
-        return text if len(text) > 20 else None
+        return (text if len(text) > 20 else None), False
+    except requests.exceptions.HTTPError as e:
+        if getattr(e.response, "status_code", None) == 429:
+            # Quota exhaustion is the environment's fault, not the article's.
+            log.warning("Ollama quota/429 (model=%s): %s", actual_model, e)
+            return None, True
+        log.error("Ollama call failed (model=%s): %s", actual_model, e)
+        return None, False
     except Exception as e:
         log.error("Ollama call failed (model=%s): %s", actual_model, e)
-        return None
+        return None, False
 
 # ── Comment posting ────────────────────────────────────────────────────────────
 def post_comment(article_id: str, author: str, body: str) -> bool:
@@ -262,6 +274,7 @@ def mark_posted(handle: str, article_id: str):
     pipe.sadd(f"characters:posted:{handle}", article_id)
     pipe.srem(f"characters:pending:{handle}", article_id)
     pipe.zrem(f"characters:skipped:{handle}", article_id)
+    pipe.hdel(f"characters:skip_attempts:{handle}", article_id)
     pipe.execute()
 
 def mark_skipped(handle: str, article_id: str):
@@ -439,15 +452,28 @@ def process_article(handle: str, character: dict, article_id: str) -> None:
     if resolved_model != character.get("model"):
         log.info("Council gate: %s → %s for article %s",
                  character.get("model"), resolved_model, article_id)
-    comment_text = call_ollama(
+    comment_text, quota_blocked = call_ollama(
         character["instruction"],
         dossier,
         model=resolved_model,
     )
     if not comment_text:
-        log.error("No comment generated for %s by %s — parking for retry",
-                  article_id, handle)
-        mark_skipped(handle, article_id)
+        if quota_blocked:
+            # Park without consuming an attempt — quota failures don't count.
+            log.warning("Generation quota-blocked for %s by %s — parking for retry",
+                        article_id, handle)
+            mark_skipped(handle, article_id)
+            return
+        attempts = r.hincrby(f"characters:skip_attempts:{handle}", article_id, 1)
+        if attempts >= MAX_GENERATION_ATTEMPTS:
+            log.error("Giving up on %s for %s after %d real generation attempts "
+                      "— marking posted", article_id, handle, attempts)
+            mark_posted(handle, article_id)
+        else:
+            log.error("No comment generated for %s by %s (attempt %d/%d) — "
+                      "parking for retry", article_id, handle, attempts,
+                      MAX_GENERATION_ATTEMPTS)
+            mark_skipped(handle, article_id)
         return
 
     if post_comment(article_id, character["name"], comment_text):
