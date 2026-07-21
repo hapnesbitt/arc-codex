@@ -67,24 +67,31 @@ load_dotenv()
 # Create a module logger
 logger = logging.getLogger(__name__)
 
+# --- SITE CONFIG (schema v2) ---
+# All per-site tunables live in the stack-root cfg (arc.cfg); committed cfg
+# values are canonical. Loading fails loud if the cfg is missing or incomplete.
+from site_config import load_site_config
+site = load_site_config()
+_ingestion = site["ingestion"]
+
 # --- CONFIGURATION ---
 manual_upload_event = threading.Event()
-REDIS_PRIORITY_QUEUE_KEY = "arc:priority_uploads"
-CYCLE_MINUTES = 30  # Sweep cadence (2026-07-19). Arc ingests ~20 articles/day,
-                   # which is ~3.75% of the M1's analysis capacity at ANY cadence
-                   # (utilisation = ingest_rate x seconds_per_article, independent
-                   # of how often we sweep). 30m is therefore chosen for freshness,
-                   # not budget — there is ~96% headroom either way.
-                   # Arc runs against the M1; Hunt runs against Spectre
-                   # (192.168.1.189), so the two stacks no longer contend for the
-                   # same inference host and cadence collision is not a concern.
-                   # See ops/RUNBOOK.md → "scribe cloud-budget knobs".
+REDIS_PRIORITY_QUEUE_KEY = site.redis_key("priority_uploads")
+
+# Sweep cadence (2026-07-19). Arc ingests ~20 articles/day, which is ~3.75%
+# of the M1's analysis capacity at ANY cadence (utilisation = ingest_rate x
+# seconds_per_article, independent of how often we sweep). 30m is therefore
+# chosen for freshness, not budget — there is ~96% headroom either way.
+# Arc runs against the M1; Hunt runs against Spectre (192.168.1.189), so the
+# two stacks no longer contend for the same inference host and cadence
+# collision is not a concern. See ops/RUNBOOK.md → "scribe cloud-budget knobs".
+CYCLE_MINUTES = _ingestion["cycle_minutes"]
 
 # Deterministic startup offset so Arc and Hunt don't sweep together at boot.
 # NOTE: the cycle loop sleeps AFTER work (period = sweep_duration + CYCLE_MINUTES),
 # so phase drifts and this is an anti-collision-at-boot measure, NOT true clock
 # alignment. That is acceptable because the stacks target different Ollama hosts.
-STARTUP_DELAY_SECONDS = 900  # Arc waits; Hunt starts immediately (0s).
+STARTUP_DELAY_SECONDS = _ingestion["startup_delay_s"]  # Arc 900; Hunt 0
 
 # Retention (arc_config.yaml -> retention:). 0 or missing disables the pass.
 def _load_retention_hours() -> int:
@@ -98,16 +105,18 @@ def _load_retention_hours() -> int:
 
 RETENTION_HOURS = _load_retention_hours()
 
-# --- Instrumentation Redis keys ---
-STATS_FETCH          = "arc:stats:fetch"
-STATS_QUALITY        = "arc:stats:quality"
-STATS_RSS            = "arc:stats:rss"
-STATS_PUBLISH        = "arc:stats:publish"
-STATS_PRIORITY       = "arc:stats:priority"
-STATS_SOURCE_LATENCY = "arc:stats:source_latency"
+# --- Instrumentation Redis keys (slug-derived via site_config.redis_key) ---
+STATS_FETCH          = site.redis_key("stats:fetch")
+STATS_QUALITY        = site.redis_key("stats:quality")
+STATS_RSS            = site.redis_key("stats:rss")
+STATS_PUBLISH        = site.redis_key("stats:publish")
+STATS_PRIORITY       = site.redis_key("stats:priority")
+STATS_SOURCE_LATENCY = site.redis_key("stats:source_latency")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-API_BASE_URL = os.environ.get("SCRIBE_API_BASE_URL", "http://127.0.0.1:5005/api")
-SOLR_URL = os.environ.get("SCRIBE_SOLR_URL", "http://localhost:8983/solr/feeds/")
+API_BASE_URL = f"{site.backend_internal_url}/api"
+# Solr host is shared infrastructure (validator invariant); only the core is
+# per-site. Derived from the cfg — the SCRIBE_SOLR_URL env override is retired.
+SOLR_URL = f"http://localhost:8983/solr/{site.solr_core}/"
 REDIS_PASSWORD = os.environ['REDIS_PASSWORD']
 SCRIBE_SECRET_KEY = os.environ.get("SCRIBE_SECRET_KEY", "default_secret_for_dev")
 
@@ -225,7 +234,7 @@ def get_canonical_category(directive_name='', source_category=''):
     return _classify(directive_name, source_category)
 
 
-SOURCES_FILE = os.path.join(BASE_DIR, "sources.json")
+SOURCES_FILE = os.path.join(site.stack_path, _ingestion["sources_file"])
 DIRECTIVES_FILE = os.path.join(BASE_DIR, "directives.json")
 PROMPTS_FILE = os.path.join(BASE_DIR, "prompts.yaml")
 LOG_DIR = os.path.join(os.path.dirname(BASE_DIR), "logs")
@@ -238,14 +247,16 @@ COMPLETED_DIR = os.path.join(UPLOAD_DIR, "completed")
 FAILED_DIR = os.path.join(UPLOAD_DIR, "failed")
 PENDING_COMMENTS_DIR = os.path.join(UPLOAD_DIR, "pending_comments")
 
-SOURCE_BATCH_SIZE = 69
-NETWORK_TIMEOUT_SECONDS = 15
-FEED_TIMEOUT_SECONDS = 30
-DOMAIN_COURTESY_DELAY_SECONDS = 2.5
+# Ingestion tunables — values live in [ingestion] of the site cfg.
+SOURCE_BATCH_SIZE = _ingestion["sources_per_sweep"]
+NETWORK_TIMEOUT_SECONDS = _ingestion["fetch_timeout_s"]
+FEED_TIMEOUT_SECONDS = _ingestion["feed_timeout_s"]
+DOMAIN_COURTESY_DELAY_SECONDS = _ingestion["courtesy_delay_s"]
 MIN_ARTICLE_LENGTH = 200
 RECENTLY_PUBLISHED_MEMORY = 10
-MAX_CONCURRENT_SCRAPERS = 5
-MAX_CONCURRENT_ANALYZERS = 10  # Local-only NLP concurrency (spaCy/VADER via
+MAX_CONCURRENT_SCRAPERS = _ingestion["concurrent_scrapers"]
+MAX_CONCURRENT_ANALYZERS = _ingestion["concurrent_preproc"]
+                               # Local-only NLP concurrency (spaCy/VADER via
                                # /api/pre_analyze). Flask semaphore caps
                                # actual parallelism at 2 — extra threads
                                # hit 429 (1s wait) then fallback. No cloud
@@ -295,7 +306,7 @@ except Exception as e:
 
 try:
     logger.info("Connecting to Redis...")
-    r = redis.Redis(decode_responses=True, password=REDIS_PASSWORD)
+    r = redis.Redis(decode_responses=True, password=REDIS_PASSWORD, db=site.redis_db)
     r.ping()
     logger.info("Redis connection successful.")
     ensure_stream_group(r)
@@ -326,10 +337,13 @@ except Exception as e:
 #   3. publish_analysis() takes r as an argument — always pass r_bg.
 #   4. Ollama calls (run_sentinel_analysis, run_counter_analyst) are
 #      stateless — safe to call from any thread.
-#   5. max_workers=2: allows sentinel + counter-analyst to overlap across
-#      two articles without overwhelming the M1.
+#   5. background_workers (cfg [pipeline], 2): allows sentinel + counter-
+#      analyst to overlap across two articles without overwhelming the M1.
 
-_analysis_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='arc-analysis')
+_analysis_executor = ThreadPoolExecutor(
+    max_workers=site["pipeline"]["background_workers"],
+    thread_name_prefix=f"{site.slug}-analysis",
+)
 
 
 def _run_analysis_background(article_id: str, text_for_analysis: str) -> None:
@@ -339,7 +353,7 @@ def _run_analysis_background(article_id: str, text_for_analysis: str) -> None:
     Safe to call from ThreadPoolExecutor.
     """
     try:
-        r_bg = redis.Redis(decode_responses=True, password=REDIS_PASSWORD)
+        r_bg = redis.Redis(decode_responses=True, password=REDIS_PASSWORD, db=site.redis_db)
     except Exception as e:
         logger.error(f"🔬 Background analysis: Redis connect failed for {article_id}: {e}")
         return
@@ -1187,7 +1201,7 @@ def process_priority_queue(api_client, recently_published):
                         logger.warning(f"⚡ Could not fetch priority URL: {source_url}")
                         if job_id:
                             r.setex(
-                                f"arc:job:{job_id}:status",
+                                site.redis_key(f"job:{job_id}:status"),
                                 300,
                                 json.dumps({
                                     "status": "failed",
@@ -1299,7 +1313,7 @@ def process_priority_queue(api_client, recently_published):
                 logger.info(f"⚡ Priority item published: '{title[:60]}'")
                 if job_id:
                     r.setex(
-                        f"arc:job:{job_id}:status",
+                        site.redis_key(f"job:{job_id}:status"),
                         300,
                         json.dumps({"status": "published", "article_id": article_hash}),
                     )
@@ -1710,7 +1724,7 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
     try:
         api_client.publish_article(publish_payload)
         logger.info(f"✅ Article published: {article_id}")
-        r.setex('arc:last_publish', 86400, datetime.now(timezone.utc).isoformat())
+        r.setex(site.redis_key('last_publish'), 86400, datetime.now(timezone.utc).isoformat())
     except Exception as e:
         logger.error(f"Failed to publish {article_id}: {e}")
         return False
@@ -1773,12 +1787,22 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
 # --- MAIN LOOP ---
 
 def main():
-    logger.info("🚀 Arc Codex Scribe v53.0")
+    # Cross-site isolation validation at startup (spec: run in CI and at
+    # service startup) — refuse to run against colliding site cfgs.
+    import validate_sites
+    _cfg_errors = validate_sites.check(
+        validate_sites.discover(os.environ.get("SITES_ROOT", "/home/www")))
+    if _cfg_errors:
+        for _e in _cfg_errors:
+            logger.critical(f"🔥 site cfg violation: {_e}")
+        raise SystemExit(1)
+
+    logger.info(f"🚀 {site.name} Scribe v53.0 [{site.path}]")
     logger.info(f"   📡 Model: {OLLAMA_LOCAL_FALLBACK} (local only, no cloud, no fallback)")
     logger.info(f"   🎭 Playwright Tier-3: enabled (restored 2026-07-15, radeon exiled by env-signature)")
     logger.info(f"   ▶️  YouTube ingest: yt-dlp metadata mode")
     logger.info(f"   ✍️  Prompt-to-article: enabled")
-    logger.info(f"   ⚡ Priority queue: scribe:priority_uploads (processed each cycle)")
+    logger.info(f"   ⚡ Priority queue: {REDIS_PRIORITY_QUEUE_KEY} (processed each cycle)")
     logger.info(f"   📋 Red/Blue/Purple: deferred to analyzer.py (on-demand)")
 
     # Reap any orphan Playwright browsers left by a prior crashed scribe.
@@ -1812,7 +1836,7 @@ def main():
             # Heartbeat: liveness signal for corpus_exporter/Grafana. TTL is
             # 15 min so a wedged scribe reads as key-absent, not just stale.
             try:
-                r.setex('arc:scribe:last_cycle', 900, str(int(time.time())))
+                r.setex(site.redis_key('scribe:last_cycle'), 900, str(int(time.time())))
             except Exception:
                 pass
 
