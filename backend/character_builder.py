@@ -78,7 +78,8 @@ RETRY_MAX_AGE        = _pipeline["character_giveup_days"] * 24 * 3600
 SWEEP_BATCH          = 3              # skipped retries per character per cycle
 MAX_GENERATION_ATTEMPTS = _pipeline["character_max_attempts"]
                                       # real generation failures before give-up;
-                                      # quota/429 failures do NOT consume attempts
+                                      # Ollama infra failures (quota/429, other
+                                      # HTTP errors, timeouts) do NOT consume attempts
 
 CHARACTERS_YAML = os.path.join(os.path.dirname(__file__), "..", "characters.yaml")
 
@@ -211,8 +212,11 @@ def _council_payload(model: str, system_prompt: str, prompt: str) -> dict:
 def call_ollama(system_prompt: str, dossier: str, model: str | None = None) -> str | None:
     """Call Ollama with character instruction + dossier.
 
-    Returns (comment_text | None, quota_blocked). quota_blocked marks a 429 —
-    callers must not count those failures toward the give-up limit.
+    Returns (comment_text | None, infra_failed). infra_failed marks an Ollama
+    infrastructure failure — 429/quota, any other HTTP error, timeout, or
+    connection loss — which callers must NOT count toward the give-up limit.
+    A completed call whose output is too short to use returns (None, False)
+    and DOES count as a real attempt.
 
     When `model` is None, the global OLLAMA_MODEL is used (legacy behavior).
     Per-character overrides come in via characters.yaml `model:` field
@@ -239,17 +243,25 @@ def call_ollama(system_prompt: str, dossier: str, model: str | None = None) -> s
             )
         resp.raise_for_status()
         text = resp.json().get("response", "").strip()
+        # Completed model call. Output too short to use still counts as a real
+        # attempt (the model ran) — hence infra_failed=False here.
         return (text if len(text) > 20 else None), False
     except requests.exceptions.HTTPError as e:
-        if getattr(e.response, "status_code", None) == 429:
-            # Quota exhaustion is the environment's fault, not the article's.
-            log.warning("Ollama quota/429 (model=%s): %s", actual_model, e)
-            return None, True
-        log.error("Ollama call failed (model=%s): %s", actual_model, e)
-        return None, False
+        # Any HTTP error from Ollama is infrastructure, not the article's fault
+        # (429 quota, 404 model-missing, 5xx) — never count it as an attempt.
+        status = getattr(e.response, "status_code", None)
+        if status == 429:
+            log.warning("Ollama quota/429 (model=%s): %s — attempt not counted", actual_model, e)
+        else:
+            log.error("Ollama HTTP %s (model=%s): %s — infra failure, attempt not counted",
+                      status, actual_model, e)
+        return None, True
     except Exception as e:
-        log.error("Ollama call failed (model=%s): %s", actual_model, e)
-        return None, False
+        # Timeout, connection refused, bad JSON — the model never produced
+        # output, so the article was never really attempted. Never count it.
+        log.error("Ollama call failed (model=%s): %s — infra failure, attempt not counted",
+                  actual_model, e)
+        return None, True
 
 # ── Comment posting ────────────────────────────────────────────────────────────
 def post_comment(article_id: str, author: str, body: str) -> bool:
@@ -467,15 +479,17 @@ def process_article(handle: str, character: dict, article_id: str) -> None:
     if resolved_model != character.get("model"):
         log.info("Council gate: %s → %s for article %s",
                  character.get("model"), resolved_model, article_id)
-    comment_text, quota_blocked = call_ollama(
+    comment_text, infra_failed = call_ollama(
         character["instruction"],
         dossier,
         model=resolved_model,
     )
     if not comment_text:
-        if quota_blocked:
-            # Park without consuming an attempt — quota failures don't count.
-            log.warning("Generation quota-blocked for %s by %s — parking for retry",
+        if infra_failed:
+            # Park without consuming an attempt — Ollama infra failures (quota,
+            # HTTP errors, timeouts, connection loss) are the environment's
+            # fault, not the article's.
+            log.warning("Generation infra-blocked for %s by %s — parking for retry",
                         article_id, handle)
             mark_skipped(handle, article_id)
             return
