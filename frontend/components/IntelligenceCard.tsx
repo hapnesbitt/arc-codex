@@ -70,9 +70,14 @@ interface AccordionTextProps {
     fullyExpanded?: boolean;
 }
 
-interface ChimeraGaugeProps {
-    score: number;        // 0-100 integer
-    readingLabel: string; // e.g. "College"
+interface ReadingDialProps {
+    index: number | null;  // 0-100 readability synthesis (readability_index), or null → label only
+    label: string;         // reading_label, e.g. "College"
+}
+
+interface ObjectivityDialProps {
+    score: number;         // objectivity_score, 0-100
+    dashboardUrl?: string; // optional corpus intelligence-dashboard link
 }
 
 interface AnalysisSectionProps {
@@ -353,20 +358,92 @@ const VideoList: React.FC<{ text: string }> = ({ text }) => {
 };
 
 // --- Chimera Difficulty Score Gauge ---
-const ChimeraGauge: React.FC<ChimeraGaugeProps> = ({ score, readingLabel }) => {
+// ReadingDial — reading difficulty. Reads readability_index (Arc's 0-100
+// readability synthesis) + reading_label. It must NEVER read chimera_score:
+// that field is a readability synthesis on Arc but objectivity on Hunt, so a
+// shared read would render the wrong metric on one site. `index` may be null on
+// a site that has reading_label but no 0-100 index — then the label shows
+// without a number.
+const ReadingDial: React.FC<ReadingDialProps> = ({ index, label }) => {
+    const hasIndex = index != null && index > 0;
     const circumference = 2 * Math.PI * 20;
-    const strokeDashoffset = circumference - ((score / 100) * circumference);
+    const strokeDashoffset = hasIndex ? circumference - ((index! / 100) * circumference) : circumference;
     const scoreColor =
-        score <= 30 ? '#86efac'
-        : score <= 45 ? '#22c55e'
-        : score <= 55 ? '#10b981'
-        : score <= 70 ? '#15803d'
+        !hasIndex ? '#64748b'
+        : index! <= 30 ? '#86efac'
+        : index! <= 45 ? '#22c55e'
+        : index! <= 55 ? '#10b981'
+        : index! <= 70 ? '#15803d'
         : '#14532d';
 
     return (
         <>
         <div className="flex flex-col items-center gap-1" aria-hidden="true">
             <div className="relative h-16 w-16 flex items-center justify-center flex-shrink-0">
+                <svg
+                    className="absolute inset-0"
+                    viewBox="0 0 48 48"
+                    style={{ transform: 'rotate(-90deg)' }}
+                    aria-hidden="true"
+                >
+                    <circle
+                        cx="24" cy="24" r="20"
+                        stroke="#e2e8f0" strokeOpacity="0.1"
+                        strokeWidth="3" fill="transparent"
+                    />
+                    {hasIndex && (
+                        <motion.circle
+                            cx="24" cy="24" r="20"
+                            stroke={scoreColor} strokeWidth="3"
+                            fill="transparent" strokeLinecap="round"
+                            strokeDasharray={circumference}
+                            initial={{ strokeDashoffset: circumference }}
+                            animate={{ strokeDashoffset }}
+                            transition={{ duration: 1.5, ease: [0.43, 0.13, 0.23, 0.96] }}
+                        />
+                    )}
+                </svg>
+                <div
+                    className="relative font-mono text-base font-bold"
+                    style={{ color: scoreColor }}
+                >
+                    {hasIndex ? index : '—'}
+                </div>
+            </div>
+
+            <div className="text-center max-w-[9rem]">
+                <div
+                    className="font-mono text-xs font-semibold leading-tight"
+                    style={{ color: scoreColor }}
+                >
+                    {label} reading level
+                </div>
+            </div>
+        </div>
+        <span className="sr-only">
+            {hasIndex
+                ? `Chimera readability score ${index} out of 100, ${label} reading level.`
+                : `${label} reading level.`}
+        </span>
+        </>
+    );
+};
+
+// ObjectivityDial — reads objectivity_score (0-100, present on both sites).
+// NEVER chimera_score. Optional dashboardUrl wraps the gauge in a link to the
+// corpus intelligence dashboard (Hunt's behaviour, now shared). Colour bands
+// follow Hunt's threat gauge (high objectivity = green).
+const ObjectivityDial: React.FC<ObjectivityDialProps> = ({ score, dashboardUrl }) => {
+    const frac = Math.max(0, Math.min(1, score / 100));
+    const circumference = 2 * Math.PI * 20;
+    const strokeDashoffset = circumference - (frac * circumference);
+    const scoreColor = frac >= 0.75 ? '#4ade80' : frac >= 0.4 ? '#facc15' : '#f87171';
+    const pct = Math.round(score);
+
+    const gauge = (
+        <div className="flex flex-col items-center gap-1">
+            <span className="sr-only">Objectivity score: {pct} out of 100.</span>
+            <div className="relative h-16 w-16 flex items-center justify-center flex-shrink-0" aria-hidden="true">
                 <svg
                     className="absolute inset-0"
                     viewBox="0 0 48 48"
@@ -388,28 +465,31 @@ const ChimeraGauge: React.FC<ChimeraGaugeProps> = ({ score, readingLabel }) => {
                         transition={{ duration: 1.5, ease: [0.43, 0.13, 0.23, 0.96] }}
                     />
                 </svg>
-                <div
-                    className="relative font-mono text-base font-bold"
-                    style={{ color: scoreColor }}
-                >
-                    {score}
+                <div className="relative font-mono text-base font-bold" style={{ color: scoreColor }}>
+                    {pct}
                 </div>
             </div>
-
-            <div className="text-center max-w-[9rem]">
-                <div
-                    className="font-mono text-xs font-semibold leading-tight"
-                    style={{ color: scoreColor }}
-                >
-                    {readingLabel} reading level
+            <div className="text-center max-w-[9rem]" aria-hidden="true">
+                <div className="font-mono text-xs font-semibold leading-tight" style={{ color: scoreColor }}>
+                    Objectivity
                 </div>
             </div>
         </div>
-        <span className="sr-only">
-            Chimera readability score {score} out of 100, {readingLabel} reading level.
-        </span>
-        </>
     );
+
+    return dashboardUrl
+        ? (
+            <a
+                href={dashboardUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ring-focus rounded"
+                aria-label={`Objectivity score ${pct} out of 100 — view corpus intelligence dashboard`}
+            >
+                {gauge}
+            </a>
+        )
+        : gauge;
 };
 
 // --- Collapsible Analysis Section ---
@@ -877,9 +957,16 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
         setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
     };
 
-    const chimeraScore: number =
-        dossier?.chimera_score != null ? dossier.chimera_score
-        : parseInt((card as any).nlp_chimera_score || '0', 10) || 0;
+    // Score sources — SEMANTIC fields only. NEVER read chimera_score: it is a
+    // readability synthesis on Arc but objectivity on Hunt, so a shared read of
+    // it would render the wrong metric on one of the sites (see the two dials).
+    const objectivityScore: number =
+        dossier?.objectivity_score != null ? dossier.objectivity_score
+        : parseFloat((card as any).nlp_objectivity || '0') || 0;
+    const readabilityIndex: number | null =
+        dossier?.readability_index != null ? dossier.readability_index
+        : (card as any).nlp_readability_index != null ? (parseInt((card as any).nlp_readability_index, 10) || null)
+        : null;
     const readingLabel: string =
         dossier?.reading_label ?? (card as any).nlp_reading_label ?? '';
     const talkingPoints = dossier?.talking_points;
@@ -1035,8 +1122,13 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
 
                 {/* Main Content */}
                 <div className="p-4 sm:p-8">
-                    <header className="flex flex-col-reverse items-end gap-4 sm:flex-row sm:justify-between sm:items-start mb-6">
-                        <div className="flex-1 w-full">
+                    <header className="mb-6">
+                        {/* Title on its own full-width line. It must NEVER share a
+                            flex row with the score dials or the icon row: the old
+                            shared `sm:flex-row` header squeezed the title's flex-1
+                            column toward min-content and wrapped the title one word
+                            per line. Rows 1 and 2 below sit on their own lines. */}
+                        <div className="w-full">
                             <a
                                 href={sourceUrl}
                                 target={hasExternalSource ? "_blank" : "_self"}
@@ -1051,98 +1143,102 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             </a>
                         </div>
 
-                        {/* Right column: Chimera gauge + action buttons — one row
-                            (gauge beside the 2×4 icon grid), not stacked. */}
-                        <div className="flex flex-row items-center justify-end gap-3 flex-wrap w-full sm:w-auto">
-                            {chimeraScore > 0 && (
-                                <ChimeraGauge score={chimeraScore} readingLabel={readingLabel} />
+                        {/* Row 1 — the two score dials, on their own line.
+                            TODO(cfg): objectivityDashboardUrl moves to the per-site
+                            card config when Hunt is converged onto this component. */}
+                        <div className="flex flex-row items-end gap-5 flex-wrap mb-4">
+                            {objectivityScore > 0 && (
+                                <ObjectivityDial score={objectivityScore} dashboardUrl="https://grafana.arc-codex.com/d/arc-intelligence-v2" />
                             )}
+                            {(readabilityIndex != null || readingLabel) && (
+                                <ReadingDial index={readabilityIndex} label={readingLabel} />
+                            )}
+                            <Link
+                                href={`/article/${card.id}`}
+                                className="self-center font-sans text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-slate-200 ring-focus rounded"
+                            >
+                                — Read more
+                            </Link>
+                        </div>
 
-                            {/* Action Buttons: on mobile (< sm) a 4-column grid gives 2 clean
-                                rows of 4 for the 8 icons — beats the pre-fix "7+1" wrap that
-                                happened when 8×40 + 7×gap-2 (376px) exceeded the card's inner
-                                width on iPhone 11. On sm+ the original flex layout is
-                                unchanged — desktop keeps its right-aligned single-row-plus-wrap.
-                                Grid → flex swap is safe because both compile to `display:`
-                                and grid-template-columns / flex-wrap are ignored by the
-                                inactive display mode. Tooltips (data-tooltip on children)
-                                are unaffected — only the container changes. */}
-                            <div className="grid grid-cols-4 gap-2 sm:flex sm:items-center sm:flex-wrap sm:justify-end print:hidden max-w-full">
-                                <TranslateButton
-                                    articleId={card.id}
-                                    cachedLangs={(card as any).cached_langs ?? []}
-                                    sourceLang={(card as any).source_lang ?? null}
-                                    onTranslated={handleTranslated}
-                                    onReset={handleReset}
-                                    onLangChange={setCurrentLang}
-                                />
-                                {isPrivate && isOwner && (
-                                    <span title="Private — only visible to you" aria-label="Private article" className="text-slate-500">
-                                        <Lock className="h-4 w-4" aria-hidden="true" />
-                                    </span>
-                                )}
-                                <Link
-                                    href={`/article/${card.id}`}
-                                    aria-label="Permalink"
-                                    data-tooltip="Open Arc Codex's permanent copy of this article — every A.R.C. section expanded, ready to link or reference later."
-                                    className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
-                                >
-                                    <LinkIcon className="h-5 w-5" aria-hidden="true" />
-                                </Link>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={handleCopy}
-                                    className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
-                                    aria-label={hasCopied ? "Link copied" : "Copy link"}
-                                    data-tooltip="Copy this article's Arc Codex permalink to your clipboard, together with a short blurb of the counter-analyst's take."
-                                >
-                                    {hasCopied ? <Check className="text-emerald-400" aria-hidden="true" /> : <Copy aria-hidden="true" />}
-                                </Button>
-                                <ResearchMenu
-                                    title={translatedFields?.title ?? card.title}
-                                    articleId={card.id}
-                                    snippet={researchSnippet}
-                                    sourceUrl={card.sourceUrl}
-                                />
-                                <ShareMenu
-                                    title={translatedFields?.title ?? card.title}
-                                    articleId={card.id}
-                                    blurb={shareBlurb}
-                                    lang={currentLang}
-                                    counterComment={counterComment ?? undefined}
-                                />
-                                <a
-                                    href={card.directive ? `/wiki/${toSlug(card.directive)}#article-${card.id}` : '/wiki'}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    aria-label="Full take"
-                                    data-tooltip="Jump to the wiki directive page for this article's topic, showing every related story and its full analysis in one place."
-                                    className="tooltip-right inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
-                                >
-                                    <Flashlight className="h-5 w-5" aria-hidden="true" />
-                                </a>
-                                <a
-                                    href={`https://soc.arc-codex.com/course/quiz-me/article/${card.id}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    aria-label="Quiz me"
-                                    data-tooltip="Take a quick quiz on this article at School of Chat and earn a per-article badge for reading it closely."
-                                    className="tooltip-right inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
-                                >
-                                    <GraduationCap className="h-5 w-5" aria-hidden="true" />
-                                </a>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); window.print(); }}
-                                    className="tooltip-right rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
-                                    aria-label="Print"
-                                    data-tooltip="Expand every section and open the browser's print dialog — good for a paper copy or a clean PDF export."
-                                >
-                                    <Printer className="h-5 w-5" aria-hidden="true" />
-                                </Button>
-                            </div>
+                        {/* Row 2 — the icon row, on its own line. On mobile a 4-col
+                            grid gives 2 clean rows of 4 for the 8 icons; on sm+ it is
+                            a flex row. */}
+                        <div className="grid grid-cols-4 gap-2 sm:flex sm:items-center sm:flex-wrap print:hidden max-w-full">
+                            <TranslateButton
+                                articleId={card.id}
+                                cachedLangs={(card as any).cached_langs ?? []}
+                                sourceLang={(card as any).source_lang ?? null}
+                                onTranslated={handleTranslated}
+                                onReset={handleReset}
+                                onLangChange={setCurrentLang}
+                            />
+                            {isPrivate && isOwner && (
+                                <span title="Private — only visible to you" aria-label="Private article" className="text-slate-500">
+                                    <Lock className="h-4 w-4" aria-hidden="true" />
+                                </span>
+                            )}
+                            <Link
+                                href={`/article/${card.id}`}
+                                aria-label="Permalink"
+                                data-tooltip="Open Arc Codex's permanent copy of this article — every A.R.C. section expanded, ready to link or reference later."
+                                className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
+                            >
+                                <LinkIcon className="h-5 w-5" aria-hidden="true" />
+                            </Link>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={handleCopy}
+                                className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
+                                aria-label={hasCopied ? "Link copied" : "Copy link"}
+                                data-tooltip="Copy this article's Arc Codex permalink to your clipboard, together with a short blurb of the counter-analyst's take."
+                            >
+                                {hasCopied ? <Check className="text-emerald-400" aria-hidden="true" /> : <Copy aria-hidden="true" />}
+                            </Button>
+                            <ResearchMenu
+                                title={translatedFields?.title ?? card.title}
+                                articleId={card.id}
+                                snippet={researchSnippet}
+                                sourceUrl={card.sourceUrl}
+                            />
+                            <ShareMenu
+                                title={translatedFields?.title ?? card.title}
+                                articleId={card.id}
+                                blurb={shareBlurb}
+                                lang={currentLang}
+                                counterComment={counterComment ?? undefined}
+                            />
+                            <a
+                                href={card.directive ? `/wiki/${toSlug(card.directive)}#article-${card.id}` : '/wiki'}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                aria-label="Full take"
+                                data-tooltip="Jump to the wiki directive page for this article's topic, showing every related story and its full analysis in one place."
+                                className="tooltip-right inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
+                            >
+                                <Flashlight className="h-5 w-5" aria-hidden="true" />
+                            </a>
+                            <a
+                                href={`https://soc.arc-codex.com/course/quiz-me/article/${card.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                aria-label="Quiz me"
+                                data-tooltip="Take a quick quiz on this article at School of Chat and earn a per-article badge for reading it closely."
+                                className="tooltip-right inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
+                            >
+                                <GraduationCap className="h-5 w-5" aria-hidden="true" />
+                            </a>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={(e: React.MouseEvent) => { e.stopPropagation(); window.print(); }}
+                                className="tooltip-right rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
+                                aria-label="Print"
+                                data-tooltip="Expand every section and open the browser's print dialog — good for a paper copy or a clean PDF export."
+                            >
+                                <Printer className="h-5 w-5" aria-hidden="true" />
+                            </Button>
                         </div>
                     </header>
 
