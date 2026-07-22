@@ -14,6 +14,7 @@ Also safe to run manually at any time — read-only scan first, then purge.
 
 import os
 import sys
+import time
 import logging
 from datetime import datetime, timezone
 
@@ -32,6 +33,25 @@ logger = logging.getLogger('cleanup')
 # --- CONFIG ---
 REDIS_PASSWORD = os.environ['REDIS_PASSWORD']
 SOLR_URL       = os.environ.get('SCRIBE_SOLR_URL', 'http://localhost:8983/solr/feeds/')
+
+# Rehosted hero images live here, named {article_id}.jpg plus {article_id}-{w}.webp
+# variants (see scribe.rehost_article_image). Same derivation scribe uses.
+_BACKEND_DIR      = os.path.dirname(os.path.abspath(__file__))
+SCRAPED_IMAGE_DIR = os.path.join(os.path.dirname(_BACKEND_DIR),
+                                 'frontend', 'public', 'uploads', 'scraped')
+
+
+def get_image_retention_days():
+    """[retention].image_days from the site cfg, or None (with a loud log) if
+    it is missing/unloadable — in which case the scraped-image purge is skipped
+    while the Redis/Solr purges still run."""
+    try:
+        from site_config import load_site_config
+        return int(load_site_config()["retention"]["image_days"])
+    except Exception as e:
+        logger.warning(f"⚠️  [retention].image_days unavailable ({e}) — "
+                       f"skipping scraped-image purge")
+        return None
 
 
 def get_redis():
@@ -154,6 +174,65 @@ def purge_processed_hashes(r) -> int:
     return len(stale)
 
 
+def purge_scraped_images(r, solr, max_age_days: int) -> int:
+    """Delete rehosted scraped images older than max_age_days, but only when no
+    live article references them.
+
+    Reference-check FIRST: build the set of live article ids (feed zset, plus
+    any Solr doc ids as belt-and-braces), then delete second. A file is removed
+    only when BOTH hold: its article id is unreferenced AND its mtime is older
+    than the threshold. An unreferenced-but-young file is kept (grace window); a
+    referenced-but-old file is kept (still in use). Filenames embed the article
+    id: {id}.jpg and {id}-{w}.webp, so the id is the stem up to the first '-'.
+    """
+    if not os.path.isdir(SCRAPED_IMAGE_DIR):
+        logger.info(f"Scraped dir absent ({SCRAPED_IMAGE_DIR}) — skipping image purge")
+        return 0
+
+    referenced = set(r.zrange('feed', 0, -1))
+    if solr is not None:
+        start, rows = 0, 1000
+        while True:
+            results = solr.search('*:*', fl='id', rows=rows, start=start)
+            if not results.docs:
+                break
+            referenced.update(d.get('id', '') for d in results.docs)
+            start += rows
+            if start >= results.hits:
+                break
+    logger.info(f"Referenced article ids : {len(referenced)}")
+
+    cutoff = time.time() - max_age_days * 86400
+    deleted = kept_referenced = kept_young = 0
+    freed_bytes = 0
+
+    for name in os.listdir(SCRAPED_IMAGE_DIR):
+        path = os.path.join(SCRAPED_IMAGE_DIR, name)
+        if not os.path.isfile(path):
+            continue
+        article_id = os.path.splitext(name)[0].split('-', 1)[0]
+        if article_id in referenced:
+            kept_referenced += 1
+            continue
+        try:
+            if os.path.getmtime(path) >= cutoff:
+                kept_young += 1
+                continue
+            size = os.path.getsize(path)
+            os.remove(path)
+        except OSError as e:
+            logger.warning(f"  ⚠️  could not remove {name}: {e}")
+            continue
+        deleted += 1
+        freed_bytes += size
+
+    logger.info(f"Scraped images > {max_age_days}d & unreferenced deleted : {deleted} "
+                f"({freed_bytes / 1_048_576:.1f} MB freed)")
+    logger.info(f"  kept (referenced)    : {kept_referenced}")
+    logger.info(f"  kept (within {max_age_days}d): {kept_young}")
+    return deleted
+
+
 def main():
     start = datetime.now(timezone.utc)
     logger.info("=" * 60)
@@ -182,12 +261,16 @@ def main():
     solr_purged   = purge_solr_orphans(r, solr) if solr else 0
     hashes_purged = purge_processed_hashes(r)
 
+    image_days = get_image_retention_days()
+    images_purged = purge_scraped_images(r, solr, image_days) if image_days else 0
+
     # --- Summary ---
     elapsed = (datetime.now(timezone.utc) - start).total_seconds()
     logger.info("-" * 60)
     logger.info(f"Redis orphans purged  : {redis_purged}")
     logger.info(f"Solr orphans purged   : {solr_purged}")
     logger.info(f"Stale hashes removed  : {hashes_purged}")
+    logger.info(f"Scraped images purged : {images_purged}")
     logger.info(f"Completed in {elapsed:.1f}s")
     logger.info("=" * 60)
 
