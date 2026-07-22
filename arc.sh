@@ -87,7 +87,24 @@ is_running() {
         return
     fi
     local pidfile="$PID_DIR/$name.pid"
-    [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null
+    [ -f "$pidfile" ] || return 1
+    local pid svc dir cmd port proc_cwd proc_cmd proc_pgid
+    pid=$(cat "$pidfile" 2>/dev/null)
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    svc=$(get_service_def "$name") || return 1
+    IFS='|' read -r _ dir cmd _ port <<< "$svc"
+    proc_cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null)
+    [ "$proc_cwd" = "$dir" ] || return 1
+    proc_cmd=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)
+    if [ "$name" = "gunicorn" ]; then
+        proc_pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+        [ "$pid" = "$proc_pgid" ] &&
+            [[ "$proc_cmd" == *gunicorn* ]] &&
+            [[ "$proc_cmd" == *"--bind 127.0.0.1:$port"* ]]
+    else
+        [[ "$proc_cmd" == *"$cmd"* ]]
+    fi
 }
 
 free_port() {
