@@ -177,9 +177,17 @@ stop_service() {
     # Docker-managed services
     if [ "$cmd" = "docker" ]; then
         echo "  🛑 Stopping $name (docker)..."
-        docker compose -f "$COMPOSE_FILE" stop "$name" >> "$LOG_DIR/$name.log" 2>&1
+        if ! docker compose -f "$COMPOSE_FILE" stop "$name" >> "$LOG_DIR/$name.log" 2>&1; then
+            echo "    ❌ $name failed to stop — check $LOG_DIR/$name.log"
+            return 1
+        fi
+        if is_running "$name"; then
+            echo "    ❌ $name still running after docker stop"
+            return 1
+        fi
+        rm -f "$pidfile"
         echo "    ✅ $name stopped"
-        return
+        return 0
     fi
 
     # Always sweep orphans first — before is_running check
@@ -188,7 +196,7 @@ stop_service() {
         free_port "$port"
         echo "  ⏭️  $name not running"
         rm -f "$pidfile"
-        return
+        return 0
     fi
     local pid=$(cat "$pidfile")
     echo "  🛑 Stopping $name (pid $pid)..."
@@ -207,12 +215,18 @@ stop_service() {
         echo "    ⚠️  $name didn't stop cleanly, force killing..."
         [ -n "$pgid" ] && [ "$pgid" != "0" ] && kill -9 -- "-$pgid" 2>/dev/null
         kill -9 "$pid" 2>/dev/null
+        sleep 1
+    fi
+    if kill -0 "$pid" 2>/dev/null; then
+        echo "    ❌ $name is still alive after force kill (pid $pid)"
+        return 1
     fi
     # Kill orphaned processes from this specific stack directory
     pgrep -f "cd '$dir'.*$cmd\|$dir.*$cmd" 2>/dev/null | xargs -r kill -9 2>/dev/null || true
     free_port "$port"
     rm -f "$pidfile"
     echo "    ✅ $name stopped"
+    return 0
 }
 
 # ==============================================================================
@@ -312,8 +326,17 @@ cmd_stop() {
         stop_service "$svc"
     else
         echo "🛑 Stopping Arc Codex stack (reverse order)..."
-        for (( i=${#SERVICES[@]}-1; i>=0; i-- )); do stop_service "${SERVICES[$i]}"; done
+        local failed=()
+        local name
+        for (( i=${#SERVICES[@]}-1; i>=0; i-- )); do
+            name="${SERVICES[$i]%%|*}"
+            stop_service "${SERVICES[$i]}" || failed+=("$name")
+        done
         echo ""
+        if [ "${#failed[@]}" -gt 0 ]; then
+            echo "❌ Stack stop incomplete: ${failed[*]}"
+            return 1
+        fi
         echo "✅ Stack stopped."
     fi
 }
@@ -328,7 +351,11 @@ cmd_restart() {
         # 60s check can't race us and spawn an untracked duplicate.
         touch "$PID_DIR/watchdog.hold"
         trap 'rm -f "$PID_DIR/watchdog.hold"' EXIT
-        stop_service "$svc"
+        if ! stop_service "$svc"; then
+            rm -f "$PID_DIR/watchdog.hold"
+            trap - EXIT
+            return 1
+        fi
         sleep 1
         local rc=0
         start_service "$svc" || rc=$?
@@ -336,7 +363,7 @@ cmd_restart() {
         trap - EXIT
         return "$rc"
     else
-        cmd_stop
+        cmd_stop || return 1
         sleep 2
         cmd_start
     fi
@@ -441,7 +468,7 @@ cmd_backup() {
     local FILE="$BACKUP_DIR/arc_backup_$DATE.tar.gz"
     echo "📦 Fast backup (SSD, code only)..."
     cmd_prune_logs
-    cmd_stop
+    cmd_stop || { echo "❌ Backup aborted: stack did not stop cleanly."; return 1; }
     echo "🗜️  Archiving code and config..."
     # Scraped hero images are large (grew the warm tar to ~2 GB) and fully
     # reproducible on re-scrape; exclude them unless the cfg opts in. Default
@@ -663,7 +690,7 @@ cmd_restore() {
 
     echo ""
     echo "🛑 Stopping stack..."
-    cmd_stop
+    cmd_stop || { echo "❌ Restore aborted: stack did not stop cleanly."; return 1; }
 
     echo "📂 Extracting $(basename "$selected") → $ITC_ROOT ..."
     tar -zxf "$selected" -C "$ITC_ROOT"
