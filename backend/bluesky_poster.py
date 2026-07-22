@@ -54,6 +54,8 @@ CA_WAIT        = 120         # seconds to wait for counter-analyst comment
                              # driven posting (see ops/RUNBOOK.md 2026-07-15).
 POLL_KEY       = "bluesky:autopost"
 POSTED_SET     = "bluesky:posted"
+LOGIN_BLACKLIST_KEY      = "bluesky:login_blacklist_until"
+LOGIN_BLACKLIST_FALLBACK = 30 * 60  # used when 429 omits RateLimit-Reset
 
 BSKY_API       = "https://bsky.social/xrpc"
 
@@ -139,26 +141,75 @@ def bsky_refresh() -> bool:
         log.warning("refreshSession failed: %s", exc)
         return False
 
+def _login_blacklist_remaining() -> int:
+    """Seconds until createSession is permitted; 0 if no active blacklist."""
+    try:
+        raw = r.get(LOGIN_BLACKLIST_KEY)
+        if not raw:
+            return 0
+        remaining = int(float(raw) - time.time())
+        return remaining if remaining > 0 else 0
+    except Exception:
+        return 0
+
+def _set_login_blacklist(seconds: int) -> None:
+    """Persist the blacklist so it survives restarts and is shared across call sites."""
+    seconds = max(int(seconds), 60)
+    try:
+        r.set(LOGIN_BLACKLIST_KEY, time.time() + seconds, ex=seconds + 10)
+        log.warning("createSession blacklist set for %ds — survives restart", seconds)
+    except Exception as exc:
+        log.error("Failed to persist login blacklist: %s", type(exc).__name__)
+
 def bsky_login() -> bool:
     """
     Full createSession with handle + app password.
     Rate-limited to ~30/5min per IP — only call this when refresh fails
     or no persisted session exists.
+
+    Honors a Redis-persisted blacklist on prior 429s so the lockout can't be
+    re-triggered by restarts or by the per-article 401 fallback path.
     """
     global _session
+
+    remaining = _login_blacklist_remaining()
+    if remaining > 0:
+        log.info("createSession blacklist active — %ds remaining, skipping HTTP call", remaining)
+        return False
+
     try:
         resp = requests.post(
             f"{BSKY_API}/com.atproto.server.createSession",
             json={"identifier": BLUESKY_HANDLE, "password": BLUESKY_APP_PASSWORD},
             timeout=15,
         )
+        if resp.status_code == 429:
+            reset_hdr = resp.headers.get("RateLimit-Reset") or resp.headers.get("ratelimit-reset")
+            delay = LOGIN_BLACKLIST_FALLBACK
+            if reset_hdr:
+                try:
+                    val = float(reset_hdr)
+                    now = time.time()
+                    # AT Protocol returns absolute epoch seconds; some servers return delta.
+                    delay = int(val - now) if val > now + 60 else int(val)
+                except ValueError:
+                    pass
+            _set_login_blacklist(delay)
+            log.error("Bluesky createSession 429 RateLimitExceeded — blacklist for %ds", delay)
+            return False
         resp.raise_for_status()
         _session = resp.json()
         _save_session()
         log.info("Bluesky createSession OK (DID: %s)", _session.get("did"))
         return True
+    except requests.HTTPError as exc:
+        resp = getattr(exc, "response", None)
+        status = getattr(resp, "status_code", "?")
+        body = (getattr(resp, "text", "") or "")[:200]
+        log.error("Bluesky createSession HTTP error: %s — %s", status, body)
+        return False
     except Exception as exc:
-        log.error("Bluesky createSession failed: %s", exc)
+        log.error("Bluesky createSession failed: %s", type(exc).__name__)
         return False
 
 def bsky_ensure_session() -> bool:
