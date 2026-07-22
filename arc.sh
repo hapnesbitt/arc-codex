@@ -108,17 +108,47 @@ is_running() {
 }
 
 free_port() {
-    local port="$1"
-    [ -z "$port" ] && return
-    local pids
-    pids=$(lsof -t -i:"$port" 2>/dev/null)
-    if [ -n "$pids" ]; then
-        echo "    🔧 Freeing port $port (killing pids: $pids)"
-        echo "$pids" | xargs kill 2>/dev/null
-        sleep 1
-        pids=$(lsof -t -i:"$port" 2>/dev/null)
-        [ -n "$pids" ] && echo "$pids" | xargs kill -9 2>/dev/null
+    local name="$1" dir="$2" cmd="$3" port="$4"
+    [ -z "$port" ] && return 0
+    local pid proc_cwd proc_cmd listeners
+    local owned=() foreign=()
+    listeners=$(lsof -t -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
+    [ -z "$listeners" ] && return 0
+    while IFS= read -r pid; do
+        proc_cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null)
+        proc_cmd=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)
+        if [ "$proc_cwd" = "$dir" ] &&
+           { { [ "$name" = "gunicorn" ] && [[ "$proc_cmd" == *gunicorn* ]] &&
+               [[ "$proc_cmd" == *"--bind 127.0.0.1:$port"* ]]; } ||
+             { [ "$name" != "gunicorn" ] && [[ "$proc_cmd" == *"$cmd"* ]]; }; }; then
+            owned+=("$pid")
+        else
+            foreign+=("$pid")
+        fi
+    done <<< "$listeners"
+    if [ "${#foreign[@]}" -gt 0 ]; then
+        echo "    ❌ Refusing to free port $port: foreign listener pid(s): ${foreign[*]}"
+        return 1
     fi
+    echo "    🔧 Freeing port $port (stack-owned pids: ${owned[*]})"
+    kill "${owned[@]}" 2>/dev/null || true
+    sleep 1
+    listeners=$(lsof -t -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
+    if [ -n "$listeners" ]; then
+        while IFS= read -r pid; do
+            proc_cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null)
+            proc_cmd=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)
+            if [ "$proc_cwd" = "$dir" ] &&
+               { { [ "$name" = "gunicorn" ] && [[ "$proc_cmd" == *gunicorn* ]] &&
+                   [[ "$proc_cmd" == *"--bind 127.0.0.1:$port"* ]]; } ||
+                 { [ "$name" != "gunicorn" ] && [[ "$proc_cmd" == *"$cmd"* ]]; }; }; then
+                kill -9 "$pid" 2>/dev/null
+            fi
+        done <<< "$listeners"
+        sleep 1
+    fi
+    listeners=$(lsof -t -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
+    [ -z "$listeners" ] || { echo "    ❌ Port $port remains occupied; refusing startup"; return 1; }
 }
 
 start_service() {
@@ -132,7 +162,7 @@ start_service() {
         return
     fi
     echo "  🚀 Starting $name..."
-    free_port "$port"
+    free_port "$name" "$dir" "$cmd" "$port" || return 1
 
     # Docker-managed services
     if [ "$cmd" = "docker" ]; then
@@ -193,7 +223,7 @@ stop_service() {
     # Always sweep orphans first — before is_running check
     pkill -f "$dir.*python3 $cmd" 2>/dev/null || true
     if ! is_running "$name"; then
-        free_port "$port"
+        free_port "$name" "$dir" "$cmd" "$port" || return 1
         echo "  ⏭️  $name not running"
         rm -f "$pidfile"
         return 0
@@ -223,7 +253,7 @@ stop_service() {
     fi
     # Kill orphaned processes from this specific stack directory
     pgrep -f "cd '$dir'.*$cmd\|$dir.*$cmd" 2>/dev/null | xargs -r kill -9 2>/dev/null || true
-    free_port "$port"
+    free_port "$name" "$dir" "$cmd" "$port" || return 1
     rm -f "$pidfile"
     echo "    ✅ $name stopped"
     return 0
