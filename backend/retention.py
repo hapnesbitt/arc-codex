@@ -15,16 +15,24 @@ Semantics:
   - Sitemap/RSS/news-sitemap regeneration runs only when something was
     actually deleted, and only via the existing kasmir7 generators (no
     duplicated XML logic).
+
+This module is identical across stacks; everything site-specific (the
+pinned-set key) derives from the site slug so each stack stays in its own
+Redis DB family.
 """
 
 import logging
 import time
 
+from site_config import load_site_config
+
 logger = logging.getLogger(__name__)
 
 # Articles in this SET are exempt from age-based trimming (curated surfaces
-# like /plants link to them permanently). Members are article IDs/hashes.
-PINNED_SET = "arc:pinned_articles"
+# link to them permanently). Members are article IDs/hashes. The key is
+# slug-namespaced (arc:pinned_articles / huntaegis:pinned_articles) so each
+# stack's pinned set lives in its own DB family, never a sibling's.
+PINNED_SET = f"{load_site_config().slug}:pinned_articles"
 
 
 def trim_by_hours(r, solr, hours: int, dry_run: bool = False) -> dict:

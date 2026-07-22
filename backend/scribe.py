@@ -93,17 +93,10 @@ CYCLE_MINUTES = _ingestion["cycle_minutes"]
 # alignment. That is acceptable because the stacks target different Ollama hosts.
 STARTUP_DELAY_SECONDS = _ingestion["startup_delay_s"]  # Arc 900; Hunt 0
 
-# Retention (arc_config.yaml -> retention:). 0 or missing disables the pass.
-def _load_retention_hours() -> int:
-    try:
-        cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'arc_config.yaml')
-        with open(cfg_path) as f:
-            cfg = yaml.safe_load(f) or {}
-        return int((cfg.get('retention') or {}).get('retention_hours', 0))
-    except Exception:
-        return 0
-
-RETENTION_HOURS = _load_retention_hours()
+# Retention: article age cutoff for the end-of-cycle prune, from site_config
+# ([retention].article_hours). Required — load_site_config() already failed
+# loud at import if it was missing, so there is no silent-zero fallback here.
+RETENTION_HOURS = int(site["retention"]["article_hours"])
 
 # --- Instrumentation Redis keys (slug-derived via site_config.redis_key) ---
 STATS_FETCH          = site.redis_key("stats:fetch")

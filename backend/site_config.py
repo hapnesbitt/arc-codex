@@ -111,6 +111,7 @@ REQUIRED = [
     ("storage", "redis_db"),
     ("storage", "solr_core"),
     ("inference", "ollama_url"),
+    ("retention", "article_hours"),
 ]
 
 # Belt-and-braces: cfgs are committed to the repo and must stay secret-free.
