@@ -63,6 +63,9 @@ BACKEND_DIR="$ITC_ROOT/backend"
 VENV="$BACKEND_DIR/venv/bin/activate"
 COMPOSE_FILE="$ITC_ROOT/docker-compose.yml"
 CHECK_INTERVAL=60
+MAX_RETRY_DELAY=900
+declare -A FAILURE_COUNT=()
+declare -A NEXT_RETRY=()
 
 export PATH="/home/ross/.nvm/versions/node/v22.16.0/bin:$PATH"
 
@@ -152,10 +155,11 @@ restart_service() {
         sleep 3
         if is_running "$name"; then
             log "✅ $name recovered (docker $DOCKER_FRONTEND_NAME)"
+            return 0
         else
             log "❌ $name container failed to restart — manual intervention needed"
+            return 1
         fi
-        return
     fi
 
     # Kill any orphan processes before restarting
@@ -180,10 +184,31 @@ restart_service() {
 
     if is_running "$name"; then
         log "✅ $name recovered (pid $pid)"
+        return 0
     else
         log "❌ $name failed to restart — manual intervention needed"
         rm -f "$PID_DIR/$name.pid"
+        return 1
     fi
+}
+
+record_restart_failure() {
+    local name="$1"
+    local failures=$(( ${FAILURE_COUNT[$name]:-0} + 1 ))
+    local delay
+    if [ "$failures" -ge 5 ]; then
+        delay="$MAX_RETRY_DELAY"
+    else
+        delay=$(( CHECK_INTERVAL * (1 << (failures - 1)) ))
+    fi
+    FAILURE_COUNT["$name"]="$failures"
+    NEXT_RETRY["$name"]=$(( $(date +%s) + delay ))
+    log "❌ $name restart attempt $failures failed; retrying in ${delay}s (max ${MAX_RETRY_DELAY}s)"
+}
+
+clear_restart_backoff() {
+    local name="$1"
+    unset 'FAILURE_COUNT[$name]' 'NEXT_RETRY[$name]'
 }
 
 # Periodic orphan sweep — runs every 5 minutes independently of crash detection
@@ -233,14 +258,32 @@ while true; do
         local_name="${svc%%|*}"
         IFS='|' read -r _ _ local_cmd _ _ <<< "$svc"
         if ! is_running "$local_name"; then
+            # A .disabled marker is the only way to keep a managed service
+            # deliberately down. A missing PID file without this marker is a
+            # crash/startup failure and must remain visible to the watchdog.
+            [ -f "$PID_DIR/$local_name.disabled" ] && continue
+            now=$(date +%s)
+            [ "$now" -lt "${NEXT_RETRY[$local_name]:-0}" ] && continue
             if [ "$local_cmd" = "docker" ]; then
                 if docker compose -f "$COMPOSE_FILE" ps --services 2>/dev/null | grep -q "^$local_name$"; then
                     log "💀 $local_name container is down — restarting"
-                    restart_service "$svc"
+                    if restart_service "$svc"; then
+                        clear_restart_backoff "$local_name"
+                    else
+                        record_restart_failure "$local_name"
+                    fi
                 fi
-            elif [ -f "$PID_DIR/$local_name.pid" ]; then
-                log "💀 $local_name is down — restarting"
-                restart_service "$svc"
+            else
+                if [ -f "$PID_DIR/$local_name.pid" ]; then
+                    log "💀 $local_name is down — restarting"
+                else
+                    log "💀 $local_name PID file is missing — starting"
+                fi
+                if restart_service "$svc"; then
+                    clear_restart_backoff "$local_name"
+                else
+                    record_restart_failure "$local_name"
+                fi
             fi
         fi
     done

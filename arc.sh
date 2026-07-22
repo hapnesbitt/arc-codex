@@ -108,6 +108,9 @@ free_port() {
 start_service() {
     local name dir cmd use_venv port
     IFS='|' read -r name dir cmd use_venv port <<< "$1"
+    # Starting is an explicit enable action. The watchdog honors this marker
+    # when an operator deliberately stops a service.
+    rm -f "$PID_DIR/$name.disabled"
     if is_running "$name"; then
         echo "  ⏭️  $name already running"
         return
@@ -153,6 +156,7 @@ stop_service() {
     local name dir cmd use_venv port
     IFS='|' read -r name dir cmd use_venv port <<< "$1"
     local pidfile="$PID_DIR/$name.pid"
+    touch "$PID_DIR/$name.disabled"
 
     # Docker-managed services
     if [ "$cmd" = "docker" ]; then
