@@ -29,7 +29,7 @@ ExecStop=/home/www/arc_stack/arc.sh stop
 # Arc starts ~15 services incl. the frontend container — more generous than
 # Hunt's 120/60.
 TimeoutStartSec=180
-TimeoutStopSec=120
+TimeoutStopSec=240
 
 [Install]
 WantedBy=multi-user.target

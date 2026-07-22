@@ -2,6 +2,7 @@
 Description=Arc Codex Worker Watchdog
 Requires=arc-stack.service
 After=arc-stack.service
+PartOf=arc-stack.service
 
 [Service]
 Type=simple
