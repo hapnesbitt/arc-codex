@@ -163,9 +163,9 @@ kill_orphans() {
         return
     fi
 
-    # Only kill extras if the registered process is alive.
-    # If registered is dead, let crash detection handle restart — don't touch anything.
-    if [ -z "$registered_pid" ] || ! kill -0 "$registered_pid" 2>/dev/null; then
+    # Only kill extras when the registered PID passes the full cwd/command
+    # identity check. A reused stale PID must never authorize deletion.
+    if [ -z "$registered_pid" ] || ! is_running "$name"; then
         return
     fi
 
