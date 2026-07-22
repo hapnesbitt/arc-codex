@@ -21,6 +21,7 @@ import json
 import time
 import uuid
 import logging
+import threading
 import yaml
 import redis
 from urllib.parse import urlparse
@@ -42,6 +43,12 @@ from escalation import (
     cloud_capacity_available,
     record_cloud_call,
     label_local_analyses,
+)
+from operational_state import (
+    AnalyzerOperationalState,
+    reconcile_analyzer_dequeue,
+    reinitialize_analyzer_queue_tracking,
+    run_analyzer_heartbeat_loop,
 )
 
 # Try ensemble import — graceful if not available
@@ -232,11 +239,21 @@ def analyze_article(article_id: str) -> bool:
     
     Returns True if analysis was produced and published.
     """
+    global _analysis_outcome, _analysis_failure_stage
+    _analysis_outcome = "completed"
+    _analysis_failure_stage = None
+
+    def fail(stage):
+        global _analysis_outcome, _analysis_failure_stage
+        _analysis_outcome = "failed"
+        _analysis_failure_stage = stage
+        return False
+
     # Check if article exists
     redis_key = f"article:{article_id}"
     if not r.exists(redis_key):
         logger.warning(f"🚫 Article {article_id} not found in Redis — skipping")
-        return False
+        return fail("missing_article")
 
     # Check if all three analyses already exist (avoid re-running)
     existing_blue = r.hget(redis_key, 'blue_team_analysis') or ''
@@ -244,6 +261,7 @@ def analyze_article(article_id: str) -> bool:
     existing_purple = r.hget(redis_key, 'purple_team_analysis') or ''
     if len(existing_blue) > 10 and len(existing_red) > 10 and len(existing_purple) > 10:
         logger.info(f"✅ Article {article_id} already fully analyzed — skipping")
+        _analysis_outcome = "skipped"
         return True
     if existing_blue or existing_red or existing_purple:
         logger.info(f"⚠️  Article {article_id} partially analyzed (blue={len(existing_blue)}, red={len(existing_red)}, purple={len(existing_purple)}) — re-running")
@@ -252,7 +270,7 @@ def analyze_article(article_id: str) -> bool:
     article_text = r.hget(redis_key, 'original_text') or ''
     if not article_text or len(article_text) < 100:
         logger.warning(f"⚠️  Article {article_id} has insufficient text ({len(article_text)} chars)")
-        return False
+        return fail("invalid_text")
 
     # Cap what goes to Ollama so the model doesn't run out of context and
     # return a truncated response with missing closing tags. Source domain in
@@ -266,7 +284,7 @@ def analyze_article(article_id: str) -> bool:
             f"(> {ANALYSIS_GARBAGE_CHARS}) — page dump, skipping analysis; "
             f"source: {_source_domain} ({_source_url[:100]})"
         )
-        return False
+        return fail("oversize")
     if len(article_text) > ANALYSIS_MAX_CHARS:
         logger.warning(
             f"⚠️  Article {article_id} text ({len(article_text)} chars) truncated "
@@ -390,7 +408,7 @@ def analyze_article(article_id: str) -> bool:
         except Exception as e:
             logger.warning(f"⚠️  Analysis skipped for {article_id}: {e}")
             _record_analysis_failure(article_id, reason=str(e))
-            return False
+            return fail("inference")
 
     # Persist escalation metadata alongside the article. Frontend keys off
     # analysis_source='local_partial' to render a transparency badge; 'cloud'
@@ -408,10 +426,14 @@ def analyze_article(article_id: str) -> bool:
 
     # Publish results via stream → stream_consumer applies them to Redis
     published = 0
-    for mission, analysis_text in analyses.items():
-        if analysis_text:
-            publish_analysis(r, article_id, mission, analysis_text)
-            published += 1
+    try:
+        for mission, analysis_text in analyses.items():
+            if analysis_text:
+                publish_analysis(r, article_id, mission, analysis_text)
+                published += 1
+    except Exception:
+        fail("publish")
+        raise
 
     total_ms = (time.perf_counter() - analysis_start) * 1000
     logger.info(
@@ -422,7 +444,7 @@ def analyze_article(article_id: str) -> bool:
         _reset_analysis_failure_counter()
     else:
         _record_analysis_failure(article_id, reason="published 0/3 sections")
-    return published > 0
+    return published > 0 if published else fail("publish")
 
 
 def generate_ai_reply(payload: dict) -> bool:
@@ -536,6 +558,17 @@ def main():
         logger.info(f"📡 SINGLE MODEL: {OLLAMA_CLOUD_MODEL} → {OLLAMA_LOCAL_FALLBACK}")
     logger.info(f"📋 Watching queues: {QUEUE_KEY}, {REPLY_QUEUE_KEY}")
 
+    analyzer_ops = AnalyzerOperationalState(r, logger=logger)
+    analyzer_ops.set_status("starting")
+    threading.Thread(
+        target=run_analyzer_heartbeat_loop,
+        args=(analyzer_ops,),
+        daemon=True,
+        name="analyzer-operational-heartbeat",
+    ).start()
+    reinitialize_analyzer_queue_tracking(r)
+    analyzer_ops.set_status("idle")
+
     # Process any backlog first
     backlog = r.llen(QUEUE_KEY)
     reply_backlog = r.llen(REPLY_QUEUE_KEY)
@@ -548,6 +581,8 @@ def main():
             result = r.brpop([QUEUE_KEY, REPLY_QUEUE_KEY], timeout=BLOCK_TIMEOUT)
 
             if result is None:
+                analyzer_ops.set_status("idle")
+                reinitialize_analyzer_queue_tracking(r)
                 continue
 
             queue_name, payload = result
@@ -555,6 +590,7 @@ def main():
             if queue_name == QUEUE_KEY:
                 # Article analysis request
                 article_id = payload.strip()
+                reconcile_analyzer_dequeue(r, article_id or "malformed")
                 if article_id:
                     # Hold the dedup flag through the whole run so page views
                     # during a slow analysis can't re-enqueue the same ID.
@@ -563,14 +599,28 @@ def main():
                     dedup_key = f"analyzer:queued:{article_id}"
                     r.set(dedup_key, '1', ex=ANALYSIS_HOLD_TTL)
                     logger.info(f"📥 Received article {article_id} from analysis queue")
+                    started = time.monotonic()
+                    analyzer_ops.start_job(article_id)
                     try:
-                        if analyze_article(article_id):
+                        success = analyze_article(article_id)
+                        outcome = globals().get("_analysis_outcome", "completed" if success else "failed")
+                        stage = globals().get("_analysis_failure_stage")
+                        if success:
                             r.delete(dedup_key)
+                        analyzer_ops.finish_job(
+                            article_id, outcome, time.monotonic() - started, stage=stage)
                     except Exception as e:
                         logger.error(f"🔥 Error analyzing {article_id}: {e}", exc_info=True)
+                        analyzer_ops.finish_job(
+                            article_id, "failed", time.monotonic() - started,
+                            stage=globals().get("_analysis_failure_stage") or "unexpected")
+                else:
+                    analyzer_ops.start_job("malformed")
+                    analyzer_ops.finish_job("malformed", "failed", 0, stage="malformed_payload")
 
             elif queue_name == REPLY_QUEUE_KEY:
                 # AI reply request
+                analyzer_ops.set_status("active")
                 try:
                     reply_data = json.loads(payload)
                     logger.info(f"📥 Received reply request for article {reply_data.get('article_id', '?')}")
@@ -579,12 +629,16 @@ def main():
                     logger.warning(f"⚠️  Malformed reply payload — skipping")
                 except Exception as e:
                     logger.error(f"🔥 Error generating reply: {e}", exc_info=True)
+                finally:
+                    analyzer_ops.set_status("idle")
 
         except redis.exceptions.ConnectionError as e:
             logger.error(f"🔥 Redis connection lost: {e} — reconnecting in 5s")
+            analyzer_ops.set_status("failed")
             time.sleep(5)
         except Exception as e:
             logger.error(f"🔥 Unexpected error: {e}", exc_info=True)
+            analyzer_ops.set_status("failed")
             time.sleep(5)
 
 

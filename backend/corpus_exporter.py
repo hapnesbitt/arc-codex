@@ -55,6 +55,8 @@ Usage:
 
 import os
 import json
+import hashlib
+import math
 import time
 import threading
 import logging
@@ -65,8 +67,35 @@ import redis
 import urllib.parse
 from dotenv import load_dotenv
 from prometheus_client import (
-    start_http_server, Gauge,
+    start_http_server, Counter as PromCounter, Gauge, Histogram,
     REGISTRY, PROCESS_COLLECTOR, PLATFORM_COLLECTOR
+)
+from prometheus_client.core import HistogramMetricFamily
+
+from operational_state import (
+    ANALYZER_ACTIVE_KEY,
+    ANALYZER_COUNTERS_KEY,
+    ANALYZER_DURATION_BUCKETS,
+    ANALYZER_DURATION_KEY,
+    ANALYZER_FAILURE_STAGES,
+    ANALYZER_HEARTBEAT_KEY,
+    ANALYZER_JOB_OUTCOMES,
+    ANALYZER_QUEUE_KEY,
+    ANALYZER_QUEUE_TIMELINE_KEY,
+    ANALYZER_QUEUE_TRACKING_KEY,
+    ANALYZER_STATE_KEY,
+    ANALYZER_TRACKING_LIMIT,
+    ANALYZER_TRACKING_VERSION,
+    EXPORTER_ERROR_STAGES,
+    EXPORTER_SCAN_RESULTS,
+    SCRIBE_COUNTERS_KEY,
+    SCRIBE_ERROR_STAGES,
+    SCRIBE_HEARTBEAT_KEY,
+    SCRIBE_POLL_RESULTS,
+    SCRIBE_STATE_KEY,
+    WORKER_STATES,
+    ExporterHealthState,
+    require_allowed,
 )
 
 try:
@@ -85,6 +114,12 @@ REDIS_DB       = int(os.getenv("REDIS_DB", 0))
 EXPORTER_PORT  = int(os.getenv("EXPORTER_PORT", 9101))
 INTERVAL_SEC   = int(os.getenv("EXPORTER_INTERVAL_SEC", 3600))
 TOP_SOURCES    = int(os.getenv("EXPORTER_TOP_SOURCES", 30))
+STALE_AFTER_SEC = max(INTERVAL_SEC * 2 + 300, 900)
+SCRIBE_HEARTBEAT_MAX_AGE_SEC = 180
+SCRIBE_ACTIVE_STALL_SEC = max(INTERVAL_SEC, 3600)
+ANALYZER_HEARTBEAT_MAX_AGE_SEC = 180
+ANALYZER_ACTIVE_STALL_SEC = 1500
+STACK_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 LOG_FORMAT = "%(asctime)s - [CORPUS_EXPORTER v2.0] - %(levelname)s - %(message)s"
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
@@ -237,6 +272,224 @@ g_redis_used_memory    = Gauge('arc_redis_used_memory_bytes', 'Redis used_memory
 g_redis_maxmemory      = Gauge('arc_redis_maxmemory_bytes',   'Redis maxmemory (0 = uncapped)')
 g_redis_memory_ratio   = Gauge('arc_redis_memory_ratio',      'used_memory / maxmemory (0 if uncapped)')
 
+# P0-A exporter self-observation. These separate HTTP scrapeability
+# (Prometheus up) from completed-scan status, staleness, and readiness.
+g_intel_ready = Gauge(
+    'arc_intelligence_exporter_ready',
+    '1 only after a complete successful scan and a recent successful fast-state read',
+)
+g_intel_stale = Gauge(
+    'arc_intelligence_exporter_stale',
+    '1 when no successful scan exists or the last successful scan is too old',
+)
+g_intel_scan_in_progress = Gauge(
+    'arc_intelligence_exporter_scan_in_progress',
+    '1 while a full corpus scan is running',
+)
+g_intel_last_scan_success = Gauge(
+    'arc_intelligence_exporter_last_scan_success',
+    'Most recently completed scan result (1 success, 0 failure or not yet run)',
+)
+g_intel_last_scan = Gauge(
+    'arc_intelligence_exporter_last_scan_timestamp_seconds',
+    'Unix timestamp of the last fully successful scan; 0 before first success',
+)
+g_intel_last_attempt = Gauge(
+    'arc_intelligence_exporter_last_scan_attempt_timestamp_seconds',
+    'Unix timestamp of the most recent scan start or completion; 0 before first attempt',
+)
+g_intel_last_fast_state = Gauge(
+    'arc_intelligence_exporter_last_fast_state_timestamp_seconds',
+    'Unix timestamp of the last successful fast-state read; 0 when unavailable',
+)
+c_intel_scans = PromCounter(
+    'arc_intelligence_exporter_scans_total',
+    'Full corpus scan attempts by result',
+    ['result'],
+)
+h_intel_scan_duration = Histogram(
+    'arc_intelligence_exporter_scan_duration_seconds',
+    'Duration of full corpus scan attempts, including failures',
+    buckets=(0.5, 1, 2, 5, 10, 30, 60, 120),
+)
+c_intel_scan_errors = PromCounter(
+    'arc_intelligence_exporter_scan_errors_total',
+    'Exporter errors by bounded stage',
+    ['stage'],
+)
+
+for _result in sorted(EXPORTER_SCAN_RESULTS):
+    c_intel_scans.labels(result=_result)
+for _stage in sorted(EXPORTER_ERROR_STAGES):
+    c_intel_scan_errors.labels(stage=_stage)
+
+exporter_health = ExporterHealthState(stale_after_seconds=STALE_AFTER_SEC)
+
+# P0-B Scribe state. PID existence is diagnostic only; readiness additionally
+# requires a fresh heartbeat and a valid non-failed, non-stalled state record.
+g_scribe_process_exists_p0 = Gauge(
+    'arc_scribe_process_exists',
+    '1 when the registered Arc Scribe PID has matching cwd and command identity',
+)
+g_scribe_ready_p0 = Gauge(
+    'arc_scribe_ready',
+    '1 when Scribe has matching process identity, fresh heartbeat, and valid healthy state',
+)
+g_scribe_stale_p0 = Gauge(
+    'arc_scribe_stale',
+    '1 when Scribe operational state is missing, malformed, expired, or active too long',
+)
+g_scribe_state_valid_p0 = Gauge(
+    'arc_scribe_state_valid',
+    '1 when the bounded Scribe state record is present and valid',
+)
+g_scribe_state_p0 = Gauge(
+    'arc_scribe_state',
+    'One-hot current Scribe state from a fixed vocabulary',
+    ['state'],
+)
+g_scribe_heartbeat_p0 = Gauge(
+    'arc_scribe_heartbeat_timestamp_seconds',
+    'Unix timestamp of the latest P0 Scribe heartbeat; NaN when missing or malformed',
+)
+g_scribe_heartbeat_age_p0 = Gauge(
+    'arc_scribe_operational_heartbeat_age_seconds',
+    'Age of the latest P0 Scribe heartbeat; NaN when missing or malformed',
+)
+g_scribe_last_poll_p0 = Gauge(
+    'arc_scribe_last_poll_timestamp_seconds',
+    'Unix timestamp of the most recent RSS polling-cycle attempt; NaN when unavailable',
+)
+g_scribe_last_success_p0 = Gauge(
+    'arc_scribe_last_success_timestamp_seconds',
+    'Unix timestamp of the most recent completed healthy cycle, including quiet cycles',
+)
+g_scribe_last_failure_p0 = Gauge(
+    'arc_scribe_last_failure_timestamp_seconds',
+    'Unix timestamp of the most recent recorded failed cycle or stage; NaN when unavailable',
+)
+c_scribe_source_polls_p0 = PromCounter(
+    'arc_scribe_source_polls_total',
+    'RSS source poll events since P0-B deployment by bounded result',
+    ['result'],
+)
+c_scribe_articles_discovered_p0 = PromCounter(
+    'arc_scribe_articles_discovered_total',
+    'Valid RSS entries discovered since P0-B deployment',
+)
+c_scribe_articles_new_p0 = PromCounter(
+    'arc_scribe_articles_new_total',
+    'New quality article candidates observed since P0-B deployment',
+)
+c_scribe_articles_duplicate_p0 = PromCounter(
+    'arc_scribe_articles_duplicate_total',
+    'Entries rejected by existing deduplication decisions since P0-B deployment',
+)
+c_scribe_articles_rejected_p0 = PromCounter(
+    'arc_scribe_articles_rejected_total',
+    'Fetched articles rejected by the existing quality gate since P0-B deployment',
+)
+c_scribe_articles_skipped_p0 = PromCounter(
+    'arc_scribe_articles_skipped_total',
+    'Entries skipped after an existing fetch/extraction failure since P0-B deployment',
+)
+c_scribe_errors_p0 = PromCounter(
+    'arc_scribe_errors_total',
+    'Scribe operational errors since P0-B deployment by bounded stage',
+    ['stage'],
+)
+
+for _state in sorted(WORKER_STATES):
+    g_scribe_state_p0.labels(state=_state).set(float('nan'))
+for _result in sorted(SCRIBE_POLL_RESULTS):
+    c_scribe_source_polls_p0.labels(result=_result)
+for _stage in sorted(SCRIBE_ERROR_STAGES):
+    c_scribe_errors_p0.labels(stage=_stage)
+
+_scribe_counter_seen = {}
+_scribe_counter_lock = threading.Lock()
+
+# P0-C uses one fixed stack and queue vocabulary. Exact IDs/digests never
+# become labels or samples.
+_ANALYZER_STACK = 'arc'
+_ANALYZER_QUEUE = 'analysis'
+g_analyzer_process_exists = Gauge('arc_analyzer_process_exists', 'Matching registered analyzer process exists', ['stack'])
+g_analyzer_ready = Gauge('arc_analyzer_ready', 'Analyzer readiness, distinct from PID existence', ['stack'])
+g_analyzer_stale = Gauge('arc_analyzer_stale', 'Analyzer heartbeat/state is missing, malformed, expired, or stalled', ['stack'])
+g_analyzer_state_valid = Gauge('arc_analyzer_state_valid', 'Bounded analyzer state record is valid', ['stack'])
+g_analyzer_state = Gauge('arc_analyzer_state', 'One-hot bounded analyzer state', ['stack', 'state'])
+g_analyzer_heartbeat = Gauge('arc_analyzer_heartbeat_timestamp_seconds', 'Latest analyzer operational heartbeat', ['stack'])
+g_analyzer_heartbeat_age = Gauge('arc_analyzer_heartbeat_age_seconds', 'Age of analyzer operational heartbeat', ['stack'])
+g_analyzer_last_started = Gauge('arc_analyzer_last_started_timestamp_seconds', 'Latest analysis job start', ['stack'])
+g_analyzer_last_success = Gauge('arc_analyzer_last_success_timestamp_seconds', 'Latest completed or safely skipped analysis job', ['stack'])
+g_analyzer_last_failure = Gauge('arc_analyzer_last_failure_timestamp_seconds', 'Latest failed analysis job', ['stack'])
+c_analyzer_jobs = PromCounter('arc_analyzer_jobs_total', 'Persistent analyzer jobs since P0-C deployment', ['stack', 'outcome'])
+c_analyzer_failures = PromCounter('arc_analyzer_failures_total', 'Persistent analyzer failures by bounded stage', ['stack', 'stage'])
+g_analyzer_queue_depth = Gauge('arc_analyzer_queue_depth', 'Current analyzer queue occurrence count', ['stack', 'queue'])
+g_analyzer_queue_age_known = Gauge('arc_analyzer_queue_age_known', '1 only when every queue occurrence has a valid aligned timestamp', ['stack', 'queue'])
+g_analyzer_oldest_age = Gauge('arc_analyzer_oldest_item_age_seconds', 'Oldest enqueue age; NaN when empty or tracking is uncertain', ['stack', 'queue'])
+g_analyzer_active_locks = Gauge('arc_analyzer_active_locks', 'Current non-stale operational processing locks', ['stack'])
+g_analyzer_stale_locks = Gauge('arc_analyzer_stale_locks', 'Operational processing locks older than the stall threshold', ['stack'])
+
+for _outcome in sorted(ANALYZER_JOB_OUTCOMES):
+    c_analyzer_jobs.labels(stack=_ANALYZER_STACK, outcome=_outcome)
+for _stage in sorted(ANALYZER_FAILURE_STAGES):
+    c_analyzer_failures.labels(stack=_ANALYZER_STACK, stage=_stage)
+for _state in sorted(WORKER_STATES):
+    g_analyzer_state.labels(stack=_ANALYZER_STACK, state=_state).set(float('nan'))
+
+_analyzer_counter_seen = {}
+_analyzer_counter_lock = threading.Lock()
+
+
+class AnalyzerDurationCollector:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._snapshot = None
+
+    def update(self, buckets, total_sum):
+        with self._lock:
+            self._snapshot = (tuple(buckets), float(total_sum))
+
+    def collect(self):
+        metric = HistogramMetricFamily(
+            'arc_analyzer_job_duration_seconds',
+            'Persistent analyzer job duration observations since P0-C deployment',
+            labels=['stack'],
+        )
+        with self._lock:
+            snapshot = self._snapshot
+        if snapshot is not None:
+            metric.add_metric([_ANALYZER_STACK], snapshot[0], snapshot[1])
+        yield metric
+
+
+analyzer_duration_collector = AnalyzerDurationCollector()
+REGISTRY.register(analyzer_duration_collector)
+
+
+class ScanStageError(RuntimeError):
+    """One or more bounded scan-stage failures."""
+
+    def __init__(self, failures):
+        self.failures = tuple(
+            (require_allowed(stage, EXPORTER_ERROR_STAGES, 'scan error stage'), cause)
+            for stage, cause in failures
+        )
+        super().__init__('; '.join(f"{stage} failed: {cause}" for stage, cause in self.failures))
+
+
+def _publish_exporter_health(now=None):
+    snapshot = exporter_health.snapshot(now=now)
+    g_intel_ready.set(1 if snapshot.ready else 0)
+    g_intel_stale.set(1 if snapshot.stale else 0)
+    g_intel_scan_in_progress.set(1 if snapshot.scan_in_progress else 0)
+    g_intel_last_scan_success.set(1 if snapshot.last_scan_success else 0)
+    g_intel_last_scan.set(snapshot.last_scan_timestamp)
+    g_intel_last_attempt.set(snapshot.last_scan_attempt_timestamp)
+    g_intel_last_fast_state.set(snapshot.last_fast_state_timestamp)
+    return snapshot
+
 
 # =============================================================================
 # Helpers
@@ -249,6 +502,255 @@ def _extract_registered_domain(url):
         return '.'.join(parts[-2:]) if len(parts) >= 2 else host
     except Exception:
         return ''
+
+
+def _registered_scribe_process_exists():
+    """Validate the registered Scribe PID without treating PID existence as health."""
+    try:
+        with open(os.path.join(STACK_ROOT, 'pids', 'scribe.pid'), encoding='ascii') as handle:
+            pid = int(handle.read().strip())
+        proc_root = f'/proc/{pid}'
+        expected_cwd = os.path.realpath(os.path.join(STACK_ROOT, 'backend'))
+        if os.path.realpath(os.readlink(os.path.join(proc_root, 'cwd'))) != expected_cwd:
+            return False
+        with open(os.path.join(proc_root, 'cmdline'), 'rb') as handle:
+            command = handle.read().replace(b'\0', b' ').decode('utf-8', 'replace')
+        return 'scribe.py' in command and 'python' in command
+    except (OSError, ValueError):
+        return False
+
+
+def _finite_timestamp(value):
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 and math.isfinite(parsed) else None
+
+
+def _set_optional_gauge(gauge, value):
+    gauge.set(value if value is not None else float('nan'))
+
+
+def _sync_scribe_counter(metric, identity, value):
+    """Mirror a persistent Redis counter into a process-lifetime Prom counter."""
+    parsed = int(value or 0)
+    if parsed < 0:
+        raise ValueError(f'negative Scribe counter: {identity}')
+    with _scribe_counter_lock:
+        previous = _scribe_counter_seen.get(identity)
+        delta = parsed if previous is None or parsed < previous else parsed - previous
+        if delta:
+            metric.inc(delta)
+        _scribe_counter_seen[identity] = parsed
+
+
+def _clear_scribe_operational_metrics(process_exists=None):
+    if process_exists is None:
+        process_exists = _registered_scribe_process_exists()
+    g_scribe_process_exists_p0.set(1 if process_exists else 0)
+    g_scribe_ready_p0.set(0)
+    g_scribe_stale_p0.set(1)
+    g_scribe_state_valid_p0.set(0)
+    for state in WORKER_STATES:
+        g_scribe_state_p0.labels(state=state).set(float('nan'))
+    for gauge in (
+        g_scribe_heartbeat_p0,
+        g_scribe_heartbeat_age_p0,
+        g_scribe_last_poll_p0,
+        g_scribe_last_success_p0,
+        g_scribe_last_failure_p0,
+    ):
+        gauge.set(float('nan'))
+
+
+def scrape_scribe_operational(r, now=None):
+    """Read bounded Scribe state; malformed or missing state fails visibly."""
+    now = float(time.time() if now is None else now)
+    process_exists = _registered_scribe_process_exists()
+    heartbeat_raw, state, counters = r.get(SCRIBE_HEARTBEAT_KEY), r.hgetall(SCRIBE_STATE_KEY), r.hgetall(SCRIBE_COUNTERS_KEY)
+    heartbeat = _finite_timestamp(heartbeat_raw)
+    status = state.get('status')
+    status_since = _finite_timestamp(state.get('status_since'))
+    state_valid = status in WORKER_STATES and status_since is not None
+
+    g_scribe_process_exists_p0.set(1 if process_exists else 0)
+    g_scribe_state_valid_p0.set(1 if state_valid else 0)
+    for candidate in WORKER_STATES:
+        g_scribe_state_p0.labels(state=candidate).set(
+            1 if state_valid and candidate == status else (0 if state_valid else float('nan'))
+        )
+
+    _set_optional_gauge(g_scribe_heartbeat_p0, heartbeat)
+    _set_optional_gauge(g_scribe_heartbeat_age_p0, max(0, now - heartbeat) if heartbeat else None)
+    _set_optional_gauge(g_scribe_last_poll_p0, _finite_timestamp(state.get('last_poll')))
+    _set_optional_gauge(g_scribe_last_success_p0, _finite_timestamp(state.get('last_success')))
+    _set_optional_gauge(g_scribe_last_failure_p0, _finite_timestamp(state.get('last_failure')))
+
+    fresh = heartbeat is not None and 0 <= now - heartbeat <= SCRIBE_HEARTBEAT_MAX_AGE_SEC
+    active_stalled = bool(state_valid and status == 'active' and now - status_since > SCRIBE_ACTIVE_STALL_SEC)
+    stale = not fresh or not state_valid or active_stalled
+    healthy_state = status in {'idle', 'active'}
+    g_scribe_stale_p0.set(1 if stale else 0)
+    g_scribe_ready_p0.set(1 if process_exists and not stale and healthy_state else 0)
+
+    mappings = {
+        'articles_discovered': c_scribe_articles_discovered_p0,
+        'articles_new': c_scribe_articles_new_p0,
+        'articles_duplicate': c_scribe_articles_duplicate_p0,
+        'articles_rejected': c_scribe_articles_rejected_p0,
+        'articles_skipped': c_scribe_articles_skipped_p0,
+    }
+    for result in SCRIBE_POLL_RESULTS:
+        field = f'poll_{result}'
+        _sync_scribe_counter(c_scribe_source_polls_p0.labels(result=result), ('poll', result), counters.get(field))
+    for field, metric in mappings.items():
+        _sync_scribe_counter(metric, ('article', field), counters.get(field))
+    for stage in SCRIBE_ERROR_STAGES:
+        field = f'errors_{stage}'
+        _sync_scribe_counter(c_scribe_errors_p0.labels(stage=stage), ('error', stage), counters.get(field))
+
+
+def _matching_analyzer_process_count():
+    count = 0
+    expected_cwd = os.path.realpath(os.path.join(STACK_ROOT, 'backend'))
+    try:
+        entries = os.listdir('/proc')
+    except OSError:
+        return 0
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            root = os.path.join('/proc', entry)
+            if os.path.realpath(os.readlink(os.path.join(root, 'cwd'))) != expected_cwd:
+                continue
+            with open(os.path.join(root, 'cmdline'), 'rb') as handle:
+                command = handle.read().replace(b'\0', b' ').decode('utf-8', 'replace')
+            if 'analyzer.py' in command and 'python' in command:
+                count += 1
+        except OSError:
+            continue
+    return count
+
+
+def _sync_analyzer_counter(metric, identity, value):
+    parsed = int(value or 0)
+    if parsed < 0:
+        raise ValueError('negative analyzer counter')
+    with _analyzer_counter_lock:
+        previous = _analyzer_counter_seen.get(identity)
+        delta = parsed if previous is None or parsed < previous else parsed - previous
+        if delta:
+            metric.inc(delta)
+        _analyzer_counter_seen[identity] = parsed
+
+
+def _clear_analyzer_metrics(process_count=None):
+    process_count = _matching_analyzer_process_count() if process_count is None else process_count
+    g_analyzer_process_exists.labels(stack=_ANALYZER_STACK).set(1 if process_count == 1 else 0)
+    g_analyzer_ready.labels(stack=_ANALYZER_STACK).set(0)
+    g_analyzer_stale.labels(stack=_ANALYZER_STACK).set(1)
+    g_analyzer_state_valid.labels(stack=_ANALYZER_STACK).set(0)
+    for state in WORKER_STATES:
+        g_analyzer_state.labels(stack=_ANALYZER_STACK, state=state).set(float('nan'))
+    for gauge in (g_analyzer_heartbeat, g_analyzer_heartbeat_age,
+                  g_analyzer_last_started, g_analyzer_last_success, g_analyzer_last_failure):
+        gauge.labels(stack=_ANALYZER_STACK).set(float('nan'))
+    g_analyzer_queue_depth.labels(stack=_ANALYZER_STACK, queue=_ANALYZER_QUEUE).set(float('nan'))
+    g_analyzer_queue_age_known.labels(stack=_ANALYZER_STACK, queue=_ANALYZER_QUEUE).set(0)
+    g_analyzer_oldest_age.labels(stack=_ANALYZER_STACK, queue=_ANALYZER_QUEUE).set(float('nan'))
+    g_analyzer_active_locks.labels(stack=_ANALYZER_STACK).set(float('nan'))
+    g_analyzer_stale_locks.labels(stack=_ANALYZER_STACK).set(float('nan'))
+
+
+def scrape_analyzer_operational(r, now=None):
+    now = float(time.time() if now is None else now)
+    process_count = _matching_analyzer_process_count()
+    heartbeat = _finite_timestamp(r.get(ANALYZER_HEARTBEAT_KEY))
+    state = r.hgetall(ANALYZER_STATE_KEY)
+    counters = r.hgetall(ANALYZER_COUNTERS_KEY)
+    duration = r.hgetall(ANALYZER_DURATION_KEY)
+    status = state.get('status')
+    status_since = _finite_timestamp(state.get('status_since'))
+    state_valid = status in WORKER_STATES and status_since is not None
+    fresh = heartbeat is not None and 0 <= now - heartbeat <= ANALYZER_HEARTBEAT_MAX_AGE_SEC
+    stalled = bool(state_valid and status == 'active' and now - status_since > ANALYZER_ACTIVE_STALL_SEC)
+    stale = not fresh or not state_valid or stalled or process_count != 1
+
+    g_analyzer_process_exists.labels(stack=_ANALYZER_STACK).set(1 if process_count == 1 else 0)
+    g_analyzer_ready.labels(stack=_ANALYZER_STACK).set(
+        1 if not stale and status in {'idle', 'active'} else 0)
+    g_analyzer_stale.labels(stack=_ANALYZER_STACK).set(1 if stale else 0)
+    g_analyzer_state_valid.labels(stack=_ANALYZER_STACK).set(1 if state_valid else 0)
+    for candidate in WORKER_STATES:
+        g_analyzer_state.labels(stack=_ANALYZER_STACK, state=candidate).set(
+            1 if state_valid and candidate == status else (0 if state_valid else float('nan')))
+    _set_optional_gauge(g_analyzer_heartbeat.labels(stack=_ANALYZER_STACK), heartbeat)
+    _set_optional_gauge(g_analyzer_heartbeat_age.labels(stack=_ANALYZER_STACK),
+                        max(0, now - heartbeat) if heartbeat else None)
+    _set_optional_gauge(g_analyzer_last_started.labels(stack=_ANALYZER_STACK), _finite_timestamp(state.get('last_started')))
+    _set_optional_gauge(g_analyzer_last_success.labels(stack=_ANALYZER_STACK), _finite_timestamp(state.get('last_success')))
+    _set_optional_gauge(g_analyzer_last_failure.labels(stack=_ANALYZER_STACK), _finite_timestamp(state.get('last_failure')))
+
+    for outcome in ANALYZER_JOB_OUTCOMES:
+        _sync_analyzer_counter(c_analyzer_jobs.labels(stack=_ANALYZER_STACK, outcome=outcome),
+                               ('job', outcome), counters.get(f'jobs_{outcome}'))
+    for stage in ANALYZER_FAILURE_STAGES:
+        _sync_analyzer_counter(c_analyzer_failures.labels(stack=_ANALYZER_STACK, stage=stage),
+                               ('failure', stage), counters.get(f'failures_{stage}'))
+
+    if duration:
+        buckets = []
+        previous = -1
+        for bound in ANALYZER_DURATION_BUCKETS:
+            value = int(duration.get(f'bucket_{bound}', 0))
+            if value < previous:
+                raise ValueError('non-cumulative analyzer histogram')
+            buckets.append((str(float(bound)), value))
+            previous = value
+        infinite = int(duration.get('bucket_inf', 0))
+        count = int(duration.get('count', 0))
+        total_sum = float(duration.get('sum', 0))
+        if infinite != count or infinite < previous or total_sum < 0 or not math.isfinite(total_sum):
+            raise ValueError('invalid analyzer histogram state')
+        buckets.append(('+Inf', infinite))
+        analyzer_duration_collector.update(buckets, total_sum)
+
+    depth = int(r.llen(ANALYZER_QUEUE_KEY))
+    g_analyzer_queue_depth.labels(stack=_ANALYZER_STACK, queue=_ANALYZER_QUEUE).set(depth)
+    known = False
+    oldest = None
+    if (process_count == 1 and depth <= ANALYZER_TRACKING_LIMIT
+            and r.get(ANALYZER_QUEUE_TRACKING_KEY) == ANALYZER_TRACKING_VERSION):
+        timeline_length = int(r.llen(ANALYZER_QUEUE_TIMELINE_KEY))
+        if timeline_length == depth:
+            if depth == 0:
+                known = True
+            else:
+                queue_entries = r.lrange(ANALYZER_QUEUE_KEY, 0, ANALYZER_TRACKING_LIMIT - 1)
+                timeline = r.lrange(ANALYZER_QUEUE_TIMELINE_KEY, 0, ANALYZER_TRACKING_LIMIT - 1)
+                timestamps = []
+                if len(queue_entries) == len(timeline) == depth:
+                    known = True
+                    for article_id, record in zip(queue_entries, timeline):
+                        digest, separator, raw_timestamp = record.partition('|')
+                        timestamp = _finite_timestamp(raw_timestamp) if separator else None
+                        expected = hashlib.sha256(article_id.encode('utf-8')).hexdigest()
+                        if digest != expected or len(digest) != 64 or timestamp is None or timestamp > now:
+                            known = False
+                            break
+                        timestamps.append(timestamp)
+                    if known:
+                        oldest = max(0, now - min(timestamps))
+    g_analyzer_queue_age_known.labels(stack=_ANALYZER_STACK, queue=_ANALYZER_QUEUE).set(1 if known else 0)
+    g_analyzer_oldest_age.labels(stack=_ANALYZER_STACK, queue=_ANALYZER_QUEUE).set(
+        oldest if known and oldest is not None else float('nan'))
+
+    active = r.zrange(ANALYZER_ACTIVE_KEY, 0, -1, withscores=True)
+    recent = sum(1 for _member, started in active if now - float(started) <= ANALYZER_ACTIVE_STALL_SEC)
+    g_analyzer_active_locks.labels(stack=_ANALYZER_STACK).set(recent)
+    g_analyzer_stale_locks.labels(stack=_ANALYZER_STACK).set(len(active) - recent)
 
 def _get_chimera_score(data):
     score = data.get('chimera_score')
@@ -377,6 +879,7 @@ def scrape(r):
     """Full corpus scan. Called once per INTERVAL_SEC in background thread."""
     log.info("Starting corpus scrape v2.0...")
     t0 = time.time()
+    stage_failures = []
 
     total            = 0
     scores           = []
@@ -545,6 +1048,7 @@ def scrape(r):
         scrape_pipeline_health(r)
     except Exception as e:
         log.warning(f"Pipeline health scrape failed (non-fatal): {e}")
+        stage_failures.append(('pipeline_stats', e))
 
     # ==========================================================================
     # Timing + newest-publish gauge
@@ -561,6 +1065,7 @@ def scrape(r):
         g_last_publish.set(float(newest[0][1]) if newest else 0.0)
     except Exception as e:
         log.warning(f"last_publish_timestamp gauge update failed: {e}")
+        stage_failures.append(('publish_timestamp', e))
 
     log.info(
         f"Scrape complete: {total} articles ({nlp_count} with NLP) in {duration:.1f}s. "
@@ -571,13 +1076,42 @@ def scrape(r):
         f"Avg FK grade={_avg(nlp_fk_grade):.1f}"
     )
 
+    if stage_failures:
+        raise ScanStageError(stage_failures)
+
+
+def run_scan_once(r):
+    """Run and account for one full scan; return True only on full success."""
+    exporter_health.begin_scan()
+    _publish_exporter_health()
+    started = time.monotonic()
+    try:
+        scrape(r)
+    except ScanStageError as e:
+        for stage, _cause in e.failures:
+            c_intel_scan_errors.labels(stage=stage).inc()
+        c_intel_scans.labels(result='failure').inc()
+        exporter_health.finish_scan(False)
+        log.error("Incomplete exporter scan: %s", e)
+        return False
+    except Exception as e:
+        c_intel_scan_errors.labels(stage='redis_scan').inc()
+        c_intel_scans.labels(result='failure').inc()
+        exporter_health.finish_scan(False)
+        log.error(f"Scrape failed: {e}", exc_info=True)
+        return False
+    else:
+        c_intel_scans.labels(result='success').inc()
+        exporter_health.finish_scan(True)
+        return True
+    finally:
+        h_intel_scan_duration.observe(time.monotonic() - started)
+        _publish_exporter_health()
+
 
 def scrape_loop(r, interval):
     while True:
-        try:
-            scrape(r)
-        except Exception as e:
-            log.error(f"Scrape failed: {e}", exc_info=True)
+        run_scan_once(r)
         log.info(f"Next scrape in {interval//60} minutes.")
         time.sleep(interval)
 
@@ -612,19 +1146,40 @@ def scrape_fast(r_arc, r_hnt):
     g_redis_maxmemory.set(maxm)
     g_redis_memory_ratio.set(round(used / maxm, 4) if maxm else 0)
 
+    try:
+        scrape_scribe_operational(r_arc, now=now)
+    except Exception as exc:
+        _clear_scribe_operational_metrics()
+        c_intel_scan_errors.labels(stage='operational_state').inc()
+        log.warning('Scribe operational-state read failed: %s', type(exc).__name__)
+
+    try:
+        scrape_analyzer_operational(r_arc, now=now)
+    except Exception as exc:
+        _clear_analyzer_metrics()
+        c_intel_scan_errors.labels(stage='operational_state').inc()
+        log.warning('Analyzer operational-state read failed: %s', type(exc).__name__)
+
 
 def fast_loop(r_arc, r_hnt, interval=60):
     while True:
         try:
             scrape_fast(r_arc, r_hnt)
+            exporter_health.mark_fast_state_success()
         except Exception as e:
+            exporter_health.mark_fast_state_failure()
+            c_intel_scan_errors.labels(stage='fast_state').inc()
             log.warning(f"Fast scrape failed (non-fatal): {e}")
+        _publish_exporter_health()
         time.sleep(interval)
 
 
 def main():
     log.info(f"Arc Codex Corpus Exporter v2.0 — port {EXPORTER_PORT}")
     log.info(f"Scrape interval: {INTERVAL_SEC//60} minutes")
+
+    # Publish fail-closed startup state before opening the HTTP listener.
+    _publish_exporter_health()
 
     r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD,
                     db=REDIS_DB, decode_responses=True)

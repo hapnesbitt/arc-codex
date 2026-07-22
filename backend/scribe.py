@@ -37,6 +37,7 @@ import gc
 from stream_utils import publish_analysis, ensure_stream_group
 from ollama_utils import call_ollama_local_only, OLLAMA_LOCAL_FALLBACK
 from retention import run_retention_pass
+from operational_state import ScribeOperationalState, run_heartbeat_loop
 from fetch_utils import sanitize_active_content
 from datetime import datetime, timezone
 from collections import deque
@@ -1814,6 +1815,15 @@ def main():
     except ImportError:
         pass
 
+    scribe_ops = ScribeOperationalState(r, logger=logger)
+    scribe_ops.set_status('starting')
+    threading.Thread(
+        target=run_heartbeat_loop,
+        args=(scribe_ops,),
+        daemon=True,
+        name='scribe-operational-heartbeat',
+    ).start()
+
     startup_delay = STARTUP_DELAY_SECONDS
     logger.info(f"   ⏱️  Startup delay: {startup_delay}s (offset from Huntaegis, which starts at 0s)")
     time.sleep(startup_delay)
@@ -1833,6 +1843,7 @@ def main():
         cycle_count += 1
 
         try:
+            scribe_ops.set_status('active')
             # Heartbeat: liveness signal for corpus_exporter/Grafana. TTL is
             # 15 min so a wedged scribe reads as key-absent, not just stale.
             try:
@@ -1847,6 +1858,7 @@ def main():
             if priority_count:
                 logger.info(f"⚡ Processed {priority_count} priority item(s) — skipping RSS cycle so M1 is free")
                 logger.info(f"💤 Priority cycle complete. Sleeping {CYCLE_MINUTES} minutes ...")
+                scribe_ops.set_status('idle')
                 for _ in range(CYCLE_MINUTES * 60):
                     time.sleep(1)
                     if r.llen(REDIS_PRIORITY_QUEUE_KEY) > 0:
@@ -1860,27 +1872,37 @@ def main():
                               for key, value in topic.items() if isinstance(value, list) for d in value]
 
             if not all_sources or not all_directives:
+                scribe_ops.mark_failure('main_loop')
                 time.sleep(2)
                 continue
 
             logger.info(f"📡 Cycle {cycle_count}: Scanning {SOURCE_BATCH_SIZE} sources...")
             candidates = []
             source_batch = get_next_source_batch(all_sources, SOURCE_BATCH_SIZE)
+            scribe_ops.mark_poll_attempt()
 
             for source in source_batch:
                 try:
                     feed = feedparser.parse(source['url'])
                     if feed.bozo:
                         _inc(STATS_RSS, 'bozo')
+                        scribe_ops.record_poll('malformed')
                         continue
                     _inc(STATS_RSS, 'ok')
+                    scribe_ops.record_poll('success')
 
-                    entries_to_fetch = [
+                    valid_entries = [
                         entry for entry in feed.entries[:3]
                         if all(hasattr(entry, attr) for attr in ['title', 'link']) and
-                        entry.link.strip() and
-                        get_article_hash(entry.title, "") not in processed_hashes
+                        entry.link.strip()
                     ]
+                    scribe_ops.increment('articles_discovered', len(valid_entries))
+                    entries_to_fetch = []
+                    for entry in valid_entries:
+                        if get_article_hash(entry.title, "") in processed_hashes:
+                            scribe_ops.increment('articles_duplicate')
+                        else:
+                            entries_to_fetch.append(entry)
 
                     if not entries_to_fetch:
                         continue
@@ -1896,6 +1918,7 @@ def main():
                             try:
                                 article_data = future.result(timeout=90)
                                 if not article_data:
+                                    scribe_ops.increment('articles_skipped')
                                     continue
 
                                 article_text = article_data['text']
@@ -1905,10 +1928,12 @@ def main():
                                 if not is_quality:
                                     logger.info(f"⛔ Skipping article: {reason}")
                                     _inc(STATS_QUALITY, reason.split('(')[0].strip())
+                                    scribe_ops.increment('articles_rejected')
                                     continue
 
                                 full_hash = get_article_hash(entry.title, article_text)
                                 if full_hash in processed_hashes:
+                                    scribe_ops.increment('articles_duplicate')
                                     continue
 
                                 metadata = clean_article_metadata(entry.title, html_content)
@@ -1925,14 +1950,19 @@ def main():
                                     'origin': 'rss'
                                 }
                                 candidates.append(new_candidate)
+                                scribe_ops.increment('articles_new')
                                 logger.info(f"✅ Candidate: {metadata['title'][:60]}")
 
                             except Exception as e:
                                 logger.error(f"Error processing {entry.link}: {e}")
+                                scribe_ops.increment('articles_skipped')
+                                scribe_ops.increment('errors_fetch')
                                 continue
 
                 except Exception as e:
                     logger.error(f"Error processing source {source.get('name')}: {e}")
+                    scribe_ops.record_poll('error')
+                    scribe_ops.increment('errors_source_poll')
                     continue
 
             if not candidates:
@@ -1953,6 +1983,7 @@ def main():
                             cand['dossier'] = result or {'sentiment': 0.0}
                         except Exception as e:
                             logger.error(f"Analysis failed: {e}")
+                            scribe_ops.increment('errors_pre_analyze')
                             cand['dossier'] = {'sentiment': 0.0}
 
                 target = find_best_target(candidates, all_directives, list(recently_published))
@@ -1963,6 +1994,7 @@ def main():
                         _inc(STATS_PUBLISH, 'ok')
                     else:
                         _inc(STATS_PUBLISH, 'failed')
+                        scribe_ops.increment('errors_publish')
                 else:
                     logger.info("No candidates matched directives")
 
@@ -1979,8 +2011,10 @@ def main():
                         logger.info(f"🗑️  Retention: pruned {result['deleted']} article(s) > {RETENTION_HOURS}h; regen={result.get('regen', {})}")
                 except Exception as e:
                     logger.warning(f"Retention pass failed (non-fatal): {e}")
+                    scribe_ops.increment('errors_retention')
 
             logger.info(f"💤 Cycle complete. Sleeping {CYCLE_MINUTES} minutes ...")
+            scribe_ops.mark_success()
             for _ in range(CYCLE_MINUTES * 60):
                 time.sleep(1)
                 if r.llen(REDIS_PRIORITY_QUEUE_KEY) > 0:
@@ -1988,6 +2022,7 @@ def main():
 
         except Exception as e:
             logger.error(f"MAIN LOOP ERROR: {e}", exc_info=True)
+            scribe_ops.mark_failure('main_loop')
             # Error recovery — half cycle, then resume
             for _ in range((CYCLE_MINUTES // 2) * 60):
                 time.sleep(1)

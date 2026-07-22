@@ -53,6 +53,7 @@ from fetch_utils import (
     DEFAULT_IMAGE_URL as FETCH_UTILS_DEFAULT_IMAGE
 )
 from catalog_loader import load_catalog
+from operational_state import enqueue_analysis
 
 # Rate-limiter singleton lives in auth.py; import at module scope so its
 # @limiter.limit decorators can attach to routes here. auth.py reads Redis
@@ -523,7 +524,7 @@ def publish_article():
             _analysis_fields = ('red_team_analysis', 'blue_team_analysis', 'purple_team_analysis')
             if not all(len(article_data.get(f) or '') > 10 for f in _analysis_fields):
                 if r.set(f"analyzer:queued:{article_id}", '1', ex=21600, nx=True):
-                    r.rpush('analyzer:queue', article_id)
+                    enqueue_analysis(r, article_id, 'right')
                     app.logger.info(f"📋 Queued {article_id} for analysis at ingest (tail)")
         except Exception as e:
             app.logger.warning(f"⚠️  Ingest-time analysis dispatch failed for {article_id}: {e}")
@@ -680,7 +681,7 @@ def get_single_article(article_id):
                     # can't double-enqueue.
                     queue_key = f"analyzer:queued:{actual_id}"
                     if r.set(queue_key, '1', ex=21600, nx=True):
-                        r.lpush('analyzer:queue', actual_id)
+                        enqueue_analysis(r, actual_id, 'left')
                         app.logger.info(f"📋 Queued {actual_id} for on-demand analysis")
                 except Exception as e:
                     app.logger.warning(f"⚠️  Failed to queue analysis trigger: {e}")
