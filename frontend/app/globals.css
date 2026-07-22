@@ -30,6 +30,24 @@
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
     --radius: 0.5rem;
+
+    /* Unified IntelligenceCard neutral-brand scale — Arc's palette: slate
+       neutrals + a slate accent (hover text brightens to slate-100, matching
+       Arc's pre-repaint look). RGB triples (Tailwind nb-* / icaccent consume
+       them with <alpha-value>). Hunt defines the same vars with zinc + green;
+       the component is byte-identical across both. */
+    --nb-50: 248 250 252;
+    --nb-100: 241 245 249;
+    --nb-200: 226 232 240;
+    --nb-300: 203 213 225;
+    --nb-400: 148 163 184;
+    --nb-500: 100 116 139;
+    --nb-600: 71 85 105;
+    --nb-700: 51 65 85;
+    --nb-800: 30 41 59;
+    --nb-900: 15 23 42;
+    --nb-950: 2 6 23;
+    --ic-accent: 241 245 249;   /* slate-100 — Arc's hover-text accent */
   }
   .dark {
     --background: 222.2 84% 4.9%;

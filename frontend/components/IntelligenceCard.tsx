@@ -135,7 +135,7 @@ const plainTextToHtml = (text: string): string => {
             const trimmed = para.trim();
             if (!trimmed) return '';
             const withBreaks = trimmed.split('\n').map(line => linkifyText(escapeHtml(line))).join('<br>');
-            return `<p class="mb-3 text-slate-300 leading-relaxed">${withBreaks}</p>`;
+            return `<p class="mb-3 text-nb-300 leading-relaxed">${withBreaks}</p>`;
         })
         .filter(Boolean)
         .join('\n');
@@ -149,11 +149,11 @@ const escapeHtml = (text: string): string =>
 const inlineFormat = (text: string): string =>
     text
         .replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>')
-        .replace(/\*\*(.*?)\*\*/g, '<strong class="text-slate-100">$1</strong>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong class="text-nb-100">$1</strong>')
         .replace(/\*(.*?)\*/g, '<em>$1</em>')
         .replace(/(https?:\/\/[^\s<]+)/g, (url) => {
             const clean = url.replace(/[.,;:!?)]+$/, '');
-            return `<a href="${clean}" target="_blank" rel="noopener noreferrer" class="text-slate-200 underline decoration-slate-600 hover:decoration-slate-300 underline-offset-2 break-all">${clean}</a>`;
+            return `<a href="${clean}" target="_blank" rel="noopener noreferrer" class="text-nb-200 underline decoration-nb-600 hover:decoration-nb-300 underline-offset-2 break-all">${clean}</a>`;
         });
 
 // --- Helper: Detect if text contains markdown STRUCTURE ---
@@ -192,7 +192,7 @@ const markdownToHtml = (text: string): string => {
 
         if (/^---+$/.test(trimmed)) {
             if (inList) { html.push('</ul>'); inList = false; }
-            html.push('<hr class="border-slate-600/50 my-4" />');
+            html.push('<hr class="border-nb-600/50 my-4" />');
             continue;
         }
 
@@ -202,12 +202,12 @@ const markdownToHtml = (text: string): string => {
             const level = headingMatch[1].length;
             const content = inlineFormat(escapeHtml(headingMatch[2]));
             const styles: Record<number, string> = {
-                1: 'text-2xl font-bold text-slate-100 mt-6 mb-3',
-                2: 'text-xl font-bold text-slate-200 mt-5 mb-3',
-                3: 'text-lg font-semibold text-slate-100 mt-4 mb-2',
-                4: 'text-base font-semibold text-slate-200 mt-4 mb-2',
-                5: 'text-sm font-semibold text-slate-200 mt-3 mb-1',
-                6: 'text-sm font-semibold text-slate-300 mt-3 mb-1',
+                1: 'text-2xl font-bold text-nb-100 mt-6 mb-3',
+                2: 'text-xl font-bold text-nb-200 mt-5 mb-3',
+                3: 'text-lg font-semibold text-nb-100 mt-4 mb-2',
+                4: 'text-base font-semibold text-nb-200 mt-4 mb-2',
+                5: 'text-sm font-semibold text-nb-200 mt-3 mb-1',
+                6: 'text-sm font-semibold text-nb-300 mt-3 mb-1',
             };
             html.push(`<h${level} class="${styles[level]}">${content}</h${level}>`);
             continue;
@@ -216,19 +216,19 @@ const markdownToHtml = (text: string): string => {
         if (trimmed.startsWith('> ')) {
             if (inList) { html.push('</ul>'); inList = false; }
             const content = inlineFormat(escapeHtml(trimmed.slice(2)));
-            html.push(`<blockquote class="border-l-2 border-slate-600 pl-4 italic text-slate-400 my-3">${content}</blockquote>`);
+            html.push(`<blockquote class="border-l-2 border-nb-600 pl-4 italic text-nb-400 my-3">${content}</blockquote>`);
             continue;
         }
 
         const listMatch = trimmed.match(/^[-*]\s+(.*)/);
         if (listMatch) {
             if (!inList) { html.push('<ul class="my-3 space-y-1.5 list-disc ml-6">'); inList = true; }
-            html.push(`<li class="text-slate-300">${inlineFormat(escapeHtml(listMatch[1]))}</li>`);
+            html.push(`<li class="text-nb-300">${inlineFormat(escapeHtml(listMatch[1]))}</li>`);
             continue;
         }
 
         if (inList) { html.push('</ul>'); inList = false; }
-        html.push(`<p class="mb-3 text-slate-300 leading-relaxed">${inlineFormat(escapeHtml(trimmed))}</p>`);
+        html.push(`<p class="mb-3 text-nb-300 leading-relaxed">${inlineFormat(escapeHtml(trimmed))}</p>`);
     }
 
     if (inList) html.push('</ul>');
@@ -275,7 +275,7 @@ const AccordionText: React.FC<AccordionTextProps> = ({ text, characterLimit = 40
     if (!needsTruncation) {
         return (
             <div
-                className="prose prose-invert max-w-prose font-serif text-slate-200 leading-relaxed"
+                className="prose prose-invert max-w-prose font-serif text-nb-200 leading-relaxed"
                 dangerouslySetInnerHTML={{ __html: fullHtml }}
             />
         );
@@ -304,7 +304,7 @@ const AccordionText: React.FC<AccordionTextProps> = ({ text, characterLimit = 40
             <div
                 id={remainderId}
                 hidden={!isExpanded}
-                className="prose prose-invert max-w-prose font-serif text-slate-200 leading-relaxed mt-4"
+                className="prose prose-invert max-w-prose font-serif text-nb-200 leading-relaxed mt-4"
                 dangerouslySetInnerHTML={{ __html: fullHtml }}
             />
         </div>
@@ -329,10 +329,10 @@ const VideoList: React.FC<{ text: string }> = ({ text }) => {
                             key={index}
                             href={`/videos/${encodeURIComponent(videoPath)}`}
                             aria-label={`Play video: ${videoName}`}
-                            className="flex items-center gap-3 p-3 rounded-sm border border-slate-800 hover:border-slate-600 transition-colors duration-200 group"
+                            className="flex items-center gap-3 p-3 rounded-sm border border-nb-800 hover:border-icaccent transition-colors duration-200 group"
                         >
-                            <PlayCircle className="h-5 w-5 text-slate-400 flex-shrink-0 group-hover:text-slate-100 transition-colors" aria-hidden="true" />
-                            <span className="font-serif text-slate-200 group-hover:text-slate-50 transition-colors" aria-hidden="true">
+                            <PlayCircle className="h-5 w-5 text-nb-400 flex-shrink-0 group-hover:text-icaccent transition-colors" aria-hidden="true" />
+                            <span className="font-serif text-nb-200 group-hover:text-icaccent transition-colors" aria-hidden="true">
                                 {videoName}
                             </span>
                         </a>
@@ -346,7 +346,7 @@ const VideoList: React.FC<{ text: string }> = ({ text }) => {
                     return (
                         <div
                             key={index}
-                            className="text-slate-300 leading-relaxed"
+                            className="text-nb-300 leading-relaxed"
                             dangerouslySetInnerHTML={{ __html: linkedLine }}
                         />
                     );
@@ -506,11 +506,11 @@ const AnalysisSection: React.FC<AnalysisSectionProps> = ({
     const contentId = `${sectionId}-content`;
     if (fullyExpanded) {
         return (
-            <div className="border-t border-slate-800">
+            <div className="border-t border-nb-800">
                 <div className="w-full flex items-center px-4 sm:px-8 py-5">
                     <div className="flex items-center gap-3">
                         <div aria-hidden="true">{icon}</div>
-                        <h3 className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-slate-300">
+                        <h3 className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-nb-300">
                             {title}
                         </h3>
                     </div>
@@ -522,23 +522,23 @@ const AnalysisSection: React.FC<AnalysisSectionProps> = ({
         );
     }
     return (
-        <div className="border-t border-slate-800">
+        <div className="border-t border-nb-800">
             <button
                 onClick={onToggle}
                 aria-expanded={isExpanded}
                 aria-controls={contentId}
-                className="w-full flex justify-between items-center px-4 sm:px-8 py-5 text-left hover:bg-slate-800/30 transition-colors group ring-focus focus-visible:ring-inset"
+                className="w-full flex justify-between items-center px-4 sm:px-8 py-5 text-left hover:bg-nb-800/30 transition-colors group ring-focus focus-visible:ring-inset"
             >
                 <div className="flex items-center gap-3">
                     <div aria-hidden="true">
                         {icon}
                     </div>
-                    <h3 className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-slate-300">
+                    <h3 className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-nb-300">
                         {title}
                     </h3>
                 </div>
                 <ChevronDown
-                    className={`h-4 w-4 text-slate-500 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
+                    className={`h-4 w-4 text-nb-500 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
                     aria-hidden="true"
                 />
             </button>
@@ -574,15 +574,18 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
         ? `Article: "${title}"\n\nSource: ${sourceUrl || articleUrl}\n\nContext: ${snippet.slice(0, 500)}`
         : `Article: "${title}"\n\nSource: ${articleUrl}`;
 
-    const close = () => {
+    const close = (returnFocus = true) => {
         setIsOpen(false);
-        triggerRef.current?.focus();
+        if (returnFocus) triggerRef.current?.focus();
     };
 
     useEffect(() => {
         if (!isOpen) return;
         const handleClickOutside = (e: MouseEvent) => {
-            if (menuRef.current && !menuRef.current.contains(e.target as Node)) close();
+            // Close WITHOUT returning focus to the trigger — focusing it would
+            // scroll it into view (a jarring jump). Keyboard dismiss (Escape)
+            // still returns focus for accessibility. (Adopted from Hunt.)
+            if (menuRef.current && !menuRef.current.contains(e.target as Node)) close(false);
         };
         const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
         document.addEventListener("mousedown", handleClickOutside);
@@ -626,7 +629,7 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
                 data-tooltip="Open this article in Claude, ChatGPT, Perplexity, or Google — with the title and source already teed up in the search box."
                 aria-expanded={isOpen}
                 aria-haspopup="menu"
-                className="inline-flex items-center justify-center rounded-sm h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
+                className="inline-flex items-center justify-center rounded-sm h-10 w-10 text-nb-400 hover:text-icaccent hover:bg-nb-800/40 ring-focus"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
             </button>
@@ -639,12 +642,12 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.98, y: -2 }}
                         transition={{ duration: 0.12 }}
-                        className="absolute right-0 top-full mt-2 z-50 w-36 rounded-sm border border-slate-800 bg-slate-950 overflow-hidden"
+                        className="absolute right-0 top-full mt-2 z-50 w-36 rounded-sm border border-nb-800 bg-nb-950 overflow-hidden"
                     >
                         <button
                             role="menuitem"
                             onClick={handleGoogle}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-slate-800/80"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-nb-300 hover:bg-nb-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-nb-800/80"
                         >
                             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
                             <span>Google</span>
@@ -652,7 +655,7 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
                         <button
                             role="menuitem"
                             onClick={handleChatGPT}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-slate-800/80"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-nb-300 hover:bg-nb-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-nb-800/80"
                         >
                             <svg className="h-4 w-4 text-emerald-400" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zM13.26 22.43a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zM3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.676l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0L4.01 14.23A4.5 4.5 0 0 1 2.34 7.896zm16.597 3.855l-5.843-3.369 2.02-1.168a.076.076 0 0 1 .071 0l4.808 2.773a4.5 4.5 0 0 1-.676 8.115v-5.678a.795.795 0 0 0-.38-.673zm2.01-3.023l-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.807-2.774a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.795.795 0 0 0-.393.681zm1.097-2.365l2.602-1.5 2.607 1.5v2.999l-2.597 1.5-2.607-1.5z"/></svg>
                             <span>ChatGPT</span>
@@ -660,7 +663,7 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
                         <button
                             role="menuitem"
                             onClick={handlePerplexity}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-slate-800/80"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-nb-300 hover:bg-nb-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-nb-800/80"
                         >
                             <svg className="h-4 w-4 text-teal-400" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22.414 0h-8.015L12 2.678 9.601 0H1.586L8.15 7.773 0 16.227h7.875L12 20.843l4.125-4.616H24l-8.15-8.454L22.414 0zM9.977 2.678l1.764 1.927H8.213l1.764-1.927zm4.046 0 1.764 1.927h-3.528l1.764-1.927zM3.414 1.678h4.594L3.414 6.583V1.678zm13.578 0h4.594v4.905l-4.594-4.905zM1.838 14.549l6.406-6.645h7.512l6.406 6.645H1.838zm6.337 1.678H4.05l3.472-3.884-.347 3.884zm7.65 0-.347-3.884 3.472 3.884h-3.125zM12 19.135l-2.912-3.257h5.824L12 19.135z"/></svg>
                             <span>Perplexity</span>
@@ -668,7 +671,7 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
                         <button
                             role="menuitem"
                             onClick={handleClaude}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-slate-800/80"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-nb-300 hover:bg-nb-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-nb-800/80"
                         >
                             <svg className="h-4 w-4 text-amber-400" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>
                             <span>Claude</span>
@@ -700,15 +703,18 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
         ? `${title}\n\n${counterComment}\n\n${fullUrl}`
         : `${title}\n\n${fullUrl}`;
 
-    const close = () => {
+    const close = (returnFocus = true) => {
         setIsOpen(false);
-        triggerRef.current?.focus();
+        if (returnFocus) triggerRef.current?.focus();
     };
 
     useEffect(() => {
         if (!isOpen) return;
         const handleClickOutside = (e: MouseEvent) => {
-            if (menuRef.current && !menuRef.current.contains(e.target as Node)) close();
+            // Close WITHOUT returning focus to the trigger — focusing it would
+            // scroll it into view (a jarring jump). Keyboard dismiss (Escape)
+            // still returns focus for accessibility. (Adopted from Hunt.)
+            if (menuRef.current && !menuRef.current.contains(e.target as Node)) close(false);
         };
         const handleEsc = (e: KeyboardEvent) => {
             if (e.key === 'Escape') close();
@@ -773,7 +779,7 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
                 data-tooltip="Share this article on Bluesky, Mastodon, Reddit, or by email — with a summary of the Purple Team's analysis attached."
                 aria-expanded={isOpen}
                 aria-haspopup="menu"
-                className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
+                className="rounded-sm text-nb-400 hover:text-icaccent hover:bg-nb-800/40"
             >
                 <Share2 className="h-5 w-5" aria-hidden="true" />
             </Button>
@@ -787,12 +793,12 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.98, y: -2 }}
                         transition={{ duration: 0.12 }}
-                        className="absolute right-0 top-full mt-2 z-50 w-48 rounded-sm border border-slate-800 bg-slate-950 overflow-hidden"
+                        className="absolute right-0 top-full mt-2 z-50 w-48 rounded-sm border border-nb-800 bg-nb-950 overflow-hidden"
                     >
                         <button
                             role="menuitem"
                             onClick={handleFacebook}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-slate-800/80"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-nb-300 hover:bg-nb-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-nb-800/80"
                         >
                             <svg className="h-4 w-4 text-blue-400" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                                 <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
@@ -802,7 +808,7 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
                         <button
                             role="menuitem"
                             onClick={handleBluesky}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-slate-800/80"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-nb-300 hover:bg-nb-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-nb-800/80"
                         >
                             <svg className="h-4 w-4 text-sky-400" viewBox="0 0 360 320" fill="currentColor" aria-hidden="true">
                                 <path d="M180 141.964C163.699 110.262 119.308 51.1817 78.0347 26.67C56.326 14.0375 3.49981 -3.09781 3.49981 58.4432C3.49981 70.0484 6.51032 152.417 8.02611 164.966C13.0991 206.358 55.1251 218.468 91.8511 211.868C28.8511 221.896 -1.74363 233.946 21.5634 269.754C55.0434 319.698 119.309 292.734 148.915 278.006C167.735 268.609 178.431 260.768 180 256.477C181.569 260.768 192.265 268.609 211.085 278.006C240.691 292.734 304.957 319.698 338.437 269.754C361.744 233.946 331.149 221.896 268.149 211.868C304.875 218.468 346.901 206.358 351.974 164.966C353.49 152.417 356.5 70.0484 356.5 58.4432C356.5 -3.09781 303.674 14.0375 281.965 26.67C240.692 51.1817 196.301 110.262 180 141.964Z"/>
@@ -812,7 +818,7 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
                         <button
                             role="menuitem"
                             onClick={handleMastodon}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-slate-800/80"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-nb-300 hover:bg-nb-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-nb-800/80"
                         >
                             <svg className="h-4 w-4 text-purple-400" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                                 <path d="M23.268 5.313c-.35-2.578-2.617-4.61-5.304-5.004C17.51.242 15.792 0 11.813 0h-.03c-3.98 0-4.835.242-5.288.309C3.882.692 1.496 2.518.917 5.127.64 6.412.61 7.837.661 9.143c.074 1.874.088 3.745.26 5.611.118 1.24.325 2.47.62 3.68.55 2.237 2.777 4.098 4.96 4.857 2.336.792 4.849.923 7.256.38.265-.061.527-.132.786-.213.585-.184 1.27-.39 1.774-.753a.057.057 0 0 0 .023-.043v-1.809a.052.052 0 0 0-.02-.041.053.053 0 0 0-.046-.01 20.282 20.282 0 0 1-4.709.545c-2.73 0-3.463-1.284-3.674-1.818a5.593 5.593 0 0 1-.319-1.433.053.053 0 0 1 .066-.054c1.517.363 3.072.546 4.632.546.376 0 .75 0 1.125-.01 1.57-.044 3.224-.124 4.768-.422.038-.008.077-.015.11-.024 2.435-.464 4.753-1.92 4.989-5.604.008-.145.03-1.52.03-1.67.002-.512.167-3.63-.024-5.545zm-3.748 9.195h-2.561V8.29c0-1.309-.55-1.976-1.67-1.976-1.23 0-1.846.79-1.846 2.35v3.403h-2.546V8.663c0-1.56-.617-2.35-1.848-2.35-1.112 0-1.668.668-1.67 1.977v6.218H4.822V8.102c0-1.31.337-2.35 1.011-3.12.696-.77 1.608-1.164 2.74-1.164 1.311 0 2.302.5 2.962 1.498l.638 1.06.638-1.06c.66-.999 1.65-1.498 2.96-1.498 1.13 0 2.043.395 2.74 1.164.675.77 1.012 1.81 1.012 3.12z"/>
@@ -822,7 +828,7 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
                         <button
                             role="menuitem"
                             onClick={handleSubstack}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-slate-800/80"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-nb-300 hover:bg-nb-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-nb-800/80"
                         >
                             <svg className="h-4 w-4 text-orange-400" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                                 <path d="M22.539 8.242H1.46V5.406h21.08v2.836zM1.46 10.812V24L12 18.11 22.54 24V10.812H1.46zM22.54 0H1.46v2.836h21.08V0z"/>
@@ -832,9 +838,9 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
                         <button
                             role="menuitem"
                             onClick={handleEmail}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-slate-800/80"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-nb-300 hover:bg-nb-800/80 hover:text-white transition-colors ring-focus focus-visible:ring-inset focus-visible:bg-nb-800/80"
                         >
-                            <Mail className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                            <Mail className="h-4 w-4 text-nb-400" aria-hidden="true" />
                             <span>Email</span>
                         </button>
                     </motion.div>
@@ -932,14 +938,17 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
         }
     }, [card?.dossier]);
 
-    const formattedDate = useMemo(() =>
-        card?.timestamp
-            ? new Date(card.timestamp).toLocaleString([], {
-                year: 'numeric', month: 'short', day: 'numeric',
-                hour: '2-digit', minute: '2-digit'
-              })
-            : '',
-    [card?.timestamp]);
+    const formattedDate = useMemo(() => {
+        const ts = card?.timestamp;
+        if (!ts) return '';
+        // Handle both epoch-milliseconds (Hunt) and ISO strings (Arc) — shared
+        // behaviour adopted from Hunt so either timestamp form renders correctly.
+        const d = /^\d+$/.test(String(ts)) ? new Date(Number(ts)) : new Date(ts);
+        return d.toLocaleString([], {
+            year: 'numeric', month: 'short', day: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+        });
+    }, [card?.timestamp]);
 
     const handleCopy = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -1030,21 +1039,21 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
     if (card.origin === 'video') {
         const videoUrl = card.sourceUrl || (card as any).url || '#';
         const videoDomain = (() => {
-            try { return new URL(videoUrl).hostname.replace(/^www\./, ''); } catch { return 'vid.arc-codex.com'; }
+            try { return new URL(videoUrl).hostname.replace(/^www\./, ''); } catch { return cardConfig.videoDomainFallback; }
         })();
         return (
             <article
                 aria-labelledby={`card-title-${uid}`}
                 className="w-full max-w-2xl mx-auto"
             >
-                <div className="w-full overflow-hidden border-b border-slate-800/60 bg-slate-900/30">
+                <div className="w-full overflow-hidden border-b border-nb-800/60 bg-nb-900/30">
                     <div className="p-4 sm:p-8">
                         <header className="flex flex-col-reverse items-end gap-4 sm:flex-row sm:justify-between sm:items-start mb-4">
                             <div className="flex-1 w-full">
                                 <a href={videoUrl} target="_blank" rel="noopener noreferrer">
                                     <h2
                                         id={`card-title-${uid}`}
-                                        className="font-serif text-2xl sm:text-3xl font-semibold text-slate-50 mb-3 cursor-pointer transition-colors hover:text-slate-100 leading-tight tracking-tight"
+                                        className="font-serif text-2xl sm:text-3xl font-semibold text-nb-50 mb-3 cursor-pointer transition-colors hover:text-icaccent leading-tight tracking-tight"
                                     >
                                         {card.title}
                                     </h2>
@@ -1055,7 +1064,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                     variant="ghost"
                                     size="icon"
                                     onClick={handleCopy}
-                                    className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
+                                    className="rounded-sm text-nb-400 hover:text-icaccent hover:bg-nb-800/40"
                                     aria-label={hasCopied ? "Link copied" : "Copy article link"}
                                 >
                                     {hasCopied ? <Check className="text-emerald-400" aria-hidden="true" /> : <Copy aria-hidden="true" />}
@@ -1069,14 +1078,14 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             </div>
                         </header>
                         {card.description && (
-                            <p className="font-serif text-slate-400 leading-relaxed mb-4">{card.description}</p>
+                            <p className="font-serif text-nb-400 leading-relaxed mb-4">{card.description}</p>
                         )}
                         <span className="chip">
                             {videoDomain}
                         </span>
                     </div>
-                    <div className="border-t border-slate-800" aria-hidden="true" />
-                    <footer className="flex justify-between items-center px-4 sm:px-8 py-5 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
+                    <div className="border-t border-nb-800" aria-hidden="true" />
+                    <footer className="flex justify-between items-center px-4 sm:px-8 py-5 font-sans text-[10px] uppercase tracking-[0.25em] text-nb-500">
                         <time dateTime={card.timestamp}>{formattedDate}</time>
                     </footer>
                 </div>
@@ -1089,7 +1098,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
             aria-labelledby={`card-title-${uid}`}
             className="w-full max-w-2xl mx-auto"
         >
-            <div className="group relative w-full h-full overflow-hidden border-b border-slate-800/60 bg-slate-900/30">
+            <div className="group relative w-full h-full overflow-hidden border-b border-nb-800/60 bg-nb-900/30">
                 {card.imageUrl && (
                     <a
                         href={sourceUrl}
@@ -1098,7 +1107,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                         tabIndex={-1}
                         aria-hidden="true"
                     >
-                        <div className="w-full aspect-video sm:aspect-auto sm:h-80 bg-slate-950 overflow-hidden border-b border-slate-800/60">
+                        <div className="w-full aspect-video sm:aspect-auto sm:h-80 bg-nb-950 overflow-hidden border-b border-nb-800/60">
                             {(() => {
                                 const rawSrc = card.imageUrl!.startsWith('/uploads/')
                                     ? `${process.env.NEXT_PUBLIC_BACKEND_URL ?? ''}${card.imageUrl}`
@@ -1150,7 +1159,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             >
                                 <h2
                                     id={`card-title-${uid}`}
-                                    className="font-serif text-2xl sm:text-3xl font-semibold text-slate-50 mb-3 cursor-pointer transition-colors hover:text-slate-100 leading-tight tracking-tight"
+                                    className="font-serif text-2xl sm:text-3xl font-semibold text-nb-50 mb-3 cursor-pointer transition-colors hover:text-icaccent leading-tight tracking-tight"
                                 >
                                     {t('title', card.title)}
                                 </h2>
@@ -1168,7 +1177,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             )}
                             <Link
                                 href={`/article/${card.id}`}
-                                className="self-center font-sans text-xs uppercase tracking-[0.2em] text-slate-400 hover:text-slate-200 ring-focus rounded"
+                                className="self-center font-sans text-xs uppercase tracking-[0.2em] text-nb-400 hover:text-icaccent ring-focus rounded"
                             >
                                 — Read more
                             </Link>
@@ -1187,7 +1196,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 onLangChange={setCurrentLang}
                             />
                             {isPrivate && isOwner && (
-                                <span title="Private — only visible to you" aria-label="Private article" className="text-slate-500">
+                                <span title="Private — only visible to you" aria-label="Private article" className="text-nb-500">
                                     <Lock className="h-4 w-4" aria-hidden="true" />
                                 </span>
                             )}
@@ -1195,7 +1204,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 href={`/article/${card.id}`}
                                 aria-label="Permalink"
                                 data-tooltip={`Open ${cardConfig.siteName}'s permanent copy of this article — every A.R.C. section expanded, ready to link or reference later.`}
-                                className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
+                                className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-nb-400 hover:text-icaccent hover:bg-nb-800/40 ring-focus"
                             >
                                 <LinkIcon className="h-5 w-5" aria-hidden="true" />
                             </Link>
@@ -1203,7 +1212,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 variant="ghost"
                                 size="icon"
                                 onClick={handleCopy}
-                                className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
+                                className="rounded-sm text-nb-400 hover:text-icaccent hover:bg-nb-800/40"
                                 aria-label={hasCopied ? "Link copied" : "Copy link"}
                                 data-tooltip={`Copy this article's ${cardConfig.siteName} permalink to your clipboard, together with a short blurb of the counter-analyst's take.`}
                             >
@@ -1229,7 +1238,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                     rel={cardConfig.topicLink === 'wiki' ? "noopener noreferrer" : undefined}
                                     aria-label="Full take"
                                     data-tooltip="Jump to this article's topic — every related story and its full analysis in one place."
-                                    className="tooltip-right inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
+                                    className="tooltip-right inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-nb-400 hover:text-icaccent hover:bg-nb-800/40 ring-focus"
                                 >
                                     <Flashlight className="h-5 w-5" aria-hidden="true" />
                                 </a>
@@ -1241,7 +1250,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                     rel="noopener noreferrer"
                                     aria-label="Quiz me"
                                     data-tooltip="Take a quick quiz on this article and earn a per-article badge for reading it closely."
-                                    className="tooltip-right inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
+                                    className="tooltip-right inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-nb-400 hover:text-icaccent hover:bg-nb-800/40 ring-focus"
                                 >
                                     <GraduationCap className="h-5 w-5" aria-hidden="true" />
                                 </a>
@@ -1251,7 +1260,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                     variant="ghost"
                                     size="icon"
                                     onClick={(e: React.MouseEvent) => { e.stopPropagation(); window.print(); }}
-                                    className="tooltip-right rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
+                                    className="tooltip-right rounded-sm text-nb-400 hover:text-icaccent hover:bg-nb-800/40"
                                     aria-label="Print"
                                     data-tooltip="Expand every section and open the browser's print dialog — good for a paper copy or a clean PDF export."
                                 >
@@ -1289,12 +1298,12 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             <AnalysisSection
                                 sectionId={`${uid}-talking`}
                                 title="Talking Points"
-                                icon={<MessageSquare className="h-4 w-4 text-slate-500" aria-hidden="true" />}
+                                icon={<MessageSquare className="h-4 w-4 text-nb-500" aria-hidden="true" />}
                                 isExpanded={expandedSections.talkingPoints}
                                 onToggle={() => toggleSection('talkingPoints')}
                                 fullyExpanded={fullyExpanded}
                             >
-                                <ul className="list-disc pl-5 space-y-3 text-slate-200 font-serif max-w-prose">
+                                <ul className="list-disc pl-5 space-y-3 text-nb-200 font-serif max-w-prose">
                                     {talkingPoints.map((point, index) => (
                                         <li key={index} className="leading-relaxed">{point}</li>
                                     ))}
@@ -1306,12 +1315,12 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             <AnalysisSection
                                 sectionId={`${uid}-deep`}
                                 title="Deep Analysis"
-                                icon={<BrainCircuit className="h-4 w-4 text-slate-500" aria-hidden="true" />}
+                                icon={<BrainCircuit className="h-4 w-4 text-nb-500" aria-hidden="true" />}
                                 isExpanded={expandedSections.deepAnalysis}
                                 onToggle={() => toggleSection('deepAnalysis')}
                                 fullyExpanded={fullyExpanded}
                             >
-                                <p className="text-slate-200 font-serif leading-relaxed max-w-prose">{deepAnalysisSummary}</p>
+                                <p className="text-nb-200 font-serif leading-relaxed max-w-prose">{deepAnalysisSummary}</p>
                             </AnalysisSection>
                         )}
 
@@ -1322,7 +1331,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 icon={
                                     <span className="inline-flex items-center gap-2" aria-hidden="true">
                                         <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
-                                        <Crosshair className="h-4 w-4 text-slate-500" />
+                                        <Crosshair className="h-4 w-4 text-nb-500" />
                                     </span>
                                 }
                                 isExpanded={expandedSections.redTeam}
@@ -1340,7 +1349,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 icon={
                                     <span className="inline-flex items-center gap-2" aria-hidden="true">
                                         <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />
-                                        <Shield className="h-4 w-4 text-slate-500" />
+                                        <Shield className="h-4 w-4 text-nb-500" />
                                     </span>
                                 }
                                 isExpanded={expandedSections.blueTeam}
@@ -1358,7 +1367,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 icon={
                                     <span className="inline-flex items-center gap-2" aria-hidden="true">
                                         <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
-                                        <Combine className="h-4 w-4 text-slate-500" />
+                                        <Combine className="h-4 w-4 text-nb-500" />
                                     </span>
                                 }
                                 isExpanded={expandedSections.purpleTeam}
@@ -1373,50 +1382,50 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             <AnalysisSection
                                 sectionId={`${uid}-sentinel`}
                                 title={`Sentinel — ${sentinelColor.label}`}
-                                icon={<ScanLine className="h-4 w-4 text-slate-500" aria-hidden="true" />}
+                                icon={<ScanLine className="h-4 w-4 text-nb-500" aria-hidden="true" />}
                                 isExpanded={expandedSections.sentinel}
                                 onToggle={() => toggleSection('sentinel')}
                                 fullyExpanded={fullyExpanded}
                             >
                                 <div className="space-y-5">
                                     <div className="flex items-center gap-3">
-                                        <span className="font-sans text-[10px] uppercase tracking-[0.2em] text-slate-500 w-24 shrink-0" id={`${uid}-conf-label`}>
+                                        <span className="font-sans text-[10px] uppercase tracking-[0.2em] text-nb-500 w-24 shrink-0" id={`${uid}-conf-label`}>
                                             Confidence
                                         </span>
-                                        <div className="flex-1 h-px bg-slate-800 overflow-hidden">
+                                        <div className="flex-1 h-px bg-nb-800 overflow-hidden">
                                             <div
                                                 role="progressbar"
                                                 aria-labelledby={`${uid}-conf-label`}
                                                 aria-valuenow={Math.round(sentinelData.synthetic_confidence * 100)}
                                                 aria-valuemin={0}
                                                 aria-valuemax={100}
-                                                className="h-full bg-slate-300 transition-all duration-500"
+                                                className="h-full bg-nb-300 transition-all duration-500"
                                                 style={{ width: `${Math.round(sentinelData.synthetic_confidence * 100)}%` }}
                                             />
                                         </div>
-                                        <span className="font-mono text-xs font-semibold text-slate-300" aria-hidden="true">
+                                        <span className="font-mono text-xs font-semibold text-nb-300" aria-hidden="true">
                                             {Math.round(sentinelData.synthetic_confidence * 100)}%
                                         </span>
                                     </div>
 
-                                    <p className="font-serif text-slate-200 leading-relaxed max-w-prose">{sentinelData.summary}</p>
+                                    <p className="font-serif text-nb-200 leading-relaxed max-w-prose">{sentinelData.summary}</p>
 
                                     {sentinelData.indicators && sentinelData.indicators.length > 0 && (
                                         <div className="space-y-2">
-                                            <span className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">Signals Detected</span>
+                                            <span className="font-sans text-[10px] uppercase tracking-[0.25em] text-nb-500">Signals Detected</span>
                                             {sentinelData.indicators.map((ind, i) => {
                                                 const sev = ind.severity?.toLowerCase();
                                                 const dotShade =
-                                                    sev === 'high' ? 'bg-slate-200'
-                                                    : sev === 'medium' ? 'bg-slate-400'
-                                                    : 'bg-slate-600';
+                                                    sev === 'high' ? 'bg-nb-200'
+                                                    : sev === 'medium' ? 'bg-nb-400'
+                                                    : 'bg-nb-600';
                                                 return (
                                                     <div key={i} className="flex items-start gap-2 text-sm">
                                                         <span className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${dotShade}`} aria-hidden="true" />
-                                                        <span className="text-slate-300">
+                                                        <span className="text-nb-300">
                                                             <span className="sr-only">{ind.severity} severity: </span>
-                                                            <span className="font-sans text-[10px] uppercase tracking-widest text-slate-500 mr-2" aria-hidden="true">[{ind.severity}]</span>
-                                                            <span className="font-sans text-slate-500 capitalize" aria-hidden="true">{ind.dimension}:</span>
+                                                            <span className="font-sans text-[10px] uppercase tracking-widest text-nb-500 mr-2" aria-hidden="true">[{ind.severity}]</span>
+                                                            <span className="font-sans text-nb-500 capitalize" aria-hidden="true">{ind.dimension}:</span>
                                                             {' '}<span className="font-serif">{ind.signal}</span>
                                                         </span>
                                                     </div>
@@ -1427,11 +1436,11 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
 
                                     {sentinelData.human_signals && sentinelData.human_signals.length > 0 && (
                                         <div className="space-y-2">
-                                            <span className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">Human Indicators</span>
+                                            <span className="font-sans text-[10px] uppercase tracking-[0.25em] text-nb-500">Human Indicators</span>
                                             {sentinelData.human_signals.map((signal, i) => (
                                                 <div key={i} className="flex items-start gap-2 text-sm">
                                                     <span className="mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 bg-emerald-500" aria-hidden="true" />
-                                                    <span className="font-serif text-slate-300">{signal}</span>
+                                                    <span className="font-serif text-nb-300">{signal}</span>
                                                 </div>
                                             ))}
                                         </div>
@@ -1444,12 +1453,12 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
 
                 {/* Comments */}
                 {!isCompact ? (
-                    <div className="px-4 sm:px-8 pb-8 pt-6 border-t border-slate-800">
+                    <div className="px-4 sm:px-8 pb-8 pt-6 border-t border-nb-800">
                         <CommentSection comments={comments} articleId={card.id} />
                     </div>
                 ) : comments.length > 0 ? (
                     <a href={`/article/${card.id}`} className="block px-4 sm:px-8 pb-3 group">
-                        <div className="flex items-center gap-2 font-sans text-xs uppercase tracking-[0.2em] text-slate-500 group-hover:text-slate-200 transition-colors cursor-pointer">
+                        <div className="flex items-center gap-2 font-sans text-xs uppercase tracking-[0.2em] text-nb-500 group-hover:text-icaccent transition-colors cursor-pointer">
                             <MessageSquare className="h-4 w-4" aria-hidden="true" />
                             <span>{comments.length} Comment{comments.length !== 1 ? 's' : ''}</span>
                         </div>
@@ -1457,13 +1466,13 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                 ) : null}
 
                 {/* Footer */}
-                <div className="border-t border-slate-800" aria-hidden="true" />
-                <footer className="flex justify-between items-center px-4 sm:px-8 py-5 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
+                <div className="border-t border-nb-800" aria-hidden="true" />
+                <footer className="flex justify-between items-center px-4 sm:px-8 py-5 font-sans text-[10px] uppercase tracking-[0.25em] text-nb-500">
                     <time dateTime={card.timestamp}>{formattedDate}</time>
                     {card.directive ? (
                         <Link
                             href={`/wiki/${toSlug(card.directive)}`}
-                            className="font-semibold text-slate-500 hover:text-slate-200 transition-colors duration-200"
+                            className="font-semibold text-nb-500 hover:text-icaccent transition-colors duration-200"
                             aria-label={`View ${card.directive} in wiki`}
                         >
                             {card.directive}

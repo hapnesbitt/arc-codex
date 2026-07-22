@@ -81,7 +81,25 @@ const config = {
   				'3': 'hsl(var(--chart-3))',
   				'4': 'hsl(var(--chart-4))',
   				'5': 'hsl(var(--chart-5))'
-  			}
+  			},
+  			// Unified IntelligenceCard neutral-brand scale + accent. Per-site
+  			// palette lives in globals.css (Arc: slate neutrals, slate accent);
+  			// the component uses nb-*/icaccent so it stays byte-identical across
+  			// stacks. RGB triples + <alpha-value> so /opacity modifiers work.
+  			nb: {
+  				'50': 'rgb(var(--nb-50) / <alpha-value>)',
+  				'100': 'rgb(var(--nb-100) / <alpha-value>)',
+  				'200': 'rgb(var(--nb-200) / <alpha-value>)',
+  				'300': 'rgb(var(--nb-300) / <alpha-value>)',
+  				'400': 'rgb(var(--nb-400) / <alpha-value>)',
+  				'500': 'rgb(var(--nb-500) / <alpha-value>)',
+  				'600': 'rgb(var(--nb-600) / <alpha-value>)',
+  				'700': 'rgb(var(--nb-700) / <alpha-value>)',
+  				'800': 'rgb(var(--nb-800) / <alpha-value>)',
+  				'900': 'rgb(var(--nb-900) / <alpha-value>)',
+  				'950': 'rgb(var(--nb-950) / <alpha-value>)'
+  			},
+  			icaccent: 'rgb(var(--ic-accent) / <alpha-value>)'
   		},
   		borderRadius: {
   			lg: 'var(--radius)',
