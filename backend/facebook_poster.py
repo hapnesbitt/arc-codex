@@ -52,6 +52,7 @@ APP_ID           = os.getenv("FACEBOOK_APP_ID", "")
 APP_SECRET       = os.getenv("FACEBOOK_APP_SECRET", "")
 PAGE_ID          = os.getenv("FACEBOOK_PAGE_ID", "")
 ACCESS_TOKEN     = os.getenv("FACEBOOK_ACCESS_TOKEN", "")
+USER_ACCESS_TOKEN = os.getenv("FACEBOOK_USER_ACCESS_TOKEN", "")
 REDIS_URL        = os.environ['REDIS_URL']
 ARTICLE_BASE_URL = os.getenv("NEXT_PUBLIC_BACKEND_URL", "https://arc-codex.com")
 DEFAULT_IMAGE    = f"{ARTICLE_BASE_URL}/uploads/arc-codex-default.jpg"
@@ -66,6 +67,7 @@ CA_WAIT       = 120         # seconds to wait for counter-analyst comment
                             # driven posting (see ops/RUNBOOK.md 2026-07-15).
 POLL_KEY      = "facebook:autopost"
 POSTED_SET    = "facebook:posted"
+SEEDED_KEY    = "facebook:seeded"
 COOLDOWN_KEY  = "facebook:rate_limit_cooldown"
 COOLDOWN_TTL  = 6 * 60 * 60   # 6h — matches typical FB 368 block windows
 
@@ -74,14 +76,28 @@ GRAPH_API     = "https://graph.facebook.com/v19.0"
 # ── logging ────────────────────────────────────────────────────────────────────
 log_dir = os.path.join(os.path.dirname(__file__), "..", "logs")
 os.makedirs(log_dir, exist_ok=True)
+_log_path = os.path.join(log_dir, "facebook_poster.log")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [facebook_poster] %(levelname)s %(message)s",
     handlers=[
-        logging.FileHandler(os.path.join(log_dir, "facebook_poster.log")),
+        logging.FileHandler(_log_path),
     ],
 )
 log = logging.getLogger("facebook_poster")
+
+# Log can contain Graph API error bodies — tighten perms so a future leak
+# (or any historical one) isn't world-readable.
+try:
+    os.chmod(_log_path, 0o600)
+except OSError:
+    pass
+
+# Backoff state for refresh_access_token — prevents a bad user token from
+# burning thousands of /me/accounts calls per day. min(prev*2+60, 1800),
+# mirrored from bluesky_poster.
+_last_refresh_ts: float = 0.0
+_refresh_backoff: int   = 0
 
 # ── Redis ──────────────────────────────────────────────────────────────────────
 import redis as redis_lib
@@ -147,48 +163,75 @@ def _persist_token(new_token: str) -> None:
         log.warning("Could not persist token to .env: %s", exc)
 
 
-def refresh_access_token() -> bool:
-    """
-    Exchange the current ACCESS_TOKEN for a long-lived token via
-    oauth/access_token (grant_type=fb_exchange_token).
-    Updates the global ACCESS_TOKEN and persists to .env.
-    Returns True on success.
-    """
+def _do_refresh() -> bool:
+    """API work for refresh_access_token; no backoff bookkeeping.
+
+    Re-derives the Page access token by calling GET /me/accounts with the
+    long-lived user token and selecting the entry whose id matches PAGE_ID.
+    Page tokens derived from a long-lived user token inherit its ~60-day
+    lifetime (System User tokens don't expire), so this replaces the old
+    fb_exchange_token dance."""
     global ACCESS_TOKEN
-    if not APP_ID or not APP_SECRET:
-        log.error("FACEBOOK_APP_ID / FACEBOOK_APP_SECRET not set — cannot refresh token")
+    if not USER_ACCESS_TOKEN:
+        log.error("FACEBOOK_USER_ACCESS_TOKEN not set — cannot derive Page token")
+        return False
+    if not PAGE_ID:
+        log.error("FACEBOOK_PAGE_ID not set — cannot derive Page token")
         return False
     try:
         resp = requests.get(
-            f"{GRAPH_API}/oauth/access_token",
-            params={
-                "grant_type":        "fb_exchange_token",
-                "client_id":         APP_ID,
-                "client_secret":     APP_SECRET,
-                "fb_exchange_token": ACCESS_TOKEN,
-            },
+            f"{GRAPH_API}/me/accounts",
+            params={"access_token": USER_ACCESS_TOKEN, "fields": "id,access_token"},
             timeout=15,
         )
         resp.raise_for_status()
-        new_token = resp.json().get("access_token")
-        if not new_token:
-            log.error("Token refresh response missing access_token: %s", resp.text[:200])
-            return False
-        ACCESS_TOKEN = new_token
-        _persist_token(new_token)
-        log.info("Facebook access token refreshed successfully")
-        return True
+        data = resp.json().get("data", [])
+        for page in data:
+            if str(page.get("id")) == str(PAGE_ID):
+                new_token = page.get("access_token")
+                if not new_token:
+                    log.error("Page %s present in /me/accounts but no access_token field", PAGE_ID)
+                    return False
+                ACCESS_TOKEN = new_token
+                _persist_token(new_token)
+                log.info("Re-derived Page access token for %s via /me/accounts", PAGE_ID)
+                return True
+        log.error("Page id %s not found in /me/accounts (%d pages visible to user token)",
+                  PAGE_ID, len(data))
+        return False
     except requests.HTTPError as exc:
-        # Never log exc or the URL — both contain client_secret & fb_exchange_token
+        # Never log exc or the URL — query string contains the user token
         resp = getattr(exc, "response", None)
         status = getattr(resp, "status_code", "?")
         body = (getattr(resp, "text", "") or "")[:200]
-        log.error("Token refresh failed: HTTP %s — %s", status, body)
+        log.error("Page token derivation failed: HTTP %s — %s", status, body)
         return False
     except Exception as exc:
-        # Avoid str(exc) — request exceptions can echo the URL with query params
-        log.error("Token refresh failed: %s", type(exc).__name__)
+        log.error("Page token derivation failed: %s", type(exc).__name__)
         return False
+
+
+def refresh_access_token() -> bool:
+    """
+    Re-derive the Page access token via /me/accounts (see _do_refresh).
+
+    Failures engage an exponential backoff (60s → 1800s cap) so a bad
+    user token doesn't drive thousands of requests per day; callers
+    inside the backoff window get a fast False without an API hit.
+    Success resets the backoff.
+    """
+    global _last_refresh_ts, _refresh_backoff
+    now = time.time()
+    if _refresh_backoff > 0 and (now - _last_refresh_ts) < _refresh_backoff:
+        return False
+    _last_refresh_ts = now
+
+    if _do_refresh():
+        _refresh_backoff = 0
+        return True
+    _refresh_backoff = min(_refresh_backoff * 2 + 60, 1800)
+    log.warning("Refresh failed — backing off %ds before next attempt", _refresh_backoff)
+    return False
 
 
 def upload_photo_unpublished(image_url: str) -> str | None:
@@ -336,15 +379,25 @@ def build_post_text(article: dict, comment: str | None) -> tuple[str, str]:
 
 
 def seed_posted_set():
+    """
+    On the *first* run only, mark every existing article as already-posted
+    so we don't flood the Page with a backlog. Subsequent restarts skip
+    this — otherwise an outage would silently drop every article queued
+    while the poster was down (same bug class as the character posted-set).
+
+    To force a re-seed (e.g. after wiping POSTED_SET): DEL facebook:seeded.
+    """
     try:
-        keys = r.zrange("feed", 0, -1)
-        if not keys:
+        if r.exists(SEEDED_KEY):
             return
-        pipe = r.pipeline()
-        for article_id in keys:
-            pipe.sadd(POSTED_SET, article_id)
-        pipe.execute()
-        log.info("Seeded facebook:posted with %d existing articles", len(keys))
+        keys = r.zrange("feed", 0, -1)
+        if keys:
+            pipe = r.pipeline()
+            for article_id in keys:
+                pipe.sadd(POSTED_SET, article_id)
+            pipe.execute()
+            log.info("First-run seed of facebook:posted with %d existing articles", len(keys))
+        r.set(SEEDED_KEY, "1")
     except Exception as exc:
         log.error("Seed failed: %s", exc)
 
@@ -388,20 +441,48 @@ def log_data_access_expiry():
 
 
 def main():
-    log.info("facebook_poster v1.2 starting — page_id: %s  app_id: %s",
-             PAGE_ID or "(not set)", APP_ID or "(not set)")
-    if not PAGE_ID or not ACCESS_TOKEN:
-        log.error("FACEBOOK_PAGE_ID and FACEBOOK_ACCESS_TOKEN must be set in .env — exiting")
+    log.info("facebook_poster v1.3 starting — page_id: %s", PAGE_ID or "(not set)")
+    if not PAGE_ID:
+        log.error("FACEBOOK_PAGE_ID must be set in .env — exiting")
         sys.exit(1)
-    if not APP_ID or not APP_SECRET:
-        log.warning("FACEBOOK_APP_ID / FACEBOOK_APP_SECRET not set — token auto-refresh disabled")
+
+    can_refresh = bool(USER_ACCESS_TOKEN)
+    if can_refresh:
+        # Re-derive Page token at startup so the cached one in .env is never stale.
+        if refresh_access_token():
+            log.info("Startup: Page token freshly derived from user token")
+        elif ACCESS_TOKEN:
+            log.warning("Startup refresh failed — falling back to cached FACEBOOK_ACCESS_TOKEN")
+        else:
+            log.error("Startup refresh failed and no cached Page token available — exiting")
+            sys.exit(1)
+    else:
+        # Arc's .env has no FACEBOOK_USER_ACCESS_TOKEN yet — keep posting with the
+        # cached Page token, but auto-re-derivation (the ~Aug 6 cliff protection)
+        # stays OFF until the user token is provisioned.
+        log.warning("FACEBOOK_USER_ACCESS_TOKEN not set — Page-token auto-re-derivation DISABLED; "
+                    "using cached FACEBOOK_ACCESS_TOKEN. Provision the user token to enable "
+                    "automatic refresh before Graph data access expires.")
+        if not ACCESS_TOKEN:
+            log.error("No cached FACEBOOK_ACCESS_TOKEN either — exiting")
+            sys.exit(1)
 
     log_data_access_expiry()
 
     seed_posted_set()
 
+    REFRESH_INTERVAL = 12 * 60 * 60  # proactive Page-token re-derivation cycle
+    last_refresh = time.time()
+
     while True:
         try:
+            if can_refresh and time.time() - last_refresh > REFRESH_INTERVAL:
+                log.info("Proactive Page token refresh")
+                if refresh_access_token():
+                    last_refresh = time.time()
+                # On failure, backoff state inside refresh_access_token gates
+                # the next attempt; we just retry next loop iteration.
+
             if not autopost_enabled():
                 time.sleep(POLL_INTERVAL)
                 continue
