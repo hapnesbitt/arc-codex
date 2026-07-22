@@ -34,6 +34,7 @@ import CommentSection from '@/components/CommentSection';
 import TranslateButton, { TranslatedFields } from '@/components/TranslateButton';
 import { useUserPrefs } from '@/components/UserPrefsContext';
 import { linkifyText } from '@/lib/textUtils';
+import { cardConfig } from '@/lib/cardConfig';
 import type { Article, Comment, Dossier } from '@/lib/types';
 
 // --- TYPE DEFINITIONS (local only) ---
@@ -566,7 +567,7 @@ const ResearchMenu: React.FC<{ title: string; articleId: string; snippet?: strin
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://arc-codex.com';
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? cardConfig.baseUrlFallback;
     const articleUrl = `${backendUrl}/article/${articleId}`;
 
     const context = snippet
@@ -692,7 +693,7 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
     const [bskyPosted, setBskyPosted] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://arc-codex.com';
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? cardConfig.baseUrlFallback;
     const baseUrl = `${backendUrl}/article/${articleId}`;
     const fullUrl = lang ? `${baseUrl}?lang=${encodeURIComponent(lang)}` : baseUrl;
     const sharePayload = counterComment
@@ -857,7 +858,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
     const [translatedFields, setTranslatedFields] = useState<TranslatedFields | null>(null);
     const [isRTL, setIsRTL] = useState(false);
     const [currentLang, setCurrentLang] = useState<string | null>(null);
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://arc-codex.com';
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? cardConfig.baseUrlFallback;
     const { prefs } = useUserPrefs();
     const isOwner   = !!prefs?.sub && prefs.sub === (card as any).owner;
     const isPrivate = (card as any).visibility === 'private';
@@ -972,9 +973,22 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
     const talkingPoints = dossier?.talking_points;
     const deepAnalysisSummary = dossier?.deep_analysis_summary;
 
+    // "Full take" topic link — route mode is per-site (Arc: /wiki directive
+    // pages; Hunt: /?directive= feed filter). Quiz target is a per-site URL
+    // template ('' when the site has no quiz).
+    const topicHref =
+        cardConfig.topicLink === 'wiki'
+            ? (card.directive ? `/wiki/${toSlug(card.directive)}#article-${card.id}` : '/wiki')
+            : cardConfig.topicLink === 'directiveFilter'
+                ? (card.directive ? `/?directive=${encodeURIComponent(card.directive)}` : '/')
+                : '';
+    const quizHref = cardConfig.quiz && cardConfig.quizUrlTemplate
+        ? cardConfig.quizUrlTemplate.replace('{id}', card.id)
+        : '';
+
     const shareBlurb = card.purple_team_analysis?.substring(0, 200)
         || card.blue_team_analysis?.substring(0, 200)
-        || 'Read this on Arc Codex';
+        || `Read this on ${cardConfig.siteName}`;
 
     const rawCounterComment = comments.find(c => c.author === 'A.R.C. Counter-Analyst')?.text ?? null;
     const counterComment = rawCounterComment
@@ -1143,14 +1157,13 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             </a>
                         </div>
 
-                        {/* Row 1 — the two score dials, on their own line.
-                            TODO(cfg): objectivityDashboardUrl moves to the per-site
-                            card config when Hunt is converged onto this component. */}
+                        {/* Row 1 — the two score dials, on their own line. Metric,
+                            visibility, and dashboard link all come from cardConfig. */}
                         <div className="flex flex-row items-end gap-5 flex-wrap mb-4">
-                            {objectivityScore > 0 && (
-                                <ObjectivityDial score={objectivityScore} dashboardUrl="https://grafana.arc-codex.com/d/arc-intelligence-v2" />
+                            {cardConfig.objectivityScore && objectivityScore > 0 && (
+                                <ObjectivityDial score={objectivityScore} dashboardUrl={cardConfig.objectivityDashboardUrl || undefined} />
                             )}
-                            {(readabilityIndex != null || readingLabel) && (
+                            {cardConfig.readingScore && (readabilityIndex != null || readingLabel) && (
                                 <ReadingDial index={readabilityIndex} label={readingLabel} />
                             )}
                             <Link
@@ -1181,7 +1194,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             <Link
                                 href={`/article/${card.id}`}
                                 aria-label="Permalink"
-                                data-tooltip="Open Arc Codex's permanent copy of this article — every A.R.C. section expanded, ready to link or reference later."
+                                data-tooltip={`Open ${cardConfig.siteName}'s permanent copy of this article — every A.R.C. section expanded, ready to link or reference later.`}
                                 className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
                             >
                                 <LinkIcon className="h-5 w-5" aria-hidden="true" />
@@ -1192,7 +1205,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 onClick={handleCopy}
                                 className="rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
                                 aria-label={hasCopied ? "Link copied" : "Copy link"}
-                                data-tooltip="Copy this article's Arc Codex permalink to your clipboard, together with a short blurb of the counter-analyst's take."
+                                data-tooltip={`Copy this article's ${cardConfig.siteName} permalink to your clipboard, together with a short blurb of the counter-analyst's take.`}
                             >
                                 {hasCopied ? <Check className="text-emerald-400" aria-hidden="true" /> : <Copy aria-hidden="true" />}
                             </Button>
@@ -1209,36 +1222,42 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 lang={currentLang}
                                 counterComment={counterComment ?? undefined}
                             />
-                            <a
-                                href={card.directive ? `/wiki/${toSlug(card.directive)}#article-${card.id}` : '/wiki'}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                aria-label="Full take"
-                                data-tooltip="Jump to the wiki directive page for this article's topic, showing every related story and its full analysis in one place."
-                                className="tooltip-right inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
-                            >
-                                <Flashlight className="h-5 w-5" aria-hidden="true" />
-                            </a>
-                            <a
-                                href={`https://soc.arc-codex.com/course/quiz-me/article/${card.id}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                aria-label="Quiz me"
-                                data-tooltip="Take a quick quiz on this article at School of Chat and earn a per-article badge for reading it closely."
-                                className="tooltip-right inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
-                            >
-                                <GraduationCap className="h-5 w-5" aria-hidden="true" />
-                            </a>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={(e: React.MouseEvent) => { e.stopPropagation(); window.print(); }}
-                                className="tooltip-right rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
-                                aria-label="Print"
-                                data-tooltip="Expand every section and open the browser's print dialog — good for a paper copy or a clean PDF export."
-                            >
-                                <Printer className="h-5 w-5" aria-hidden="true" />
-                            </Button>
+                            {cardConfig.topicLink !== 'off' && (
+                                <a
+                                    href={topicHref}
+                                    target={cardConfig.topicLink === 'wiki' ? "_blank" : undefined}
+                                    rel={cardConfig.topicLink === 'wiki' ? "noopener noreferrer" : undefined}
+                                    aria-label="Full take"
+                                    data-tooltip="Jump to this article's topic — every related story and its full analysis in one place."
+                                    className="tooltip-right inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
+                                >
+                                    <Flashlight className="h-5 w-5" aria-hidden="true" />
+                                </a>
+                            )}
+                            {cardConfig.quiz && quizHref && (
+                                <a
+                                    href={quizHref}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    aria-label="Quiz me"
+                                    data-tooltip="Take a quick quiz on this article and earn a per-article badge for reading it closely."
+                                    className="tooltip-right inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-slate-400 hover:text-slate-100 hover:bg-slate-800/40 ring-focus"
+                                >
+                                    <GraduationCap className="h-5 w-5" aria-hidden="true" />
+                                </a>
+                            )}
+                            {cardConfig.print && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); window.print(); }}
+                                    className="tooltip-right rounded-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
+                                    aria-label="Print"
+                                    data-tooltip="Expand every section and open the browser's print dialog — good for a paper copy or a clean PDF export."
+                                >
+                                    <Printer className="h-5 w-5" aria-hidden="true" />
+                                </Button>
+                            )}
                         </div>
                     </header>
 
