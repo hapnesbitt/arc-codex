@@ -4,6 +4,7 @@
 
 export interface Dossier {
   chimera_score?: number;
+  readability_index?: number;  // 0-100 readability synthesis; the reading dial reads THIS, never chimera_score
   reading_label?: string;
   sentiment?: number;
   subjectivity?: number;

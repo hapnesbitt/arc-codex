@@ -1262,6 +1262,13 @@ def pre_analyze():
         result = {
             # --- Core scores ---
             "chimera_score":        chimera_score,
+            # readability_index is the semantic name for Arc's 0-100 readability
+            # synthesis. It is written with the SAME value as chimera_score (which
+            # on Arc *is* that synthesis) so the unified IntelligenceCard reading
+            # dial can read readability_index and never chimera_score — a field
+            # that means objectivity on Hunt. chimera_score keeps being written
+            # as-is for existing consumers/history; the rename is a later backlog.
+            "readability_index":    chimera_score,
             "reading_label":        reading_label,
             "sentiment":            sentiment,
             "subjectivity":         round(subjectivity, 4),
@@ -1299,6 +1306,7 @@ def pre_analyze():
             #     hash at publish time. Same keys corpus_exporter.py reads.
             #     Stored as strings so the Redis hash mapping is type-stable.
             "nlp_chimera_score":    str(chimera_score),
+            "nlp_readability_index": str(chimera_score),
             "nlp_reading_label":    reading_label,
             "nlp_sentiment":        str(sentiment),
             "nlp_vader_pos":        str(vader_pos),
