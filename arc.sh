@@ -495,7 +495,8 @@ cmd_backup_cold() {
     fi
 
     echo "🗜️  Archiving stack + data layer (this may take a while)..."
-    tar -zcf "$FILE" \
+    local PARTIAL="$FILE.partial"
+    tar -zcf "$PARTIAL" \
         --exclude="./frontend/node_modules" \
         --exclude="./backend/venv" \
         --exclude="./backups" \
@@ -507,20 +508,52 @@ cmd_backup_cold() {
         --exclude="./upload/failed" \
         -C "$ITC_ROOT" . \
         -C "$STAGING" data_layer
-
     local tar_rc=$?
+
+    # --- Verification gate. The .sha256 sidecar is the eligibility token the
+    # off-host pull job keys on (Codex task-7): nothing without a sidecar ever
+    # ships, and nothing gets a sidecar without passing every check here.
+    local fail=""
+    [ $tar_rc -eq 0 ] || fail="tar exit $tar_rc"
+    if [ -z "$fail" ] && ! redis-check-rdb "$STAGING/data_layer/redis-arc.rdb" >/dev/null 2>&1; then
+        fail="redis-check-rdb rejected staged RDB"
+    fi
+    if [ -z "$fail" ] && ! gzip -t "$PARTIAL" 2>/dev/null; then
+        fail="gzip -t integrity check"
+    fi
+    if [ -z "$fail" ]; then
+        local required="./backend/main.py ./arc.sh data_layer/redis-arc.rdb data_layer/solr-snapshot/"
+        [ -f /mnt/arcdata/library.db ] && required="$required data_layer/library.db"
+        local members
+        members=$(tar -tzf "$PARTIAL" 2>/dev/null) || fail="tar -tzf listing"
+        if [ -z "$fail" ]; then
+            for m in $required; do
+                echo "$members" | grep -qx "$m" || { fail="required member missing: $m"; break; }
+            done
+        fi
+    fi
     rm -rf "$STAGING"
 
-    if [ $tar_rc -eq 0 ] && [ -f "$FILE" ]; then
-        echo "✅ Cold archive: $FILE ($(du -sh "$FILE" | cut -f1))"
-        # Retain only the most recent N
-        ls -t "$COLD_BACKUP_DIR"/arc_cold_*.tar.gz 2>/dev/null \
-            | tail -n +$(( COLD_BACKUP_KEEP + 1 )) \
-            | xargs rm -f 2>/dev/null
-        echo "🧊 Cold archives kept: $(ls "$COLD_BACKUP_DIR"/*.tar.gz 2>/dev/null | wc -l)/$COLD_BACKUP_KEEP"
-    else
-        echo "❌ Cold backup FAILED."
+    if [ -n "$fail" ]; then
+        rm -f "$PARTIAL"
+        echo "❌ Cold backup FAILED verification: $fail — no archive, no sidecar."
+        return 1
     fi
+
+    sync "$PARTIAL"
+    mv "$PARTIAL" "$FILE"
+    # Sidecar LAST — its existence marks the archive complete and shippable.
+    ( cd "$COLD_BACKUP_DIR" && sha256sum "$(basename "$FILE")" > "$(basename "$FILE").sha256" )
+    echo "✅ Cold archive: $FILE ($(du -sh "$FILE" | cut -f1))"
+    # Retain only the most recent N
+    ls -t "$COLD_BACKUP_DIR"/arc_cold_*.tar.gz 2>/dev/null \
+        | tail -n +$(( COLD_BACKUP_KEEP + 1 )) \
+        | xargs rm -f 2>/dev/null
+    # Drop sidecars orphaned by rotation
+    for s in "$COLD_BACKUP_DIR"/arc_cold_*.tar.gz.sha256; do
+        [ -f "${s%.sha256}" ] || rm -f "$s"
+    done
+    echo "🧊 Cold archives kept: $(ls "$COLD_BACKUP_DIR"/*.tar.gz 2>/dev/null | wc -l)/$COLD_BACKUP_KEEP"
 }
 
 # ==============================================================================
