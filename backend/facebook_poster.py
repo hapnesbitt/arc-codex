@@ -421,6 +421,9 @@ def log_data_access_expiry():
     is visible in logs. The page token itself never expires (expires_at=0)
     but data access does — 90-day window renewed by re-auth. Visibility must
     never break posting: any failure here logs and continues."""
+    if not (APP_ID and APP_SECRET):
+        log.warning("FACEBOOK_APP_ID / FACEBOOK_APP_SECRET not set — cannot check data-access expiry")
+        return
     try:
         resp = requests.get(
             f"{GRAPH_API}/debug_token",
