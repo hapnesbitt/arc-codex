@@ -121,10 +121,11 @@ start_service() {
         sleep 6
         if docker ps --filter "name=arc-$name" --filter "status=running" -q | grep -q .; then
             echo "    ✅ $name up (docker container arc-$name)"
+            return 0
         else
             echo "    ❌ $name container failed — check $LOG_DIR/$name.log"
+            return 1
         fi
-        return
     fi
 
     if [ "$use_venv" = "true" ]; then
@@ -143,7 +144,9 @@ start_service() {
     else
         echo "    ❌ $name failed — check $LOG_DIR/$name.log"
         rm -f "$PID_DIR/$name.pid"
+        return 1
     fi
+    return 0
 }
 
 stop_service() {
@@ -265,8 +268,17 @@ cmd_start() {
     else
         echo "🔧 Starting Arc Codex stack..."
         cmd_prune_logs
-        for svc in "${SERVICES[@]}"; do start_service "$svc"; done
+        local failed=()
+        local svc name
+        for svc in "${SERVICES[@]}"; do
+            IFS='|' read -r name _ _ _ _ <<< "$svc"
+            start_service "$svc" || failed+=("$name")
+        done
         echo ""
+        if [ "${#failed[@]}" -gt 0 ]; then
+            echo "❌ Stack startup failed: ${failed[*]}"
+            return 1
+        fi
         echo "✅ Stack started. Run './arc.sh status' to verify."
     fi
 }
