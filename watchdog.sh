@@ -19,7 +19,7 @@ STACK_NAME="${STACK_NAME:-arc-codex}"
 if [ "$STACK_NAME" = "huntaegis" ]; then
     ITC_ROOT="/home/www/huntaegis_stack"
     COMPOSE_PROJECT="huntaegis"
-    DOCKER_FRONTEND_NAME="huntaegis-frontend"
+    DOCKER_FRONTEND_NAME="hnt-frontend"
     SERVICES=(
         "gunicorn|$ITC_ROOT/backend|./gunicorn_arc.sh|true|5006"
         "scribe|$ITC_ROOT/backend|python3 scribe.py|true|"
