@@ -1,5 +1,6 @@
 # CLAUDE.md
 
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 > **This file is agent orientation** — architecture, conventions, how to behave —
@@ -211,3 +212,16 @@ Example: `"Consumer Tech & Electronics"` → `"consumer-tech-electronics"`.
 - **`feed` ZSET ordering**: score = Unix timestamp. Never use `r.keys('article:*')` for feed retrieval — always use `ZRANGE` on the feed ZSET.
 - **Ghost hash problem**: Bluesky/Mastodon posters track posted article IDs separately from `processed_hashes`. The two sets can diverge if an article publish fails mid-way.
 - **`NEXT_PUBLIC_*` variables** are baked in at build time — changing them requires a Docker rebuild.
+
+## Config: operator-owned fields
+
+The `[ingestion]` timing fields in `<site>.cfg` — `cycle_minutes`,
+`startup_delay_s`, `sources_per_sweep`, `concurrent_scrapers` — are
+operator-tuned by Ross and change frequently and deliberately.
+
+Do NOT revert, "restore committed values," normalize, or flag these
+as drift. If they appear modified, treat that as intentional.
+Leave them exactly as found; commit them untouched if a commit is
+needed for other cfg work in the same file.
+
+If a task genuinely requires changing one of these, ask first.
