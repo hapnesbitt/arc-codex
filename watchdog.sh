@@ -27,6 +27,10 @@ if [ "$STACK_NAME" = "huntaegis" ]; then
         "stream_consumer|$ITC_ROOT/backend|python3 stream_consumer.py|true|"
         "analyzer|$ITC_ROOT/backend|python3 analyzer.py|true|"
         "mailer|$ITC_ROOT/backend|python3 mailer.py|true|"
+        "bluesky_poster|$ITC_ROOT/backend|python3 bluesky_poster.py|true|"
+        "mastodon_poster|$ITC_ROOT/backend|python3 mastodon_poster.py|true|"
+        "facebook_poster|$ITC_ROOT/backend|python3 facebook_poster.py|true|"
+        "character_builder|$ITC_ROOT/backend|python3 character_builder.py|true|"
         "frontend|$ITC_ROOT|docker|false|3002"
     )
 else
