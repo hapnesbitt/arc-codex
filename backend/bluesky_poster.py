@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
 bluesky_poster.py — Arc Codex auto-poster for Bluesky
+v1.6 — Redis session persistence + persistent 429 backoff so the createSession
+        rate limit can't be self-perpetuated by restarts or per-article retries.
 v1.5 — Redis session persistence; uses refreshSession instead of createSession
         on restart/proactive refresh — prevents burning the createSession rate
         limit (shared per home IP) which was locking out mobile logins.
