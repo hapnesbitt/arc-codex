@@ -74,7 +74,6 @@ export PATH="/home/ross/.nvm/versions/node/v22.16.0/bin:$PATH"
 # =============================================================================
 
 log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - [WATCHDOG:$STACK_NAME] - $1" >> "$WATCHDOG_LOG"
     echo "$(date '+%Y-%m-%d %H:%M:%S') - [WATCHDOG:$STACK_NAME] - $1"
 }
 
@@ -86,6 +85,30 @@ is_running() {
     fi
     local pidfile="$PID_DIR/$name.pid"
     [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null
+}
+
+process_match_fragment() {
+    local name="$1" cmd_fragment="$2" port="$3"
+    if [ "$name" = "gunicorn" ]; then
+        echo "gunicorn.*--bind 127.0.0.1:$port"
+    else
+        echo "$cmd_fragment"
+    fi
+}
+
+find_stack_processes() {
+    local name="$1" dir="$2" cmd_fragment="$3" port="$4"
+    local match pid proc_cwd proc_pgid
+    match=$(process_match_fragment "$name" "$cmd_fragment" "$port")
+    while IFS= read -r pid; do
+        [ "$pid" = "$$" ] && continue
+        if [ "$name" = "gunicorn" ]; then
+            proc_pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+            [ "$pid" != "$proc_pgid" ] && continue
+        fi
+        proc_cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null)
+        [ "$proc_cwd" = "$dir" ] && echo "$pid"
+    done < <(pgrep -f "$match" 2>/dev/null)
 }
 
 free_port() {
@@ -105,14 +128,16 @@ free_port() {
 kill_orphans() {
     # Kill any duplicate processes for this service that aren't the registered PID
     local name="$1"
-    local cmd_fragment="$2"
+    local dir="$2"
+    local cmd_fragment="$3"
+    local port="$4"
     local pidfile="$PID_DIR/$name.pid"
     local registered_pid=""
     [ -f "$pidfile" ] && registered_pid=$(cat "$pidfile")
 
     # Find all PIDs matching the command fragment
     local all_pids
-    all_pids=$(pgrep -f "$cmd_fragment" 2>/dev/null)
+    all_pids=$(find_stack_processes "$name" "$dir" "$cmd_fragment" "$port")
     if [ -z "$all_pids" ]; then
         return
     fi
@@ -129,10 +154,6 @@ kill_orphans() {
         if [ "$pid" = "$registered_pid" ] || [ "$pid" = "$$" ]; then
             continue
         fi
-        # Only kill processes running from THIS stack's backend dir
-        local proc_cwd
-        proc_cwd=$(readlink /proc/$pid/cwd 2>/dev/null)
-        [ "$proc_cwd" != "$BACKEND_DIR" ] && continue
         log "🧹 Killing orphan $name process (pid $pid)"
         kill "$pid" 2>/dev/null
         sleep 1
@@ -141,6 +162,24 @@ kill_orphans() {
     done <<< "$all_pids"
 
     [ $orphan_count -gt 0 ] && log "🧹 Killed $orphan_count orphan(s) for $name"
+}
+
+reconcile_unregistered_process() {
+    local name dir cmd use_venv port
+    IFS='|' read -r name dir cmd use_venv port <<< "$1"
+    local candidates=()
+    mapfile -t candidates < <(find_stack_processes "$name" "$dir" "$cmd" "$port" | sort -n)
+    [ "${#candidates[@]}" -eq 0 ] && return 1
+
+    local adopted_pid="${candidates[0]}"
+    echo "$adopted_pid" > "$PID_DIR/$name.pid"
+    if [ "${#candidates[@]}" -eq 1 ]; then
+        log "🧭 Adopted unregistered $name process (pid $adopted_pid)"
+    else
+        log "⚠️  Found ${#candidates[@]} unregistered $name processes; adopting oldest pid $adopted_pid and reaping duplicates"
+        kill_orphans "$name" "$dir" "$cmd" "$port"
+    fi
+    kill -0 "$adopted_pid" 2>/dev/null
 }
 
 restart_service() {
@@ -163,7 +202,7 @@ restart_service() {
     fi
 
     # Kill any orphan processes before restarting
-    kill_orphans "$name" "$cmd"
+    kill_orphans "$name" "$dir" "$cmd" "$port"
 
     free_port "$port"
 
@@ -224,7 +263,9 @@ orphan_sweep() {
             name="${svc%%|*}"
             IFS='|' read -r _ _ cmd _ _ <<< "$svc"
             [ "$cmd" = "docker" ] && continue
-            kill_orphans "$name" "$cmd"
+            local dir port
+            IFS='|' read -r _ dir _ _ port <<< "$svc"
+            kill_orphans "$name" "$dir" "$cmd" "$port"
         done
     done
 }
@@ -274,6 +315,10 @@ while true; do
                     fi
                 fi
             else
+                if reconcile_unregistered_process "$svc"; then
+                    clear_restart_backoff "$local_name"
+                    continue
+                fi
                 if [ -f "$PID_DIR/$local_name.pid" ]; then
                     log "💀 $local_name is down — restarting"
                 else

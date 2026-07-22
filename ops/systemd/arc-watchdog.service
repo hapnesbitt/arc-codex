@@ -1,0 +1,17 @@
+[Unit]
+Description=Arc Codex Worker Watchdog
+Requires=arc-stack.service
+After=arc-stack.service
+
+[Service]
+Type=simple
+User=ross
+WorkingDirectory=/home/www/arc_stack
+ExecStart=/home/www/arc_stack/watchdog.sh
+Restart=always
+RestartSec=5
+StandardOutput=append:/home/www/arc_stack/logs/watchdog.log
+StandardError=append:/home/www/arc_stack/logs/watchdog.log
+
+[Install]
+WantedBy=multi-user.target

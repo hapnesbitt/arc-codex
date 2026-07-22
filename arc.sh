@@ -67,7 +67,6 @@ SERVICES=(
     "character_builder|$BACKEND_DIR|python3 character_builder.py|true|"
     "quiz_generator|$BACKEND_DIR|python3 quiz_generator.py|true|"
     "frontend|$ITC_ROOT|docker|false|3000"   # docker sentinel — managed via docker compose
-    "watchdog|$ITC_ROOT|./watchdog.sh|false|"
     "corpus_exporter|$BACKEND_DIR|python3 corpus_exporter.py|true|9101"
     "caddy_exporter|$BACKEND_DIR|python3 caddy_exporter.py|true|9102"
 )
@@ -311,10 +310,14 @@ cmd_restart() {
         # Hold off the watchdog while the stop→start gap is open, so its
         # 60s check can't race us and spawn an untracked duplicate.
         touch "$PID_DIR/watchdog.hold"
+        trap 'rm -f "$PID_DIR/watchdog.hold"' EXIT
         stop_service "$svc"
         sleep 1
-        start_service "$svc"
+        local rc=0
+        start_service "$svc" || rc=$?
         rm -f "$PID_DIR/watchdog.hold"
+        trap - EXIT
+        return "$rc"
     else
         cmd_stop
         sleep 2
@@ -662,7 +665,7 @@ cmd_restore() {
 # ==============================================================================
 # COMMAND DISPATCH
 # ==============================================================================
-VALID_SERVICES="gunicorn|scribe|manual_publisher|stream_consumer|analyzer|mailer|bluesky_poster|mastodon_poster|facebook_poster|character_builder|quiz_generator|frontend|watchdog|corpus_exporter|caddy_exporter"
+VALID_SERVICES="gunicorn|scribe|manual_publisher|stream_consumer|analyzer|mailer|bluesky_poster|mastodon_poster|facebook_poster|character_builder|quiz_generator|frontend|corpus_exporter|caddy_exporter"
 
 case "${1:-}" in
     start)        cmd_start "${2:-}" ;;
