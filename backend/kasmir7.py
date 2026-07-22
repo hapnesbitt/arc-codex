@@ -240,7 +240,7 @@ def _bar(value, max_value, width=30):
 # reference articles (curated permanent profiles — Plantorium etc.) and
 # arc:pinned_articles members (course-referenced ephemera) are excluded from
 # every bulk path. [2f] is the single deliberate per-id override.
-from retention import PINNED_SET
+from retention import PINNED_SET, purge_article_satellites, _character_state_keys
 
 def _protection(r, aid):
     """'reference' / 'pinned' / None for one article id."""
@@ -277,11 +277,13 @@ def _delete_articles(r, solr, matching, label):
     if excluded["reference"] or excluded["pinned"]:
         _print_exclusions(len(matching), excluded)
     aids = []
+    char_state_keys = _character_state_keys(r)
     for row in matching:
         key, aid = row[0], row[1]
         r.delete(key)
         r.zrem("feed", aid)
         r.srem("processed_hashes", aid)
+        purge_article_satellites(r, aid, char_state_keys)
         aids.append(aid)
     solr_delete_batch(solr, aids)
     print(colored(f"✅ Deleted {len(aids)} {label} article(s) from Redis and Solr.", "green"))
@@ -513,6 +515,7 @@ def remove_by_id_override(r, solr):
     r.zrem("feed", aid)
     r.srem("processed_hashes", aid)
     r.srem(PINNED_SET, aid)
+    purge_article_satellites(r, aid)
     solr_delete_batch(solr, [aid])
     print(colored(f"✅ Deleted {aid} (override).", "green"))
 
@@ -820,10 +823,12 @@ def trim_database(r, solr):
 
         deleted = 0
         aids = []
+        char_state_keys = _character_state_keys(r)
         for ts, aid in to_delete:
             r.delete(f"article:{aid}")
             r.zrem("feed", aid)
             r.srem("processed_hashes", aid)
+            purge_article_satellites(r, aid, char_state_keys)
             aids.append(aid)
             deleted += 1
         solr_delete_batch(solr, aids)
@@ -856,12 +861,14 @@ def trim_database(r, solr):
             print("Aborted.")
             return
         deleted = 0
+        char_state_keys = _character_state_keys(r)
         for aid in ids_to_delete:
             pipe = r.pipeline()
             pipe.delete(f"article:{aid}")
             pipe.zrem("feed", aid)
             pipe.srem("processed_hashes", aid)
             pipe.execute()
+            purge_article_satellites(r, aid, char_state_keys)
             deleted += 1
             if deleted % 500 == 0:
                 print(f"  Redis: {deleted}/{len(ids_to_delete)} removed...", end='\r')

@@ -22,17 +22,75 @@ Redis DB family.
 """
 
 import logging
+import os
 import time
 
 from site_config import load_site_config
 
 logger = logging.getLogger(__name__)
 
+_site = load_site_config()
+
 # Articles in this SET are exempt from age-based trimming (curated surfaces
 # link to them permanently). Members are article IDs/hashes. The key is
 # slug-namespaced (arc:pinned_articles / huntaegis:pinned_articles) so each
 # stack's pinned set lives in its own DB family, never a sibling's.
-PINNED_SET = f"{load_site_config().slug}:pinned_articles"
+PINNED_SET = f"{_site.slug}:pinned_articles"
+
+# Rehosted hero images for a trimmed article are removed alongside its Redis
+# state so retention no longer orphans them (cleanup.py is only a 9-day backstop).
+SCRAPED_IMAGE_DIR = os.path.join(_site.stack_path, "frontend", "public", "uploads", "scraped")
+
+
+def _character_state_keys(r):
+    """All per-handle character-state keys (pending/posted/skipped/skip_attempts),
+    discovered once via SCAN so a batch purge doesn't rescan per article."""
+    keys = []
+    for prefix in ("characters:pending:", "characters:posted:",
+                   "characters:skipped:", "characters:skip_attempts:"):
+        keys.extend(r.scan_iter(match=prefix + "*", count=200))
+    return keys
+
+
+def purge_article_satellites(r, article_id, char_state_keys=None):
+    """Remove everything keyed to one article EXCEPT its article:{id} hash and
+    its feed / processed_hashes membership (the caller owns those). Covers the
+    comment list and per-comment hashes, character state across every handle,
+    translation and grade cache, and rehosted images. Idempotent — safe to call
+    on an already-clean id. Pass char_state_keys to reuse one SCAN across a batch.
+
+    Without this, age-based trimming and manual kasmir7 deletions orphaned every
+    satellite key/file except the article hash, growing Redis and disk unbounded.
+    """
+    if char_state_keys is None:
+        char_state_keys = _character_state_keys(r)
+
+    comment_ids = r.lrange(f"comments:{article_id}", 0, -1)
+    langs = r.smembers(f"translation:langs:{article_id}")
+
+    pipe = r.pipeline()
+    for cid in comment_ids:
+        pipe.delete(f"comment:{cid}")
+    pipe.delete(f"comments:{article_id}")
+    for lang in langs:
+        pipe.delete(f"translation:{article_id}:{lang}")
+    pipe.delete(f"translation:langs:{article_id}")
+    pipe.delete(f"grade:{article_id}")
+    for k in char_state_keys:
+        if k.startswith("characters:skip_attempts:"):
+            pipe.hdel(k, article_id)          # HASH: article_id is a field
+        elif k.startswith("characters:skipped:"):
+            pipe.zrem(k, article_id)          # ZSET: article_id is a member
+        else:
+            pipe.srem(k, article_id)          # pending / posted are SETs
+    pipe.execute()
+
+    for name in (f"{article_id}.jpg", f"{article_id}-480.webp",
+                 f"{article_id}-800.webp", f"{article_id}-1200.webp"):
+        try:
+            os.remove(os.path.join(SCRAPED_IMAGE_DIR, name))
+        except OSError:
+            pass
 
 
 def trim_by_hours(r, solr, hours: int, dry_run: bool = False) -> dict:
@@ -71,12 +129,14 @@ def trim_by_hours(r, solr, hours: int, dry_run: bool = False) -> dict:
         return {"found": len(ids_to_delete), "deleted": 0, "excluded": excluded}
 
     deleted = 0
+    char_state_keys = _character_state_keys(r)
     for aid in ids_to_delete:
         pipe = r.pipeline()
         pipe.delete(f"article:{aid}")
         pipe.zrem("feed", aid)
         pipe.srem("processed_hashes", aid)
         pipe.execute()
+        purge_article_satellites(r, aid, char_state_keys)
         deleted += 1
 
     if solr is not None:
