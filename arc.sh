@@ -402,7 +402,14 @@ cmd_backup() {
     cmd_prune_logs
     cmd_stop
     echo "🗜️  Archiving code and config..."
+    # Scraped hero images are large (grew the warm tar to ~2 GB) and fully
+    # reproducible on re-scrape; exclude them unless the cfg opts in. Default
+    # (flag absent) is to exclude.
+    local SCRAPED_EXCLUDE="--exclude=./frontend/public/uploads/scraped"
+    [ "$(grep -oP '^include_scraped_images\s*=\s*\K(true|false)' "$ITC_ROOT/arc.cfg" 2>/dev/null)" = "true" ] \
+        && SCRAPED_EXCLUDE=""
     tar -zcf "$FILE" \
+        $SCRAPED_EXCLUDE \
         --exclude="./frontend/node_modules" \
         --exclude="./frontend/.next" \
         --exclude="./backend/venv" \
