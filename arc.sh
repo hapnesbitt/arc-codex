@@ -37,8 +37,13 @@ BACKUP_KEEP=5
 COLD_BACKUP_DIR="/mnt/arcdata/backups"
 COLD_BACKUP_KEEP=4
 
-LOG_MAX_DAYS=9
-LOG_MAX_SIZE_MB=50
+# Log retention/rotation thresholds — single source of truth is the site cfg
+# ([backup].log_days / log_max_mb). logrotate.conf mirrors log_days in its
+# `rotate` count; keep the two in step when either changes.
+LOG_MAX_DAYS="$(grep -oP '^log_days\s*=\s*\K[0-9]+' "$ITC_ROOT/arc.cfg" 2>/dev/null)"
+LOG_MAX_DAYS="${LOG_MAX_DAYS:-9}"
+LOG_MAX_SIZE_MB="$(grep -oP '^log_max_mb\s*=\s*\K[0-9]+' "$ITC_ROOT/arc.cfg" 2>/dev/null)"
+LOG_MAX_SIZE_MB="${LOG_MAX_SIZE_MB:-50}"
 
 # Docker
 COMPOSE_FILE="$ITC_ROOT/docker-compose.yml"
