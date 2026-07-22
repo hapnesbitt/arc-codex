@@ -10,6 +10,8 @@ import sys
 import json
 import redis
 import pysolr
+from datetime import datetime, timezone
+from dateutil import parser
 from dotenv import load_dotenv
 
 load_dotenv('/home/www/arc_stack/backend/.env')
@@ -42,6 +44,22 @@ def classify(directive='', category=''):
         if keyword in combined:
             return cat
     return 'hermes'  # default
+
+def normalize_timestamp(raw_ts):
+    """Convert any Redis timestamp form to ISO 8601 (UTC, 'Z') for Solr's date
+    field — mirrors kasmir7.normalize_timestamp. Arc's `feeds` core uses an ISO
+    date field, so this deliberately does NOT emit epoch-ms like Hunt's
+    plong-keyed feeds_huntaegis reindexer. Raw Redis values carry a +00:00
+    offset and microseconds that the date field can reject; this cleans them."""
+    try:
+        if not raw_ts:
+            return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        if str(raw_ts).isdigit():
+            return datetime.fromtimestamp(int(raw_ts) / 1000, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        return parser.parse(str(raw_ts)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    except Exception:
+        return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
 
 def main():
     keys = r.keys('article:*')
@@ -78,7 +96,7 @@ def main():
                 'content': data.get('original_text', ''),
                 'source': data.get('source_name', data.get('source', 'Unknown')),
                 'url': data.get('sourceUrl', ''),
-                'timestamp': data.get('timestamp', ''),
+                'timestamp': normalize_timestamp(data.get('timestamp', '')),
                 'sentiment': float(dossier.get('sentiment', 0.0)),
                 'directive': data.get('directive', ''),
                 'chimera_score': float(dossier.get('chimera_score', 0.0)),
