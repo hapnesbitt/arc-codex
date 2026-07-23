@@ -29,19 +29,18 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 
 # Copy least-churn to most-churn — maximises layer cache hits.
-# Config changes rarely; source changes per commit; public/ changes hourly
-# (every article hero + its WebP variants lands in public/uploads), so it must
-# come LAST or a single upload invalidates the source layers and forces a full
-# recompile. Measured 2026-07-23: public/ is 2.22 GB / 34k files, ~967 of them
-# new per day.
+#
+# public/ is deliberately NOT copied here. It is 2.22 GB across 34k files and
+# gains ~967 per day (every article hero plus its WebP variants), so having it
+# upstream of `npm run build` meant one upload invalidated the compile. Next's
+# standalone output never includes public/ anyway — the runner stage takes it
+# straight from the build context. The builder needs exactly one file out of
+# it: /wiki reads public/directives.json during static generation.
 COPY frontend/next.config.mjs frontend/tsconfig.json frontend/tailwind.config.mjs frontend/postcss.config.js ./
 COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
 COPY frontend/app         ./app
 COPY frontend/components  ./components
 COPY frontend/lib         ./lib
-COPY frontend/public ./public
-# Keep directives.json in sync with backend at image build time (must follow
-# the public/ copy — it writes into that directory).
 COPY backend/directives.json ./public/directives.json
 
 # NEXT_PUBLIC_* vars must be present at build time
@@ -65,13 +64,20 @@ ENV HOSTNAME=""
 RUN addgroup --system --gid 1001 nodejs \
  && adduser  --system --uid 1001 nextjs
 
-# Standalone output + static assets only — no node_modules, no source
-COPY --from=builder /app/public                    ./public
+# Standalone output + static assets only — no node_modules, no source.
+# public/ comes from the build context rather than the builder stage, so an
+# upload only ever invalidates layers below this line — never the compile.
+COPY frontend/public                               ./public
+COPY backend/directives.json                       ./public/directives.json
 # Defensive: ensure all public/ files are world-readable so the nextjs user
 # (uid 1001) can serve them. Without this, a host-side mode 600 file (the
 # kind umask-restrictive editors create) gets baked in and Next.js returns
 # 500. Mirrors the fix landed on Huntaegis.
-RUN chmod -R a+rX ./public
+#
+# Scoped to files that actually lack the bit. `chmod -R` touched all 34k
+# every build and cost 218s (measured 2026-07-23) to change nothing — the
+# host tree has zero offenders. This form costs 0.7s and still catches one.
+RUN find ./public ! -perm -o+r -exec chmod a+rX {} + || true
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static     ./.next/static
 
