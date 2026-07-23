@@ -69,8 +69,15 @@ async function getWork(id: string, lang: string): Promise<WorkResponse | null> {
       const h = await headers();
       ua = h.get('user-agent') || '';
     } catch {}
+    // no-store, deliberately: book payloads are 0.5-2 MB of base64 text and
+    // Next's filesystem fetch cache has no size cap and no eviction. Keyed by
+    // URL, every distinct work ever viewed left a permanent entry — measured
+    // 2026-07-22 at 118 GB / 347k entries, ~10 GB/day, of which /api/library
+    // was 99.2% of the bytes. A shorter revalidate would not have helped: it
+    // controls staleness, not entry count. Flask serves these from loopback in
+    // 3-8 ms, so re-fetching per render is cheaper than storing them.
     const res = await fetch(url, {
-      next: { revalidate: 3600 },
+      cache: 'no-store',
       headers: ua ? { 'X-Real-User-Agent': ua } : undefined,
     });
     if (!res.ok) return null;
