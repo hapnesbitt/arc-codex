@@ -254,7 +254,8 @@ function stripLeadingTitle(body: string, title: string): string {
     return body;
 }
 
-// --- Helper: Text with "Read More" Accordion ---
+// --- Helper: Text with "Read Now" Accordion (expands the story in place;
+// the permalink link to the full analysis page is labelled "Read Analysis") ---
 const AccordionText: React.FC<AccordionTextProps> = ({ text, characterLimit = 400, fullyExpanded = false }) => {
     const [isExpanded, setIsExpanded] = useState<boolean>(false);
     const remainderId = useId();
@@ -300,7 +301,7 @@ const AccordionText: React.FC<AccordionTextProps> = ({ text, characterLimit = 40
                         : 'text-rose-400 hover:text-rose-200'
                 }`}
             >
-                {isExpanded ? "Read less —" : "— Read more"}
+                {isExpanded ? "Read less —" : "— Read Now"}
             </button>
             <div
                 id={remainderId}
@@ -1196,7 +1197,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 href={`/article/${card.id}`}
                                 className="self-center font-sans text-xs uppercase tracking-[0.2em] text-nb-400 hover:text-icaccent ring-focus rounded"
                             >
-                                — Read more
+                                — Read Analysis
                             </Link>
                         </div>
 
