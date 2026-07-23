@@ -46,7 +46,8 @@ export const cardConfig: CardConfig = {
 
   readingScore: true,
   objectivityScore: true,
-  objectivityDashboardUrl: 'https://grafana.arc-codex.com/d/arc-intelligence-v2',
+  // Site-scoped view of the shared corpus-intelligence-v2 dashboard.
+  objectivityDashboardUrl: 'https://grafana.arc-codex.com/d/corpus-intelligence-v2/corpus-intelligence?var-site=arc',
 
   research: true,
   share: true,
