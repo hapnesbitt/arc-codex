@@ -28,16 +28,21 @@ WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
 
-# Copy coarse-to-fine — maximises layer cache hits.
-# Config files change less often than components.
+# Copy least-churn to most-churn — maximises layer cache hits.
+# Config changes rarely; source changes per commit; public/ changes hourly
+# (every article hero + its WebP variants lands in public/uploads), so it must
+# come LAST or a single upload invalidates the source layers and forces a full
+# recompile. Measured 2026-07-23: public/ is 2.22 GB / 34k files, ~967 of them
+# new per day.
 COPY frontend/next.config.mjs frontend/tsconfig.json frontend/tailwind.config.mjs frontend/postcss.config.js ./
 COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
-COPY frontend/public ./public
-# Keep directives.json in sync with backend at image build time
-COPY backend/directives.json ./public/directives.json
 COPY frontend/app         ./app
 COPY frontend/components  ./components
 COPY frontend/lib         ./lib
+COPY frontend/public ./public
+# Keep directives.json in sync with backend at image build time (must follow
+# the public/ copy — it writes into that directory).
+COPY backend/directives.json ./public/directives.json
 
 # NEXT_PUBLIC_* vars must be present at build time
 ARG NEXTAUTH_URL
