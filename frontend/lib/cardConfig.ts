@@ -17,6 +17,7 @@ export interface CardConfig {
 
   // Scores
   readingScore: boolean;            // reading-difficulty dial (readability_index + reading_label)
+  scoringExplainerUrl: string;      // reading dial links here; '' → dial renders as plain text
   objectivityScore: boolean;        // objectivity dial (objectivity_score)
   objectivityDashboardUrl: string;  // '' → dial renders without a dashboard link
 
@@ -45,6 +46,8 @@ export const cardConfig: CardConfig = {
   videoDomainFallback: 'vid.arc-codex.com',
 
   readingScore: true,
+  // Reader-facing explainer for the reading score (see /about/scoring).
+  scoringExplainerUrl: '/about/scoring',
   objectivityScore: true,
   // Site-scoped view of the shared corpus-intelligence-v2 dashboard.
   objectivityDashboardUrl: 'https://grafana.arc-codex.com/d/corpus-intelligence-v2/corpus-intelligence?var-site=arc',

@@ -74,6 +74,7 @@ interface AccordionTextProps {
 interface ReadingDialProps {
     index: number | null;  // 0-100 readability synthesis (readability_index), or null → label only
     label: string;         // reading_label, e.g. "College"
+    explainerUrl?: string; // optional link to the reading-score explainer page
 }
 
 interface ObjectivityDialProps {
@@ -365,7 +366,7 @@ const VideoList: React.FC<{ text: string }> = ({ text }) => {
 // shared read would render the wrong metric on one site. `index` may be null on
 // a site that has reading_label but no 0-100 index — then the label shows
 // without a number.
-const ReadingDial: React.FC<ReadingDialProps> = ({ index, label }) => {
+const ReadingDial: React.FC<ReadingDialProps> = ({ index, label, explainerUrl }) => {
     const hasIndex = index != null && index > 0;
     const circumference = 2 * Math.PI * 20;
     const strokeDashoffset = hasIndex ? circumference - ((index! / 100) * circumference) : circumference;
@@ -377,7 +378,7 @@ const ReadingDial: React.FC<ReadingDialProps> = ({ index, label }) => {
         : index! <= 70 ? '#15803d'
         : '#14532d';
 
-    return (
+    const gauge = (
         <>
         <div className="flex flex-col items-center gap-1" aria-hidden="true">
             <div className="relative h-16 w-16 flex items-center justify-center flex-shrink-0">
@@ -428,6 +429,22 @@ const ReadingDial: React.FC<ReadingDialProps> = ({ index, label }) => {
         </span>
         </>
     );
+
+    return explainerUrl
+        ? (
+            <Link
+                href={explainerUrl}
+                className="ring-focus rounded"
+                aria-label={
+                    hasIndex
+                        ? `Reading score ${index} out of 100, ${label} reading level — how the reading score works`
+                        : `${label} reading level — how the reading score works`
+                }
+            >
+                {gauge}
+            </Link>
+        )
+        : gauge;
 };
 
 // ObjectivityDial — reads objectivity_score (0-100, present on both sites).
@@ -1173,7 +1190,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 <ObjectivityDial score={objectivityScore} dashboardUrl={cardConfig.objectivityDashboardUrl || undefined} />
                             )}
                             {cardConfig.readingScore && (readabilityIndex != null || readingLabel) && (
-                                <ReadingDial index={readabilityIndex} label={readingLabel} />
+                                <ReadingDial index={readabilityIndex} label={readingLabel} explainerUrl={cardConfig.scoringExplainerUrl || undefined} />
                             )}
                             <Link
                                 href={`/article/${card.id}`}
