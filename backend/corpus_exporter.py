@@ -106,11 +106,23 @@ except Exception:
 
 load_dotenv()
 
+# --- Site identity (schema v2) — the ONLY per-stack variance. This file is
+#     byte-identical across stacks; Arc vs Hunt comes entirely from site_config:
+#     the site label on every corpus metric, the Redis DB scanned, the
+#     slug-prefixed stats keys, and whether this process owns the cross-stack
+#     operational fast loop. ---
+from site_config import load_site_config
+_site = load_site_config()
+SITE = _site.slug
+# Arc owns cross-stack operational monitoring (reads both DBs, stack-labeled);
+# Hunt runs this identical file but leaves the fast loop off.
+CROSS_STACK_OPERATIONAL = bool(_site["monitoring"].get("cross_stack_operational", False))
+
 # --- Config ---
 REDIS_HOST     = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT     = int(os.getenv("REDIS_PORT", 6379))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
-REDIS_DB       = int(os.getenv("REDIS_DB", 0))
+REDIS_DB       = _site.redis_db   # own DB (Arc 0 / Hunt 1) — never hardcoded
 EXPORTER_PORT  = int(os.getenv("EXPORTER_PORT", 9101))
 INTERVAL_SEC   = int(os.getenv("EXPORTER_INTERVAL_SEC", 3600))
 TOP_SOURCES    = int(os.getenv("EXPORTER_TOP_SOURCES", 30))
@@ -179,7 +191,7 @@ ARC_PATTERNS = {
 
 TRACKED_FIELDS = [
     'title', 'sourceUrl', 'red_team_analysis', 'blue_team_analysis',
-    'purple_team_analysis', 'sentinel_verdict', 'source_lang', 'chimera_score',
+    'purple_team_analysis', 'sentinel_verdict', 'source_lang', 'objectivity_score',
 ]
 
 NLP_FIELDS = [
@@ -196,68 +208,77 @@ READING_LEVELS = ['elementary', 'middle_school', 'high_school', 'college', 'grad
 NLP_ENTITY_TYPES = ['person', 'org', 'gpe', 'loc', 'date', 'money', 'event']
 
 # Stats keys written by scribe.py
-STATS_FETCH          = "arc:stats:fetch"
-STATS_QUALITY        = "arc:stats:quality"
-STATS_RSS            = "arc:stats:rss"
-STATS_PUBLISH        = "arc:stats:publish"
-STATS_PRIORITY       = "arc:stats:priority"
-STATS_SOURCE_LATENCY = "arc:stats:source_latency"
+STATS_FETCH          = _site.redis_key("stats:fetch")
+STATS_QUALITY        = _site.redis_key("stats:quality")
+STATS_RSS            = _site.redis_key("stats:rss")
+STATS_PUBLISH        = _site.redis_key("stats:publish")
+STATS_PRIORITY       = _site.redis_key("stats:priority")
+STATS_SOURCE_LATENCY = _site.redis_key("stats:source_latency")
 
 # =============================================================================
-# Prometheus metrics — v1.0 (unchanged)
+# Corpus metrics — site-labeled (corpus_* + site). This file is byte-identical
+# across stacks; SITE (site_config.slug) is the only distinguishing label.
 # =============================================================================
-g_total           = Gauge('arc_corpus_total',            'Total articles in corpus')
-g_scored          = Gauge('arc_corpus_scored_total',     'Articles with chimera_score')
-g_chimera_avg     = Gauge('arc_chimera_score_avg',       'Average chimera score across corpus')
-g_chimera_low     = Gauge('arc_chimera_score_low_total', 'Articles with chimera_score < 0.3 (divisive)')
-g_chimera_high    = Gauge('arc_chimera_score_high_total','Articles with chimera_score >= 0.7 (objective)')
-g_synthetic_pct   = Gauge('arc_synthetic_pct',           'Percentage of articles flagged SYNTHETIC by Sentinel')
-g_last_scrape     = Gauge('arc_exporter_last_scrape_timestamp', 'Unix timestamp of last successful scrape')
-g_scrape_duration = Gauge('arc_exporter_scrape_duration_sec',   'Duration of last corpus scrape in seconds')
-# Wave C R6: newest article timestamp from the feed ZSET (feed is scored
-# by unix timestamp). Feeds the ArcFeedStale alert; a scribe outage or a
-# widespread source failure surfaces here as the value stops advancing.
-g_last_publish    = Gauge('arc_last_publish_timestamp',         'Unix timestamp of the newest article in the feed ZSET')
-g_chimera_bucket  = Gauge('arc_chimera_bucket',   'Chimera score histogram bucket count', ['bucket'])
-g_sentinel        = Gauge('arc_sentinel_total',   'Article count by Sentinel verdict',    ['verdict'])
-g_directive       = Gauge('arc_directive_total',  'Article count by directive/category',  ['directive'])
-g_source          = Gauge('arc_source_total',     'Article count by source domain',       ['domain'])
-g_language        = Gauge('arc_language_total',   'Article count by source language',     ['lang'])
-g_completeness    = Gauge('arc_completeness',     'Percentage of articles with field present (0-100)', ['field'])
-g_arc_pattern     = Gauge('arc_arc_pattern_total','ARC pattern detection count',          ['code', 'name'])
+def _g(name, doc, labels=None):
+    """Site-labeled gauge. Plain gauges are pre-bound to SITE so their .set()
+    calls stay unchanged; labeled gauges keep the parent and take site as the
+    FIRST label at call time — .labels(SITE, ...)."""
+    if labels:
+        return Gauge(name, doc, ['site'] + labels)
+    return Gauge(name, doc, ['site']).labels(SITE)
 
-# =============================================================================
-# Prometheus metrics — v2.0 NLP
-# =============================================================================
-g_nlp_sentiment_avg      = Gauge('arc_nlp_sentiment_avg',        'Avg VADER compound sentiment across corpus')
-g_nlp_vader_pos_avg      = Gauge('arc_nlp_vader_pos_avg',        'Avg VADER positive score')
-g_nlp_vader_neg_avg      = Gauge('arc_nlp_vader_neg_avg',        'Avg VADER negative score')
-g_nlp_vader_neu_avg      = Gauge('arc_nlp_vader_neu_avg',        'Avg VADER neutral score')
-g_nlp_subjectivity_avg   = Gauge('arc_nlp_subjectivity_avg',     'Avg TextBlob subjectivity (0=objective, 1=subjective)')
-g_nlp_word_count_avg     = Gauge('arc_nlp_word_count_avg',       'Avg word count per article')
-g_nlp_sentence_count_avg = Gauge('arc_nlp_sentence_count_avg',   'Avg sentence count per article')
-g_nlp_sentence_len_avg   = Gauge('arc_nlp_avg_sentence_len_avg', 'Avg sentence length in words')
-g_nlp_fk_grade_avg       = Gauge('arc_nlp_fk_grade_avg',         'Avg Flesch-Kincaid grade level')
-g_nlp_coleman_liau_avg   = Gauge('arc_nlp_coleman_liau_avg',     'Avg Coleman-Liau readability index')
-g_nlp_smog_avg           = Gauge('arc_nlp_smog_avg',             'Avg SMOG readability index')
-g_nlp_dale_chall_avg     = Gauge('arc_nlp_dale_chall_avg',       'Avg Dale-Chall readability score')
-g_nlp_coverage_pct       = Gauge('arc_nlp_coverage_pct',         '% of articles with NLP fields present')
-g_nlp_reading_level      = Gauge('arc_nlp_reading_level_total',  'Article count by reading level', ['level'])
-g_nlp_entity             = Gauge('arc_nlp_entity_total',         'Total entity count by NER type across corpus', ['entity_type'])
+g_total           = _g('corpus_total',            'Total articles in corpus')
+g_scored          = _g('corpus_scored_total',     'Articles with an objectivity score')
+# chimera_score is NEVER read here: it is a readability synthesis on Arc but
+# objectivity on Hunt, so one shared metric would silently average two
+# different measures. Split into the two semantic series, each from its own
+# dossier field (same collision the reading/objectivity dials avoid).
+g_readability_avg = _g('corpus_readability_index_avg', 'Average readability index (0-100) across corpus')
+g_objectivity_avg = _g('corpus_objectivity_score_avg', 'Average objectivity score (0-100) across corpus')
+g_objectivity_low = _g('corpus_objectivity_low_total',  'Articles with objectivity_score < 30 (divisive)')
+g_objectivity_high= _g('corpus_objectivity_high_total', 'Articles with objectivity_score >= 70 (objective)')
+g_synthetic_pct   = _g('corpus_synthetic_pct',    'Percentage of articles flagged SYNTHETIC by Sentinel')
+g_last_scrape     = _g('corpus_exporter_last_scrape_timestamp', 'Unix timestamp of last successful scrape')
+g_scrape_duration = _g('corpus_exporter_scrape_duration_sec',   'Duration of last corpus scrape in seconds')
+# Newest article timestamp from the feed ZSET (feed is scored by unix
+# timestamp). Feeds the feed-stale alert; a scribe outage or widespread source
+# failure surfaces here as the value stops advancing.
+g_last_publish    = _g('corpus_last_publish_timestamp', 'Unix timestamp of the newest article in the feed ZSET')
+g_objectivity_bucket = _g('corpus_objectivity_bucket', 'Objectivity score histogram bucket count', ['bucket'])
+g_sentinel        = _g('corpus_sentinel_total',   'Article count by Sentinel verdict',    ['verdict'])
+g_directive       = _g('corpus_directive_total',  'Article count by directive/category',  ['directive'])
+g_source          = _g('corpus_source_total',     'Article count by source domain',       ['domain'])
+g_language        = _g('corpus_language_total',   'Article count by source language',     ['lang'])
+g_completeness    = _g('corpus_completeness',     'Percentage of articles with field present (0-100)', ['field'])
+g_arc_pattern     = _g('corpus_arc_pattern_total','ARC pattern detection count',          ['code', 'name'])
 
-# =============================================================================
-# Prometheus metrics — v2.0 pipeline health
-# =============================================================================
-g_fetch          = Gauge('arc_fetch_total',           'Fetch outcome count by domain and tier', ['domain', 'tier'])
-g_fetch_latency  = Gauge('arc_fetch_latency_avg_ms',  'Avg fetch latency in ms by domain',      ['domain'])
-# Cloud valve (2026-07-12): exhaustion should be a Grafana fact at 60%, not
-# log archaeology at 100% — the July cap exhaustion was invisible for 5 days.
-g_cloud_calls_week = Gauge('arc_cloud_calls_week',     'Cloud escalation calls this ISO week (arc:cloud_calls:weekly:*)')
-g_cloud_week_cap   = Gauge('arc_cloud_calls_week_cap', 'Weekly cloud call cap — escalation degrades to local at 100%')
-g_quality_reject = Gauge('arc_quality_reject_total',  'Quality gate rejection count by reason',  ['reason'])
-g_rss            = Gauge('arc_rss_total',             'RSS feed parse outcome count',            ['outcome'])
-g_publish        = Gauge('arc_publish_total',         'Publish pipeline outcome count',          ['outcome'])
-g_priority       = Gauge('arc_priority_total',        'Priority queue items processed by origin',['origin'])
+# --- NLP metrics (read from the dossier — Arc mirrors nlp_* top-level, Hunt
+#     does not; the dossier exists on both, so we read there) ---
+g_nlp_sentiment_avg      = _g('corpus_nlp_sentiment_avg',        'Avg VADER compound sentiment across corpus')
+g_nlp_vader_pos_avg      = _g('corpus_nlp_vader_pos_avg',        'Avg VADER positive score')
+g_nlp_vader_neg_avg      = _g('corpus_nlp_vader_neg_avg',        'Avg VADER negative score')
+g_nlp_vader_neu_avg      = _g('corpus_nlp_vader_neu_avg',        'Avg VADER neutral score')
+g_nlp_subjectivity_avg   = _g('corpus_nlp_subjectivity_avg',     'Avg TextBlob subjectivity (0=objective, 1=subjective)')
+g_nlp_word_count_avg     = _g('corpus_nlp_word_count_avg',       'Avg word count per article')
+g_nlp_sentence_count_avg = _g('corpus_nlp_sentence_count_avg',   'Avg sentence count per article')
+g_nlp_sentence_len_avg   = _g('corpus_nlp_avg_sentence_len_avg', 'Avg sentence length in words')
+g_nlp_fk_grade_avg       = _g('corpus_nlp_fk_grade_avg',         'Avg Flesch-Kincaid grade level')
+g_nlp_coleman_liau_avg   = _g('corpus_nlp_coleman_liau_avg',     'Avg Coleman-Liau readability index')
+g_nlp_smog_avg           = _g('corpus_nlp_smog_avg',             'Avg SMOG readability index')
+g_nlp_dale_chall_avg     = _g('corpus_nlp_dale_chall_avg',       'Avg Dale-Chall readability score')
+g_nlp_coverage_pct       = _g('corpus_nlp_coverage_pct',         '% of articles with a parseable dossier')
+g_nlp_reading_level      = _g('corpus_nlp_reading_level_total',  'Article count by reading level', ['level'])
+g_nlp_entity             = _g('corpus_nlp_entity_total',         'Total entity count by NER type across corpus', ['entity_type'])
+
+# --- Pipeline health ---
+g_fetch          = _g('corpus_fetch_total',           'Fetch outcome count by domain and tier', ['domain', 'tier'])
+g_fetch_latency  = _g('corpus_fetch_latency_avg_ms',  'Avg fetch latency in ms by domain',      ['domain'])
+g_cloud_calls_week = _g('corpus_cloud_calls_week',    'Cloud escalation calls this ISO week')
+g_cloud_week_cap   = _g('corpus_cloud_calls_week_cap','Weekly cloud call cap — escalation degrades to local at 100%')
+g_quality_reject = _g('corpus_quality_reject_total',  'Quality gate rejection count by reason',  ['reason'])
+g_rss            = _g('corpus_rss_total',             'RSS feed parse outcome count',            ['outcome'])
+g_publish        = _g('corpus_publish_total',         'Publish pipeline outcome count',          ['outcome'])
+g_priority       = _g('corpus_priority_total',        'Priority queue items processed by origin',['origin'])
 
 # =============================================================================
 # Prometheus metrics — v2.1 heartbeats + resource guards (fast loop, 60s)
@@ -752,21 +773,35 @@ def scrape_analyzer_operational(r, now=None):
     g_analyzer_active_locks.labels(stack=_ANALYZER_STACK).set(recent)
     g_analyzer_stale_locks.labels(stack=_ANALYZER_STACK).set(len(active) - recent)
 
-def _get_chimera_score(data):
-    score = data.get('chimera_score')
-    if score is not None:
-        try:
-            return float(score)
-        except (ValueError, TypeError):
-            pass
+def _parse_dossier(data):
+    """The dossier JSON (present on BOTH sites) is the single source for corpus
+    score/NLP reads — Arc mirrors nlp_* onto the hash but Hunt does not."""
     try:
-        dossier = json.loads(data.get('dossier', '{}'))
-        s = dossier.get('chimera_score')
-        if s is not None:
-            return float(s)
+        d = json.loads(data.get('dossier', '{}'))
+        return d if isinstance(d, dict) else {}
     except Exception:
-        pass
+        return {}
+
+def _dossier_float(dossier, *keys):
+    """First present, parseable dossier value across `keys`, or None."""
+    for k in keys:
+        v = dossier.get(k)
+        if v is None or v == '':
+            continue
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            continue
     return None
+
+# NB: we NEVER read chimera_score — it is a readability synthesis on Arc but
+# objectivity on Hunt, so a shared read would mix two different measures.
+# readability_index and objectivity_score are the semantic fields.
+def _get_readability_index(dossier):
+    return _dossier_float(dossier, 'readability_index')
+
+def _get_objectivity_score(dossier):
+    return _dossier_float(dossier, 'objectivity_score')
 
 def _get_sentinel_verdict(data):
     verdict = data.get('sentinel_verdict', '')
@@ -794,8 +829,8 @@ def _scan_arc_patterns(text):
     return found
 
 def _field_present(data, field):
-    if field == 'chimera_score':
-        return _get_chimera_score(data) is not None
+    if field == 'objectivity_score':
+        return _get_objectivity_score(_parse_dossier(data)) is not None
     if field == 'sentinel_verdict':
         return bool(data.get('sentinel_verdict') or data.get('sentinel_analysis'))
     val = data.get(field, '')
@@ -831,7 +866,7 @@ def scrape_pipeline_health(r):
         domain, tier = parts[0], parts[1]
         count = int(val or 0)
         if tier in FETCH_TIERS:
-            g_fetch.labels(domain=domain, tier=tier).set(count)
+            g_fetch.labels(site=SITE, domain=domain, tier=tier).set(count)
         elif tier == 'calls':
             domain_calls[domain] = count
 
@@ -840,27 +875,27 @@ def scrape_pipeline_health(r):
     for domain, cumulative_ms in latency_data.items():
         calls = domain_calls.get(domain, 1)
         avg_ms = round(float(cumulative_ms or 0) / max(calls, 1), 1)
-        g_fetch_latency.labels(domain=domain).set(avg_ms)
+        g_fetch_latency.labels(site=SITE, domain=domain).set(avg_ms)
 
     # --- Quality gate rejections ---
     quality_data = r.hgetall(STATS_QUALITY) or {}
     for reason, count in quality_data.items():
-        g_quality_reject.labels(reason=reason).set(int(count or 0))
+        g_quality_reject.labels(site=SITE, reason=reason).set(int(count or 0))
 
     # --- RSS outcomes ---
     rss_data = r.hgetall(STATS_RSS) or {}
     for outcome in ['ok', 'bozo', 'candidates']:
-        g_rss.labels(outcome=outcome).set(int(rss_data.get(outcome, 0)))
+        g_rss.labels(site=SITE, outcome=outcome).set(int(rss_data.get(outcome, 0)))
 
     # --- Publish outcomes ---
     publish_data = r.hgetall(STATS_PUBLISH) or {}
     for outcome in ['ok', 'failed', 'duplicate']:
-        g_publish.labels(outcome=outcome).set(int(publish_data.get(outcome, 0)))
+        g_publish.labels(site=SITE, outcome=outcome).set(int(publish_data.get(outcome, 0)))
 
     # --- Priority queue origins ---
     priority_data = r.hgetall(STATS_PRIORITY) or {}
     for origin, count in priority_data.items():
-        g_priority.labels(origin=origin).set(int(count or 0))
+        g_priority.labels(site=SITE, origin=origin).set(int(count or 0))
 
     # --- Cloud valve: weekly escalation-call counter vs cap ---
     try:
@@ -881,9 +916,10 @@ def scrape(r):
     t0 = time.time()
     stage_failures = []
 
-    total            = 0
-    scores           = []
-    score_buckets    = Counter()
+    total               = 0
+    readability_scores  = []
+    objectivity_scores  = []
+    obj_buckets         = Counter()
     sentinel_counts  = Counter()
     directive_counts = Counter()
     domain_counts    = Counter()
@@ -927,11 +963,16 @@ def scrape(r):
         # Sentinel
         sentinel_counts[_get_sentinel_verdict(data)] += 1
 
-        # Chimera score
-        s = _get_chimera_score(data)
-        if s is not None:
-            scores.append(s)
-            score_buckets[min(int(s * 10), 9)] += 1
+        # Scores — semantic dossier fields only, NEVER chimera_score (readability
+        # on Arc, objectivity on Hunt; see the getters). Parse the dossier once.
+        dossier = _parse_dossier(data)
+        ri = _get_readability_index(dossier)
+        if ri is not None:
+            readability_scores.append(ri)
+        obj = _get_objectivity_score(dossier)
+        if obj is not None:
+            objectivity_scores.append(obj)
+            obj_buckets[min(int(obj / 10), 9)] += 1   # 0-100 → 10 buckets
 
         # Field completeness
         for field in TRACKED_FIELDS:
@@ -944,78 +985,78 @@ def scrape(r):
             for code in _scan_arc_patterns(purple):
                 pattern_counts[code] += 1
 
-        # --- NLP fields (v2.0) ---
-        has_nlp = bool(data.get('nlp_chimera_score'))
-        if has_nlp:
+        # --- NLP fields — read from the dossier (present on both sites). Arc's
+        #     dossier is rich; Hunt's is leaner, so the fields it lacks (vader,
+        #     coleman/smog/dale, counts) simply don't accumulate for Hunt. ---
+        if dossier:
             nlp_count += 1
 
-            def _f(field):
-                return _safe_float(data.get(field))
+            def _d(*keys):
+                return _dossier_float(dossier, *keys)
 
-            v = _f('nlp_sentiment');        nlp_sentiment.append(v)    if v is not None else None
-            v = _f('nlp_vader_pos');        nlp_vader_pos.append(v)    if v is not None else None
-            v = _f('nlp_vader_neg');        nlp_vader_neg.append(v)    if v is not None else None
-            v = _f('nlp_vader_neu');        nlp_vader_neu.append(v)    if v is not None else None
-            v = _f('nlp_subjectivity');     nlp_subjectivity.append(v) if v is not None else None
-            v = _f('nlp_word_count');       nlp_word_count.append(v)   if v is not None else None
-            v = _f('nlp_sentence_count');   nlp_sentence_count.append(v) if v is not None else None
-            v = _f('nlp_avg_sentence_len'); nlp_sentence_len.append(v) if v is not None else None
-            v = _f('nlp_fk_grade');         nlp_fk_grade.append(v)     if v is not None else None
-            v = _f('nlp_coleman_liau');     nlp_coleman.append(v)      if v is not None else None
-            v = _f('nlp_smog');             nlp_smog.append(v)         if v is not None else None
-            v = _f('nlp_dale_chall');       nlp_dale_chall.append(v)   if v is not None else None
+            v = _d('sentiment');        nlp_sentiment.append(v)      if v is not None else None
+            v = _d('vader_pos');        nlp_vader_pos.append(v)      if v is not None else None
+            v = _d('vader_neg');        nlp_vader_neg.append(v)      if v is not None else None
+            v = _d('vader_neu');        nlp_vader_neu.append(v)      if v is not None else None
+            v = _d('subjectivity');     nlp_subjectivity.append(v)   if v is not None else None
+            v = _d('word_count');       nlp_word_count.append(v)     if v is not None else None
+            v = _d('sentence_count');   nlp_sentence_count.append(v) if v is not None else None
+            v = _d('avg_sentence_len'); nlp_sentence_len.append(v)   if v is not None else None
+            v = _d('fk_grade', 'readability_grade'); nlp_fk_grade.append(v) if v is not None else None
+            v = _d('coleman_liau');     nlp_coleman.append(v)        if v is not None else None
+            v = _d('smog', 'smog_index'); nlp_smog.append(v)         if v is not None else None
+            v = _d('dale_chall');       nlp_dale_chall.append(v)     if v is not None else None
 
-            level = data.get('nlp_reading_level', '')
+            level = dossier.get('reading_level', '')
             if level:
                 nlp_reading_levels[level] += 1
 
             for entity_type in NLP_ENTITY_TYPES:
-                v = _safe_float(data.get(f'nlp_entity_{entity_type}'), 0)
-                nlp_entities[entity_type] += int(v)
+                v = _dossier_float(dossier, f'entity_{entity_type}', f'nlp_entity_{entity_type}')
+                if v is not None:
+                    nlp_entities[entity_type] += int(v)
 
     # ==========================================================================
     # Publish corpus metrics (v1.0 unchanged)
     # ==========================================================================
     g_total.set(total)
-    scored = len(scores)
-    g_scored.set(scored)
+    g_scored.set(len(objectivity_scores))
 
-    if scores:
-        avg = sum(scores) / scored
-        g_chimera_avg.set(round(avg, 4))
-        g_chimera_low.set(sum(1 for s in scores if s < 0.3))
-        g_chimera_high.set(sum(1 for s in scores if s >= 0.7))
+    g_readability_avg.set(_avg(readability_scores))
+    g_objectivity_avg.set(_avg(objectivity_scores))
+    if objectivity_scores:
+        g_objectivity_low.set(sum(1 for s in objectivity_scores if s < 30))
+        g_objectivity_high.set(sum(1 for s in objectivity_scores if s >= 70))
     else:
-        g_chimera_avg.set(0)
-        g_chimera_low.set(0)
-        g_chimera_high.set(0)
+        g_objectivity_low.set(0)
+        g_objectivity_high.set(0)
 
     for i in range(10):
-        label = f"{i/10:.1f}-{(i+1)/10:.1f}"
-        g_chimera_bucket.labels(bucket=label).set(score_buckets.get(i, 0))
+        label = f"{i*10}-{(i+1)*10}"
+        g_objectivity_bucket.labels(site=SITE, bucket=label).set(obj_buckets.get(i, 0))
 
     for verdict in ['HUMAN', 'UNCERTAIN', 'SYNTHETIC', '(NONE)']:
-        g_sentinel.labels(verdict=verdict).set(sentinel_counts.get(verdict, 0))
+        g_sentinel.labels(site=SITE, verdict=verdict).set(sentinel_counts.get(verdict, 0))
 
     synthetic = sentinel_counts.get('SYNTHETIC', 0)
     g_synthetic_pct.set(round(synthetic / total * 100, 2) if total else 0)
 
     for directive, count in directive_counts.items():
-        g_directive.labels(directive=directive).set(count)
+        g_directive.labels(site=SITE, directive=directive).set(count)
 
     for domain, count in domain_counts.most_common(TOP_SOURCES):
-        g_source.labels(domain=domain).set(count)
+        g_source.labels(site=SITE, domain=domain).set(count)
 
     for lang, count in lang_counts.items():
-        g_language.labels(lang=lang).set(count)
+        g_language.labels(site=SITE, lang=lang).set(count)
 
     for field in TRACKED_FIELDS:
         missing = missing_fields.get(field, 0)
         pct = round((total - missing) / total * 100, 1) if total else 0
-        g_completeness.labels(field=field).set(pct)
+        g_completeness.labels(site=SITE, field=field).set(pct)
 
     for code, name in ARC_PATTERNS.items():
-        g_arc_pattern.labels(code=code, name=name).set(pattern_counts.get(code, 0))
+        g_arc_pattern.labels(site=SITE, code=code, name=name).set(pattern_counts.get(code, 0))
 
     # ==========================================================================
     # Publish NLP metrics (v2.0)
@@ -1036,10 +1077,10 @@ def scrape(r):
     g_nlp_dale_chall_avg.set(_avg(nlp_dale_chall))
 
     for level in READING_LEVELS:
-        g_nlp_reading_level.labels(level=level).set(nlp_reading_levels.get(level, 0))
+        g_nlp_reading_level.labels(site=SITE, level=level).set(nlp_reading_levels.get(level, 0))
 
     for entity_type in NLP_ENTITY_TYPES:
-        g_nlp_entity.labels(entity_type=entity_type).set(nlp_entities[entity_type])
+        g_nlp_entity.labels(site=SITE, entity_type=entity_type).set(nlp_entities[entity_type])
 
     # ==========================================================================
     # Pipeline health metrics (v2.0)
@@ -1068,9 +1109,9 @@ def scrape(r):
         stage_failures.append(('publish_timestamp', e))
 
     log.info(
-        f"Scrape complete: {total} articles ({nlp_count} with NLP) in {duration:.1f}s. "
-        f"Avg chimera={round(sum(scores)/len(scores), 3) if scores else 'N/A'}, "
-        f"SYNTHETIC={synthetic} ({synthetic/total*100:.1f}% of total), "
+        f"Scrape complete [site={SITE}]: {total} articles ({nlp_count} with dossier) in {duration:.1f}s. "
+        f"Avg readability={_avg(readability_scores):.1f}, Avg objectivity={_avg(objectivity_scores):.1f}, "
+        f"SYNTHETIC={synthetic} ({(synthetic/total*100) if total else 0:.1f}% of total), "
         f"Avg sentiment={_avg(nlp_sentiment):.3f}, "
         f"Avg subjectivity={_avg(nlp_subjectivity):.3f}, "
         f"Avg FK grade={_avg(nlp_fk_grade):.1f}"
@@ -1196,11 +1237,19 @@ def main():
     t = threading.Thread(target=scrape_loop, args=(r, INTERVAL_SEC), daemon=True)
     t.start()
 
-    # Huntaegis heartbeat lives in its own DB (1) — read-only client.
-    r_hnt = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD,
-                        db=1, decode_responses=True)
-    t_fast = threading.Thread(target=fast_loop, args=(r, r_hnt), daemon=True)
-    t_fast.start()
+    # Cross-stack operational monitoring (scribe/analyzer/intel heartbeats for
+    # BOTH stacks, stack-labeled) is owned by ONE stack only — Arc — so running
+    # this identical file on Hunt doesn't duplicate it. Gated by
+    # [monitoring].cross_stack_operational (true on Arc, absent/false on Hunt).
+    if CROSS_STACK_OPERATIONAL:
+        # Huntaegis heartbeat lives in its own DB (1) — read-only client.
+        r_hnt = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD,
+                            db=1, decode_responses=True)
+        t_fast = threading.Thread(target=fast_loop, args=(r, r_hnt), daemon=True)
+        t_fast.start()
+        log.info("Cross-stack operational fast loop started (this stack owns it).")
+    else:
+        log.info("Cross-stack operational fast loop disabled on this stack.")
 
     try:
         while True:

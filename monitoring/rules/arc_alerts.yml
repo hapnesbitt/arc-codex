@@ -20,9 +20,11 @@ groups:
     interval: 60s
     rules:
       - alert: ArcFeedStale
-        # arc_last_publish_timestamp is the newest article's ts (Wave C R6
-        # gauge; set to 0 on empty feed → NaN in this expr, alert stays off).
-        expr: (time() - arc_last_publish_timestamp) > 10800  # 3h
+        # corpus_last_publish_timestamp is the newest article's ts (site-labeled
+        # after the exporter rename; scoped to site="arc" so Hunt's series can't
+        # satisfy Arc's alert). Set to 0 on empty feed → NaN in this expr, alert
+        # stays off.
+        expr: (time() - corpus_last_publish_timestamp{site="arc"}) > 10800  # 3h
         for: 10m
         labels:
           severity: warning
