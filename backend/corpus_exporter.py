@@ -123,7 +123,10 @@ REDIS_HOST     = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT     = int(os.getenv("REDIS_PORT", 6379))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
 REDIS_DB       = _site.redis_db   # own DB (Arc 0 / Hunt 1) — never hardcoded
-EXPORTER_PORT  = int(os.getenv("EXPORTER_PORT", 9101))
+# Port comes from the site's [monitoring].exporter_port (Arc 9101 / Hunt 9111)
+# so this byte-identical file binds a distinct port per stack; env still wins
+# for one-off overrides.
+EXPORTER_PORT  = int(os.getenv("EXPORTER_PORT", _site["monitoring"].get("exporter_port", 9101)))
 INTERVAL_SEC   = int(os.getenv("EXPORTER_INTERVAL_SEC", 3600))
 TOP_SOURCES    = int(os.getenv("EXPORTER_TOP_SOURCES", 30))
 STALE_AFTER_SEC = max(INTERVAL_SEC * 2 + 300, 900)
@@ -295,56 +298,51 @@ g_redis_memory_ratio   = Gauge('arc_redis_memory_ratio',      'used_memory / max
 
 # P0-A exporter self-observation. These separate HTTP scrapeability
 # (Prometheus up) from completed-scan status, staleness, and readiness.
-g_intel_ready = Gauge(
-    'arc_intelligence_exporter_ready',
-    '1 only after a complete successful scan and a recent successful fast-state read',
-)
-g_intel_stale = Gauge(
-    'arc_intelligence_exporter_stale',
-    '1 when no successful scan exists or the last successful scan is too old',
-)
-g_intel_scan_in_progress = Gauge(
-    'arc_intelligence_exporter_scan_in_progress',
-    '1 while a full corpus scan is running',
-)
-g_intel_last_scan_success = Gauge(
-    'arc_intelligence_exporter_last_scan_success',
-    'Most recently completed scan result (1 success, 0 failure or not yet run)',
-)
-g_intel_last_scan = Gauge(
-    'arc_intelligence_exporter_last_scan_timestamp_seconds',
-    'Unix timestamp of the last fully successful scan; 0 before first success',
-)
-g_intel_last_attempt = Gauge(
-    'arc_intelligence_exporter_last_scan_attempt_timestamp_seconds',
-    'Unix timestamp of the most recent scan start or completion; 0 before first attempt',
-)
-g_intel_last_fast_state = Gauge(
-    'arc_intelligence_exporter_last_fast_state_timestamp_seconds',
-    'Unix timestamp of the last successful fast-state read; 0 when unavailable',
-)
+# These run on BOTH stacks (the corpus scan + startup health path), so they
+# carry the site label like the corpus metrics — otherwise the two exporters'
+# series collide the instant both are scraped. Neutral names, no arc_ prefix.
+g_intel_ready = _g('intelligence_exporter_ready',
+    '1 only after a complete successful scan and a recent successful fast-state read')
+g_intel_stale = _g('intelligence_exporter_stale',
+    '1 when no successful scan exists or the last successful scan is too old')
+g_intel_scan_in_progress = _g('intelligence_exporter_scan_in_progress',
+    '1 while a full corpus scan is running')
+g_intel_last_scan_success = _g('intelligence_exporter_last_scan_success',
+    'Most recently completed scan result (1 success, 0 failure or not yet run)')
+g_intel_last_scan = _g('intelligence_exporter_last_scan_timestamp_seconds',
+    'Unix timestamp of the last fully successful scan; 0 before first success')
+g_intel_last_attempt = _g('intelligence_exporter_last_scan_attempt_timestamp_seconds',
+    'Unix timestamp of the most recent scan start or completion; 0 before first attempt')
+g_intel_last_fast_state = _g('intelligence_exporter_last_fast_state_timestamp_seconds',
+    'Unix timestamp of the last successful fast-state read; 0 when unavailable')
 c_intel_scans = PromCounter(
-    'arc_intelligence_exporter_scans_total',
+    'intelligence_exporter_scans_total',
     'Full corpus scan attempts by result',
-    ['result'],
+    ['site', 'result'],
 )
 h_intel_scan_duration = Histogram(
-    'arc_intelligence_exporter_scan_duration_seconds',
+    'intelligence_exporter_scan_duration_seconds',
     'Duration of full corpus scan attempts, including failures',
+    ['site'],
     buckets=(0.5, 1, 2, 5, 10, 30, 60, 120),
 )
 c_intel_scan_errors = PromCounter(
-    'arc_intelligence_exporter_scan_errors_total',
+    'intelligence_exporter_scan_errors_total',
     'Exporter errors by bounded stage',
-    ['stage'],
+    ['site', 'stage'],
 )
 
 for _result in sorted(EXPORTER_SCAN_RESULTS):
-    c_intel_scans.labels(result=_result)
+    c_intel_scans.labels(site=SITE, result=_result)
 for _stage in sorted(EXPORTER_ERROR_STAGES):
-    c_intel_scan_errors.labels(stage=_stage)
+    c_intel_scan_errors.labels(site=SITE, stage=_stage)
 
-exporter_health = ExporterHealthState(stale_after_seconds=STALE_AFTER_SEC)
+# Only the fast loop produces fast-state reads, so readiness requires one only
+# on the stack that runs it (Arc). Hunt's readiness = successful, non-stale scan.
+exporter_health = ExporterHealthState(
+    stale_after_seconds=STALE_AFTER_SEC,
+    requires_fast_state=CROSS_STACK_OPERATIONAL,
+)
 
 # P0-B Scribe state. PID existence is diagnostic only; readiness additionally
 # requires a fresh heartbeat and a valid non-failed, non-stalled state record.
@@ -1130,23 +1128,23 @@ def run_scan_once(r):
         scrape(r)
     except ScanStageError as e:
         for stage, _cause in e.failures:
-            c_intel_scan_errors.labels(stage=stage).inc()
-        c_intel_scans.labels(result='failure').inc()
+            c_intel_scan_errors.labels(site=SITE, stage=stage).inc()
+        c_intel_scans.labels(site=SITE, result='failure').inc()
         exporter_health.finish_scan(False)
         log.error("Incomplete exporter scan: %s", e)
         return False
     except Exception as e:
-        c_intel_scan_errors.labels(stage='redis_scan').inc()
-        c_intel_scans.labels(result='failure').inc()
+        c_intel_scan_errors.labels(site=SITE, stage='redis_scan').inc()
+        c_intel_scans.labels(site=SITE, result='failure').inc()
         exporter_health.finish_scan(False)
         log.error(f"Scrape failed: {e}", exc_info=True)
         return False
     else:
-        c_intel_scans.labels(result='success').inc()
+        c_intel_scans.labels(site=SITE, result='success').inc()
         exporter_health.finish_scan(True)
         return True
     finally:
-        h_intel_scan_duration.observe(time.monotonic() - started)
+        h_intel_scan_duration.labels(site=SITE).observe(time.monotonic() - started)
         _publish_exporter_health()
 
 
@@ -1191,14 +1189,14 @@ def scrape_fast(r_arc, r_hnt):
         scrape_scribe_operational(r_arc, now=now)
     except Exception as exc:
         _clear_scribe_operational_metrics()
-        c_intel_scan_errors.labels(stage='operational_state').inc()
+        c_intel_scan_errors.labels(site=SITE, stage='operational_state').inc()
         log.warning('Scribe operational-state read failed: %s', type(exc).__name__)
 
     try:
         scrape_analyzer_operational(r_arc, now=now)
     except Exception as exc:
         _clear_analyzer_metrics()
-        c_intel_scan_errors.labels(stage='operational_state').inc()
+        c_intel_scan_errors.labels(site=SITE, stage='operational_state').inc()
         log.warning('Analyzer operational-state read failed: %s', type(exc).__name__)
 
 
@@ -1209,14 +1207,14 @@ def fast_loop(r_arc, r_hnt, interval=60):
             exporter_health.mark_fast_state_success()
         except Exception as e:
             exporter_health.mark_fast_state_failure()
-            c_intel_scan_errors.labels(stage='fast_state').inc()
+            c_intel_scan_errors.labels(site=SITE, stage='fast_state').inc()
             log.warning(f"Fast scrape failed (non-fatal): {e}")
         _publish_exporter_health()
         time.sleep(interval)
 
 
 def main():
-    log.info(f"Arc Codex Corpus Exporter v2.0 — port {EXPORTER_PORT}")
+    log.info(f"{_site['site']['name']} Corpus Exporter v2.0 — site={SITE} port {EXPORTER_PORT}")
     log.info(f"Scrape interval: {INTERVAL_SEC//60} minutes")
 
     # Publish fail-closed startup state before opening the HTTP listener.

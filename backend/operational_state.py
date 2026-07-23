@@ -460,12 +460,18 @@ class ExporterHealthState:
         *,
         stale_after_seconds: float,
         fast_state_ttl_seconds: float = HEARTBEAT_TTL_SECONDS,
+        requires_fast_state: bool = True,
         clock=time.time,
     ) -> None:
         if stale_after_seconds <= 0 or fast_state_ttl_seconds <= 0:
             raise ValueError("health timeouts must be positive")
         self._stale_after = float(stale_after_seconds)
         self._fast_state_ttl = float(fast_state_ttl_seconds)
+        # On stacks that don't run the fast loop (cross_stack_operational=false,
+        # e.g. Huntaegis) there is no fast-state read, so readiness must not
+        # require one — otherwise the exporter reports itself perpetually
+        # not-ready despite healthy scans.
+        self._requires_fast_state = bool(requires_fast_state)
         self._clock = clock
         self._lock = threading.Lock()
         self._scan_in_progress = False
@@ -504,7 +510,8 @@ class ExporterHealthState:
             fast_ts = self._last_fast_state_timestamp
             stale = not scan_ts or current - scan_ts > self._stale_after
             fast_fresh = bool(fast_ts) and current - fast_ts <= self._fast_state_ttl
-            ready = self._last_scan_success and not stale and fast_fresh
+            fast_ok = fast_fresh if self._requires_fast_state else True
+            ready = self._last_scan_success and not stale and fast_ok
             return ExporterHealthSnapshot(
                 ready=bool(ready),
                 stale=bool(stale),

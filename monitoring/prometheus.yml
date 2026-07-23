@@ -1,6 +1,7 @@
 # =============================================================================
 # Arc Codex — prometheus.yml
-# Scrapes corpus_exporter.py running natively at localhost:9101
+# Scrapes corpus_exporter.py running natively at localhost:9101 (Arc, DB0)
+#   and localhost:9111 (Huntaegis, DB1 — byte-identical exporter, site-labeled)
 # Scrapes caddy_exporter.py running natively at localhost:9102
 # =============================================================================
 
@@ -29,6 +30,15 @@ scrape_configs:
       - targets: ['localhost:9101']
     scrape_interval: 2m
     scrape_timeout:  120s    # full corpus scan can take ~30s on 2000+ articles
+
+  # Huntaegis runs the byte-identical corpus_exporter on :9111 (Redis DB1). Its
+  # series are already site-labeled (site="huntaegis") so they don't collide
+  # with Arc's; this job also gives Hunt free liveness via up{job=...}.
+  - job_name: 'huntaegis_corpus'
+    static_configs:
+      - targets: ['localhost:9111']
+    scrape_interval: 2m
+    scrape_timeout:  120s
 
   - job_name: 'arc_traffic'
     static_configs:
