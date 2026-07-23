@@ -151,6 +151,47 @@ free_port() {
     [ -z "$listeners" ] || { echo "    ❌ Port $port remains occupied; refusing startup"; return 1; }
 }
 
+# ==============================================================================
+# UPLOADS BIND-MOUNT PREFLIGHT
+# frontend/public/uploads is served from the host (docker-compose.yml), not
+# baked into the image. Two things must hold before the frontend container
+# starts, and neither can be left to chance:
+#
+#   1. The directory must exist. If it does not, Docker creates the bind
+#      source itself as root:root — the backend (uid 1000) then silently
+#      loses the ability to write heroes. This is the restore-from-scratch
+#      and fresh-appliance failure mode.
+#   2. Files must be world-readable. The container serves them as uid 1001
+#      (nextjs, gid 65533/nogroup), which matches neither the owner nor the
+#      group of a 664 ross:ross upload — it reads them via the "other" bits.
+#      The image used to carry a chmod pass for this; uploads no longer pass
+#      through the image, so the check lives here.
+#
+# Deliberately touches only offenders: a blanket chmod -R over 34k files cost
+# 218s per build when it lived in the Dockerfile.
+# ==============================================================================
+ensure_uploads_dir() {
+    local d="$FRONTEND_DIR/public/uploads"
+
+    if [ ! -d "$d" ]; then
+        echo "  📁 uploads/ missing (fresh host or restore) — creating $d"
+        mkdir -p "$d" || { echo "  ❌ Cannot create $d — frontend would serve 404s for every hero"; return 1; }
+    fi
+
+    # Owned by the stack user, group-writable, world-readable+traversable.
+    chmod 775 "$d" 2>/dev/null || true
+
+    local bad_files bad_dirs
+    bad_files=$(find "$d" -type f ! -perm -o+r 2>/dev/null | wc -l)
+    bad_dirs=$(find "$d" -type d ! -perm -o+x 2>/dev/null | wc -l)
+    if [ "$bad_files" -gt 0 ] || [ "$bad_dirs" -gt 0 ]; then
+        echo "  🔧 Normalising $bad_files file(s) + $bad_dirs dir(s) unreadable by the container user..."
+        find "$d" -type f ! -perm -o+r -exec chmod a+r  {} + 2>/dev/null
+        find "$d" -type d ! -perm -o+x -exec chmod a+rx {} + 2>/dev/null
+    fi
+    return 0
+}
+
 start_service() {
     local name dir cmd use_venv port
     IFS='|' read -r name dir cmd use_venv port <<< "$1"
@@ -166,6 +207,7 @@ start_service() {
 
     # Docker-managed services
     if [ "$cmd" = "docker" ]; then
+        [ "$name" = "frontend" ] && { ensure_uploads_dir || return 1; }
         docker compose -f "$COMPOSE_FILE" up -d --no-deps "$name" >> "$LOG_DIR/$name.log" 2>&1
         sleep 6
         if docker ps --filter "name=arc-$name" --filter "status=running" -q | grep -q .; then
@@ -459,6 +501,7 @@ cmd_build() {
     if [ $? -eq 0 ]; then
         echo "✅ Build complete."
         echo "  🔄 Starting new frontend container..."
+        ensure_uploads_dir || { echo "❌ Refusing to start frontend without a usable uploads/ mount."; exit 1; }
         docker compose -f "$COMPOSE_FILE" up -d --no-deps frontend 2>&1
         sleep 6
         if is_running "frontend"; then

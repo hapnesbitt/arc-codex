@@ -144,6 +144,17 @@ services:
     # container recreates → warmer performance after deploys.
     volumes:
       - /mnt/arcdata/docker-caches/arc-frontend-next:/app/.next/cache
+      # Uploads are served from the host, not baked into the image (2026-07-23).
+      # 34k hero images + WebP variants = 2.1 GB that next build never reads;
+      # baking them made every rebuild copy and export that layer (~250s of a
+      # 256s build). Read-only: the backend (uid 1000) writes here, the
+      # container (uid 1001) only serves. The 35 non-upload files in public/
+      # — fonts, icons, ads.txt — stay in the image.
+      #
+      # If this directory is missing at container start, Docker creates it as
+      # root:root and the backend can no longer write heroes. `arc.sh` runs
+      # ensure_uploads_dir() before every frontend start to prevent that.
+      - ./frontend/public/uploads:/app/public/uploads:ro
     depends_on:
       gunicorn:
         condition: service_healthy

@@ -5,6 +5,11 @@ backend/venv
 # Build output
 frontend/.next
 
+# Uploads — bind-mounted from the host at runtime (docker-compose.yml), never
+# baked in. 2.1 GB / 34k files that next build does not read; keeping them out
+# of the context also keeps them out of the image layer and the export.
+frontend/public/uploads
+
 # Logs and runtime
 logs/
 pids/
