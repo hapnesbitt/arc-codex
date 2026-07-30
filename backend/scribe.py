@@ -540,6 +540,7 @@ def extract_image_url_enhanced(html_content, url):
 # sources 403 on hotlink (measured 2026-07-02) and URLs rot over time.
 SCRAPED_IMAGE_DIR = os.path.join(os.path.dirname(BASE_DIR), 'frontend', 'public', 'uploads', 'scraped')
 REHOST_W, REHOST_H = 1200, 675          # 16:9 — matches the aspect-video card container
+REHOST_ORIG_MAX = 1920                  # longest-side cap for the preserved source; matches main.py:_upload_image_inner
 REHOST_MAX_BYTES = 10 * 1024 * 1024     # same cap as the manual-upload endpoint
 REHOST_FETCH_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
@@ -595,12 +596,23 @@ def _get_with_ssrf_guard(session, url, timeout, max_redirects=5):
 
 
 def rehost_article_image(article_id, image_url):
-    """Fetch an external hero image, normalize to 1200x675 JPEG (center-crop,
-    same PIL pattern as the manual-upload resize in main.py), save as
-    /uploads/scraped/{article_id}.jpg — idempotent per article. Returns the
-    relative serving path, or None on any failure: callers must then fall
-    back to the site default image (never ship the failed hotlink); the
-    article publishes regardless."""
+    """Fetch an external hero image, save two normalized outputs under
+    /uploads/scraped/ — idempotent per article. Returns the relative serving
+    path (the card), or None on any failure: callers must then fall back to
+    the site default image (never ship the failed hotlink); the article
+    publishes regardless.
+
+    Outputs:
+      {article_id}.jpg      — 1200x675 center-crop, the card derivative.
+                              Byte-for-byte the same as before the split;
+                              filename unchanged so imageUrl, the 480/800/
+                              1200 WebP variants, and Caddy's /uploads/*
+                              handler all keep pointing at this exact path.
+      {article_id}-orig.jpg — Preserved source, longest side ≤ 1920, no
+                              crop. Enables re-deriving the card (or new
+                              presentations) without a re-fetch of an
+                              upstream URL that may have rotted.
+    """
     try:
         if not image_url.startswith(('http://', 'https://')):
             return None
@@ -629,6 +641,29 @@ def rehost_article_image(article_id, image_url):
         img = ImageOps.exif_transpose(img)
         img = img.convert('RGB')  # flattens GIF/PNG alpha; animated GIFs keep first frame only
         src_w, src_h = img.size
+        os.makedirs(SCRAPED_IMAGE_DIR, exist_ok=True)
+
+        # Preserved source. Resize only — longest side ≤ REHOST_ORIG_MAX,
+        # aspect kept, no crop. Copies main.py:_upload_image_inner's pattern
+        # so manual and scraped originals normalize identically. Both files
+        # exist because the card crop below is now non-destructive: the
+        # source survives, so future presentation changes (article-page
+        # full-image hero, dimensions-in-hash, saliency cropping) become a
+        # re-derivation off this file rather than a re-fetch of a URL that
+        # may have rotted. Cleanup: backend/cleanup.py:purge_scraped_images
+        # splits filename on '-' to extract the article_id, so
+        # `{id}-orig.jpg` sweeps under the same [retention].image_days rule
+        # as the card and its variants.
+        # TODO: dimensions-in-hash, article-page full-image hero, saliency
+        # cropping — deferred; this file is what makes them possible.
+        preserved = img.copy()
+        if max(preserved.size) > REHOST_ORIG_MAX:
+            preserved.thumbnail((REHOST_ORIG_MAX, REHOST_ORIG_MAX), Image.LANCZOS)
+        preserved.save(os.path.join(SCRAPED_IMAGE_DIR, f"{article_id}-orig.jpg"),
+                       format='JPEG', quality=88, optimize=True)
+
+        # Card derivative — 1200x675 center-crop. Byte-for-byte identical to
+        # pre-split output; filename intentionally unchanged.
         scale = max(REHOST_W / src_w, REHOST_H / src_h)
         new_w, new_h = round(src_w * scale), round(src_h * scale)
         img = img.resize((new_w, new_h), Image.LANCZOS)
@@ -636,10 +671,9 @@ def rehost_article_image(article_id, image_url):
         top = (new_h - REHOST_H) // 2
         img = img.crop((left, top, left + REHOST_W, top + REHOST_H))
 
-        os.makedirs(SCRAPED_IMAGE_DIR, exist_ok=True)
         img.save(os.path.join(SCRAPED_IMAGE_DIR, f"{article_id}.jpg"),
                  format='JPEG', quality=85, optimize=True)
-        logger.info(f"🖼️  Rehosted image for {article_id}: {src_w}x{src_h} → {REHOST_W}x{REHOST_H}")
+        logger.info(f"🖼️  Rehosted image for {article_id}: {src_w}x{src_h} → {REHOST_W}x{REHOST_H} + orig ({max(preserved.size)}px longest)")
 
         # WebP variants for responsive srcset (see frontend IntelligenceCard <picture>).
         # Non-fatal: any variant failure logs and continues; the JPEG serves as fallback.
