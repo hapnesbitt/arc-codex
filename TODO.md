@@ -4,6 +4,73 @@ Items diagnosed but not landed. A fresh session should pick up cold from here.
 
 ---
 
+## Hero images: scribe's ingest crop discards source detail permanently (TOP PRIORITY)
+
+**Source**: diagnosed 2026-07-29. The reversible half already landed
+(arc `8cad8a4`, hunt `bdc1901`); this is the half that actually matters.
+
+**Symptom**: `scribe.rehost_article_image` (`backend/scribe.py:632-637`,
+`REHOST_W/REHOST_H = 1200, 675`) center-crops every fetched hero to 16:9 and
+**discards the original**. Source images are not 16:9 — measured across 7,429
+rehost log lines: 34% 16:9-ish, 26% 3:2-ish, 24% wide, 6.9% 4:3, 5.3% square,
+1.7% portrait. The crop is lossy for everything outside that middle band, and
+because the original is never kept the loss is unrecoverable.
+
+**Measurements** (from scribe's own `NNNxNNN → 1200x675` log lines):
+
+| metric | value |
+|---|---|
+| mean source discarded | **11.8%** |
+| median | 7.4% |
+| p90 | **26.2%** |
+| p99 | 56.9% |
+| worst | 86.8% (an 889x66 banner) |
+| images losing >10% | 47.1% |
+| images losing >25% | 10.7% |
+| **images losing >40%** | **6.8%** |
+
+That 6.8% tail is the number that justifies the work: charts, maps, and
+captioned graphics in it are destroyed as information, not merely tightened.
+
+**Fix**: store a less aggressive derivative — clamp the source ratio into a
+sane band instead of forcing a single 16:9, and let the card decide
+presentation. Projected cost, same dataset (mean stored pixels per image vs
+today's flat 810,000):
+
+| policy | px/img | vs today | mean loss | >40% tail |
+|---|---|---|---|---|
+| 1.778 fixed (today) | 810,000 | — | 11.8% | 6.8% |
+| clamp [1.50, 2.00] | 850,677 | +5% | 4.0% | 1.9% |
+| **clamp [1.33, 2.00]** | 866,728 | **+7%** | **2.7%** | **1.5%** |
+| clamp [1.25, 2.35] | 869,207 | +7% | 2.0% | 0.7% |
+| no clamp | 893,399 | +10% | 0% | 0% |
+
+`[1.33, 2.00]` looks like the sweet spot: mean loss 11.8% → 2.7% and the
+>40% tail 6.8% → 1.5%, for +7% storage (~85MB against Arc's current 1.2G
+`uploads/scraped`). Cheap. **The ratio clamp is the decision to make.**
+
+**Constraints, read before starting**:
+- **Only helps new images.** A backfill is *impossible*, not merely pending —
+  the originals were never retained. Only re-fetching from
+  `image_source_url` could recover them, and scribe already notes ~3% of
+  those 403 on hotlink with URLs rotting over time.
+- **Not a variant-pipeline change.** `scripts/make_image_variants.py` and the
+  inline variant loop (`scribe.py:646-653`) both derive from the
+  already-cropped file, so smart cropping there fixes nothing. The change
+  belongs at `scribe.py:637`.
+- **Pillow cannot smart-crop.** Pillow 12.2.0 has `ImageOps.fit()` (same
+  deterministic anchor crop we already do) and `Image.entropy()` (a
+  whole-image scalar). Entropy cropping is hand-rollable via a sliding
+  window; real attention-based cropping needs `pyvips` (`crop="attention"`),
+  which is a libvips system dependency, not a pip add. `pyvips`, `smartcrop`
+  and `opencv` are all currently absent. **A variable ratio clamp gets most
+  of the benefit with none of this**, so do the clamp first and treat smart
+  cropping as a separate question.
+- Changing the stored ratio means changing the card container with it — see
+  the comment at `IntelligenceCard.tsx` hero div. One decision, not two.
+- Applies to **both stacks**; `huntaegis_stack/backend/scribe.py:504` carries
+  the identical constant.
+
 ## /library UI: "works" count double-counts shelf memberships
 
 `/library` reports **34,717 works**, but that is the `shelf_members`
