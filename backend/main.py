@@ -1874,7 +1874,16 @@ def _upload_image_inner():
     raw = file.read()
     if len(raw) > 10 * 1024 * 1024:
         return jsonify({'error': 'Image must be under 10MB'}), 400
-    # Resize to social-card safe dimensions (max 1200x630, keeps aspect ratio)
+    # Normalize to 1200x675 (16:9) by center-crop — NOT aspect-preserving.
+    # 1200x675 is the canonical hero size for this stack: it is what
+    # scribe.REHOST_W/REHOST_H produces for scraped heroes and what the
+    # IntelligenceCard's aspect-video container expects, so a manually
+    # uploaded hero now crops exactly like a scraped one. This was 1200x630
+    # (the classic 1.91:1 OG size), which made manual heroes the only images
+    # in the system at a different ratio for no benefit — scraped heroes
+    # already serve as OG images at 16:9, which social platforms accept.
+    # If this ratio changes, change scribe's REHOST_W/REHOST_H and the card
+    # container together; they are one decision, not three.
     try:
         from pillow_heif import register_heif_opener
         register_heif_opener()
@@ -1883,7 +1892,7 @@ def _upload_image_inner():
     from PIL import Image, ImageOps
     import io
     try:
-        TARGET_W, TARGET_H = 1200, 630
+        TARGET_W, TARGET_H = 1200, 675
         img = Image.open(io.BytesIO(raw))
         img = ImageOps.exif_transpose(img)
         img = img.convert('RGB')
