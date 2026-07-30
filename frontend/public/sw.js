@@ -1,6 +1,23 @@
+// ⚠️ BUILD-TIME SED ANCHOR — DO NOT "clean up", pre-stamp, or rename.
+// Dockerfile.frontend's runner stage rewrites the literal 'arc-v1' below to
+// 'arc-<SW_CACHE_STAMP>' at build time (SW_CACHE_STAMP comes from
+// `git describe --always --dirty` via arc.sh cmd_build). If this literal
+// is renamed, split across lines, or already stamped, the sed becomes a
+// no-op and the build will FAIL LOUDLY with a clear error — the guard is
+// there specifically because a silent no-op reintroduces the propagation
+// bug we spent real time diagnosing (users stuck on the pre-fix bundle
+// with no server-side signal). See memory sw-cache-name-build-stamp.md.
 const CACHE_NAME = 'arc-v1';
 
-// Static assets to precache on install
+// Static assets to precache on install.
+//
+// `/` is a deliberate offline fallback (not an inherited default): PWA users
+// with no network get a snapshot of the feed as it stood at deploy time
+// instead of a failure page. It is stale by definition and the network-first
+// fetch strategy below always prefers the live feed when online, so the
+// staleness only manifests when the user is truly offline — an acceptable
+// tradeoff for a news site where "feed from three days ago" beats "blank
+// error." Revisit only if we build a dedicated /offline surface.
 const PRECACHE_URLS = [
   '/',
   '/manifest.json',

@@ -69,6 +69,29 @@ RUN addgroup --system --gid 1001 nodejs \
 # upload only ever invalidates layers below this line — never the compile.
 COPY frontend/public                               ./public
 COPY backend/directives.json                       ./public/directives.json
+# Stamp the service-worker cache key at build time. `public/sw.js` ships
+# with the literal 'arc-v1'; sed rewrites it in-container only, so the
+# host repo working tree is never touched. Byte-diffing the SW file is
+# what makes the browser detect an update, re-run install (skipWaiting)
+# and activate (clients.claim + drop old cache) — a static literal
+# defeats that entirely and users end up serving pre-fix HTML from the
+# precached / until they clear site data. Default 'dev' is fine for
+# local rebuilds; arc.sh cmd_build exports SW_CACHE_STAMP from
+# `git describe --always --dirty` for production deploys, so clean-vs-
+# dirty at minimum always differs. Runner-stage on purpose: builder's
+# `next build` cache stays intact.
+#
+# The pre-check + post-check are load-bearing: a silent sed no-op (sentinel
+# renamed, already stamped, split across lines) would ship stale bundles
+# with no signal anywhere. Fail the build instead — that's the whole point
+# of this being here. Alternate sed delimiter `|` guards against a stamp
+# that happens to contain `/`.
+ARG SW_CACHE_STAMP=dev
+RUN grep -qF "'arc-v1'" ./public/sw.js \
+      || { echo "❌ sw.js: sentinel 'arc-v1' not found — build-time stamp cannot proceed. Was CACHE_NAME renamed, pre-stamped, or split across lines? See public/sw.js." >&2; exit 1; } \
+ && sed -i "s|'arc-v1'|'arc-${SW_CACHE_STAMP}'|" ./public/sw.js \
+ && grep -qF "'arc-${SW_CACHE_STAMP}'" ./public/sw.js \
+      || { echo "❌ sw.js: post-sed verification failed — CACHE_NAME did not receive stamp '${SW_CACHE_STAMP}'." >&2; exit 1; }
 # Defensive: ensure all public/ files are world-readable so the nextjs user
 # (uid 1001) can serve them. Without this, a host-side mode 600 file (the
 # kind umask-restrictive editors create) gets baked in and Next.js returns

@@ -497,6 +497,12 @@ cmd_build() {
         echo "  🧹 No-cache rebuild requested..."
         build_args="--no-cache"
     fi
+    # Stamp the SW cache key so browsers detect the new bundle and purge the
+    # old cache on next navigation. `git describe --always --dirty` at least
+    # distinguishes clean-vs-dirty; it will not distinguish two different
+    # dirty states, so commit before deploying if that matters.
+    export SW_CACHE_STAMP="$(git -C "$ITC_ROOT" describe --always --dirty 2>/dev/null || echo dev)"
+    echo "  🔖 SW_CACHE_STAMP=$SW_CACHE_STAMP"
     docker compose -f "$COMPOSE_FILE" build $build_args frontend 2>&1
     if [ $? -eq 0 ]; then
         echo "✅ Build complete."

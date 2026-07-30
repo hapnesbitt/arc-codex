@@ -7,7 +7,7 @@
 import React, { useState, useEffect, useRef, ReactNode } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BookOpen, Send, Search, Activity, Home, LogIn,
@@ -323,6 +323,7 @@ const MobileAuthButton = () => {
 
 const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => {
   const pathname = usePathname();
+  const router = useRouter();
   const { data: session } = useSession();
   const isAuthed = !!session?.user;
 
@@ -343,10 +344,20 @@ const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => {
     <div className={cn("flex h-full w-full relative items-center", isMobile ? "flex-row justify-around px-2" : "flex-col py-8")}>
       {!isMobile && (
         <div className="mb-12">
+          {/* Home-nav invariant: clicking the A logo must always land the user
+              on a fresh top-of-home. router.refresh() invalidates the client-
+              side router cache and re-requests the RSC; the server still
+              honors page-level ISR (revalidate=60), so worst-case staleness
+              is bounded by that window rather than by staleTimes.static.
+              The scrollTo handles the "top" half. Do not remove either
+              without replacing the guarantee — this is load-bearing UX. */}
           <Link
             href="/"
             aria-label="Arc Codex Home"
-            onClick={() => document.getElementById('main-content')?.scrollTo({ top: 0, behavior: 'smooth' })}
+            onClick={() => {
+              router.refresh();
+              document.getElementById('main-content')?.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
           >
             <img
               src="/arc-codex-logo.jpg"

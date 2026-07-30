@@ -133,6 +133,7 @@ services:
       dockerfile: ./Dockerfile.frontend
       args:
         NEXTAUTH_URL: ${NEXTAUTH_URL:-https://arc-codex.com}
+        SW_CACHE_STAMP: ${SW_CACHE_STAMP:-dev}
     image: arc-codex-frontend:latest
     container_name: arc-frontend
     network_mode: host

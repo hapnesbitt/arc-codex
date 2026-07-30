@@ -29,22 +29,28 @@ function PageWrapper({ children, showBackButton = false }: { children: React.Rea
         </div>
       )}
 
-      {/* main and footer share ONE fade container. Previously the footer sat outside it,
-          so during the enter fade the content was transparent while the footer was fully
-          opaque — leaving its "School of Chat" cross-link as the only legible thing on
-          screen for the duration. On a cold PWA launch that read as School of Chat
-          branding flashing before Arc's stories appeared. Nothing had leaked between the
-          two apps; the manifest, icons and service worker were all correct.
-          flex-col + flex-1 additionally keeps the footer below the fold on routes that
-          render little content, so it cannot ride up into view. */}
-      {/* initial={false} renders straight into the animate state: no enter fade on load.
-          app/page.tsx does the ISR work (revalidate 60) precisely so first paint is fast
-          and correct, and an enter fade threw that away by hiding the server-rendered
-          HTML on every visit to every route using this wrapper — not just the PWA.
-          A fade earns its keep when content genuinely changes under client-side
-          navigation; it earns nothing on a cold load of already-correct markup.
-          The animate/transition config is retained, so restoring the enter animation is
-          a one-word revert to initial={{ opacity: 0, y: 20 }}. */}
+      {/* Standing invariant: home navigation never flashes School of Chat
+          branding. Two guards enforce it together — break either and the
+          historic PWA-cold-launch flash returns:
+            (1) initial={false} — motion.div renders straight into the
+                animate state, so no enter fade ever runs. app/page.tsx does
+                ISR (revalidate 60) precisely so first paint is fast and
+                correct; an enter fade hid that server-rendered HTML on every
+                visit to every route using this wrapper — not just the PWA.
+                A fade earns its keep when content genuinely changes under
+                client-side navigation; it earns nothing on a cold load of
+                already-correct markup. The animate/transition config is
+                retained, so restoring the enter animation is a one-word
+                revert to initial={{ opacity: 0, y: 20 }}.
+            (2) footer inside the same motion wrapper as <main> — if a fade
+                is ever reintroduced, the SoC cross-link cannot be the only
+                opaque element on screen for its duration. flex-col + flex-1
+                additionally keeps the footer below the fold on routes that
+                render little content, so it cannot ride up into view.
+          Paired with app/ClientLayout.tsx's router.refresh() on the A-logo
+          click, which enforces the "fresh top-of-home on logo click" half of
+          the same invariant. Nothing here has ever leaked between Arc and
+          Hunt; the manifest, icons and service worker were all correct. */}
       <motion.div
         className="relative z-10 flex flex-1 flex-col"
         initial={false}
