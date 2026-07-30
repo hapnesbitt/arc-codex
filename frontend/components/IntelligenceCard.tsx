@@ -1125,7 +1125,14 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                         tabIndex={-1}
                         aria-hidden="true"
                     >
-                        <div className="w-full aspect-video sm:aspect-auto sm:h-80 bg-nb-950 overflow-hidden border-b border-nb-800/60">
+                        {/* 16:9 at every breakpoint, deliberately. Scribe stores every
+                            hero as exactly 1200x675 (scribe.py REHOST_W/REHOST_H), so a
+                            16:9 box is a pixel-exact fit and object-cover crops nothing.
+                            The old `sm:aspect-auto sm:h-80` made the desktop box 672x320
+                            (2.10:1) and silently discarded 15.3% of every hero, top and
+                            bottom. If you change this ratio, change REHOST_W/REHOST_H to
+                            match — they are one decision, not two. */}
+                        <div className="w-full aspect-video bg-nb-950 overflow-hidden border-b border-nb-800/60">
                             {(() => {
                                 const rawSrc = card.imageUrl!.startsWith('/uploads/')
                                     ? `${process.env.NEXT_PUBLIC_BACKEND_URL ?? ''}${card.imageUrl}`
@@ -1151,7 +1158,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                         <source
                                             type="image/webp"
                                             srcSet={`${webpBase}-480.webp 480w, ${webpBase}-800.webp 800w, ${webpBase}-1200.webp 1200w`}
-                                            sizes="(min-width: 640px) 600px, 350px"
+                                            sizes="(min-width: 640px) 672px, 100vw"
                                         />
                                         {jpegImg}
                                     </picture>
