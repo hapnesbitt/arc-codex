@@ -37,9 +37,17 @@ function PageWrapper({ children, showBackButton = false }: { children: React.Rea
           two apps; the manifest, icons and service worker were all correct.
           flex-col + flex-1 additionally keeps the footer below the fold on routes that
           render little content, so it cannot ride up into view. */}
+      {/* initial={false} renders straight into the animate state: no enter fade on load.
+          app/page.tsx does the ISR work (revalidate 60) precisely so first paint is fast
+          and correct, and an enter fade threw that away by hiding the server-rendered
+          HTML on every visit to every route using this wrapper — not just the PWA.
+          A fade earns its keep when content genuinely changes under client-side
+          navigation; it earns nothing on a cold load of already-correct markup.
+          The animate/transition config is retained, so restoring the enter animation is
+          a one-word revert to initial={{ opacity: 0, y: 20 }}. */}
       <motion.div
         className="relative z-10 flex flex-1 flex-col"
-        initial={{ opacity: 0, y: 20 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.25, ease: "easeInOut" }}
       >
