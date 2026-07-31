@@ -882,6 +882,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
     const [translatedFields, setTranslatedFields] = useState<TranslatedFields | null>(null);
     const [isRTL, setIsRTL] = useState(false);
     const [currentLang, setCurrentLang] = useState<string | null>(null);
+    const [revertedByReader, setRevertedByReader] = useState(false);
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? cardConfig.baseUrlFallback;
     const { prefs } = useUserPrefs();
     const isOwner   = !!prefs?.sub && prefs.sub === (card as any).owner;
@@ -895,10 +896,17 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
         setTranslatedFields(null);
         setIsRTL(false);
         setCurrentLang(null);
+        // Reader asked for the original. Latch it so the initialLang effect
+        // below cannot immediately re-translate the card underneath them.
+        // Deliberately scoped to this card: preferred_lang is a persisted
+        // account setting, and a per-card control must not mutate it. The
+        // explicit way to turn the preference off already exists in UserMenu.
+        setRevertedByReader(true);
     };
 
     useEffect(() => {
         if (!initialLang) return;
+        if (revertedByReader) return;
         const fetchInitialLang = async () => {
             try {
                 const res = await fetch(
@@ -913,7 +921,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
             } catch { /* silent fallback */ }
         };
         fetchInitialLang();
-    }, [initialLang]);
+    }, [initialLang, revertedByReader]);
 
     useEffect(() => {
         const expandAll = () => setExpandedSections({
