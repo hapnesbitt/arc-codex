@@ -119,6 +119,21 @@ def _is_rtl(lang: str) -> bool:
     return lang.lower().strip() in RTL_LANGUAGES
 
 
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _cached_only_requested() -> bool:
+    """True when the caller asked for cache-or-nothing (?cached_only=1).
+
+    This is the server-authoritative guarantee that a request cannot start
+    inference. Callers that render a translation without a human asking for
+    one — language pills, any preference-driven mount fetch — must set it, so
+    "this control never triggers a model call" is enforced here rather than
+    trusted to the client.
+    """
+    return request.args.get("cached_only", "").strip().lower() in _TRUTHY
+
+
 def _get_article(article_id: str) -> dict | None:
     """
     Fetch article hash from Redis.
@@ -184,6 +199,13 @@ def translate_article(article_id: str):
             return jsonify(data)
         except json.JSONDecodeError:
             _redis.delete(cache_key)
+
+    # Cache miss. If the caller asked for cache-or-nothing, stop here — before
+    # _get_article, whose slug fallback scans the whole feed ZSET, and well
+    # before _translate would call the model. 204 rather than 404 so callers
+    # can tell "no cached translation" from "no such article".
+    if _cached_only_requested():
+        return "", 204
 
     # Fetch article
     article = _get_article(article_id)
