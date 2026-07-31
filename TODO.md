@@ -4,6 +4,98 @@ Items diagnosed but not landed. A fresh session should pick up cold from here.
 
 ---
 
+## arc_stack's git working tree IS the production serving directory (TOP STRUCTURAL)
+
+**Source**: hit directly on 2026-07-30 while branching the sources.json split.
+
+**The hazard, stated plainly**: `/home/www/arc_stack` is both the git working
+tree and the live serving directory. `backend/sources.json` is **live state
+under version control** — it is read from disk by two running consumers:
+
+| Consumer | Read pattern |
+|---|---|
+| `backend/main.py:2175` `/api/sources` | opens the file **per request**, no in-memory cache |
+| `backend/scribe.py:1904` | reloads inside the `while True:` at 1876, i.e. **every ingest cycle** |
+
+Therefore **a branch switch rewrites production, instantly and silently.**
+
+This is not theoretical. On 2026-07-30 `main` held 2183 sources and the working
+tree held the operator-confirmed 2052. A plain `git checkout main` would have
+restored 131 removed feeds to the live ingest loop within one scribe cycle,
+with no deploy, no restart, and no log line saying so. The observability branch
+had to be **stacked on the sources branch** specifically to avoid touching the
+file — which is a workaround, not a fix, and it couples two unrelated branches.
+
+**Why it is worse than it looks**: the same property means `git stash`,
+`git checkout -- .`, `git reset --hard`, a rebase, or a failed merge all mutate
+production state. None of them prints a warning. The blast radius is the whole
+ingest corpus.
+
+**This needs a real fix before any further branch work in this repo.** Options,
+cheapest first:
+
+1. **Move live state out of the tree.** `sources.json` becomes a deployed
+   artifact (or a Redis-backed list) with the tracked file as its *source*,
+   copied into place by an explicit deploy step. Removes the coupling entirely.
+2. **Serve from a separate checkout.** Production reads a deploy directory;
+   the git tree is for editing only. Standard, but a bigger change to `arc.sh`.
+3. **Guard the switch.** A `post-checkout` hook that refuses (or loudly warns)
+   when a tracked live-state file would change. Cheap, but a hook is advisory
+   and does not cover `reset --hard`.
+
+**Recommendation: option 1** for `sources.json` specifically, since it is the
+only file identified so far with this property. But the audit is not complete —
+**UNVERIFIED**: whether other tracked files are read live by running processes.
+`directives.json` and `prompts.yaml` are both loaded by scribe and are both
+tracked; neither has been checked for the same per-cycle reload pattern.
+
+**Depends on**: nothing. Blocks: safe branch work in arc_stack.
+
+---
+
+## monitoring/alloy: 3 of 4 integration tests fail, with no passing baseline
+
+**Source**: observed 2026-07-30, immediately after committing the pipeline in
+`9d4e18b`. Recorded rather than hidden — the commit was deliberately **not**
+amended, because rewriting a commit to bury a real finding is worse than the
+finding.
+
+**The failures**, from `monitoring/alloy/tests/test_alloy_integration.py`:
+
+```
+FAILED  test_positions_error_restarts_from_end_and_logs_failure
+FAILED  test_startup_at_eof_and_restart_persistence
+FAILED  test_wal_replays_after_loki_outage_and_alloy_restart
+3 failed, 1 passed in 147.80s
+```
+
+All three fail identically: `wait_query(self.harness.loki_port, selector)`
+returns `[]`, i.e. a line written to the tailed file never arrives in the
+harness's Loki inside the 60s timeout.
+
+**All three are durability tests** — WAL replay after a Loki outage,
+positions-file recovery, and restart persistence. That is precisely the
+property that decides whether access logs survive a restart or an outage, so
+these are not cosmetic failures if they are real.
+
+**There is no passing baseline.** The test file was untracked until `9d4e18b`,
+so it has never run in CI and there is no commit at which it is known to have
+passed. It is therefore **UNKNOWN** whether these are:
+
+- real defects in `config.alloy`'s WAL/positions handling, or
+- harness problems (port binding, container startup timing, the 60s timeout
+  being too short on a loaded box).
+
+Distinguishing the two is the first task, before any fix.
+
+**What DOES pass**: `tests/test_sanitization.py`, 7/7. That is the test holding
+the allow-list property (a new Caddy log field is dropped by default rather
+than forwarded unreviewed), and it was run before the commit landed.
+
+**Depends on**: nothing.
+
+---
+
 ## Hero images: scribe's ingest crop discards source detail permanently (TOP PRIORITY)
 
 **Source**: diagnosed 2026-07-29. The reversible half already landed
