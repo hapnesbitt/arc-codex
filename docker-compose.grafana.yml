@@ -1,6 +1,6 @@
 # =============================================================================
 # Arc Codex — docker-compose.grafana.yml
-# Corpus intelligence observability stack: Prometheus + Grafana
+# Corpus intelligence observability stack: Prometheus + Grafana + Loki
 #
 # corpus_exporter.py runs NATIVELY on Z230 (not containerized) at :9101
 name: arc-observability
@@ -21,6 +21,23 @@ name: arc-observability
 # =============================================================================
 
 services:
+
+  # Additive Caddy access-log store. Alloy remains host-managed and forwards
+  # sanitized, allow-listed records to this loopback-only endpoint.
+  loki:
+    image: grafana/loki:3.7.2@sha256:191d4fdfb7264f16989f0a57f320872620a5a7c2ceeec6229212c4190ec49b86
+    container_name: arc-loki
+    ports:
+      - "127.0.0.1:3100:3100"
+    command:
+      - '-config.file=/etc/loki/loki-config.yml'
+      - '-target=all'
+    volumes:
+      - ./monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+    mem_limit: 1536m
+    cpus: 1.5
+    restart: unless-stopped
 
   prometheus:
     image: prom/prometheus:latest
@@ -104,3 +121,4 @@ volumes:
   prometheus_data:
   grafana_data:
   alertmanager_data:
+  loki_data:

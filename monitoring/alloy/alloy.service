@@ -1,0 +1,32 @@
+[Unit]
+Description=Grafana Alloy sanitized Caddy log forwarder
+Documentation=https://grafana.com/docs/alloy/
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+User=alloy
+Group=alloy
+ExecStartPre=/usr/bin/install -d -o alloy -g alloy /var/lib/alloy /var/lib/alloy/loki.source.file.caddy_access /var/lib/alloy/loki.write.local /var/lib/alloy/loki.write.local/wal
+ExecStartPre=/bin/sh -ec 'for _ in 1 2 3 4 5; do /usr/bin/curl -fsS --max-time 2 http://127.0.0.1:3100/ready && exit 0; sleep 2; done; exit 1'
+ExecStart=/usr/bin/alloy run --stability.level=experimental --disable-reporting --server.http.listen-addr=127.0.0.1:12345 --storage.path=/var/lib/alloy /etc/alloy/config.alloy
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+TimeoutStartSec=30s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/etc/alloy /var/log/caddy
+ReadWritePaths=/var/lib/alloy
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+MemoryMax=512M
+CPUQuota=50%
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

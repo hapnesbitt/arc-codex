@@ -1,0 +1,70 @@
+# Loki 3.7.2 single-binary pilot. The listener is loopback-only; Alloy is the
+# sole intended writer. Grafana provisioning is deliberately a later gate.
+auth_enabled: false
+
+server:
+  http_listen_address: 0.0.0.0
+  http_listen_port: 3100
+  grpc_listen_address: 127.0.0.1
+  grpc_listen_port: 9096
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+
+schema_config:
+  configs:
+    - from: "2026-07-22"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+storage_config:
+  tsdb_shipper:
+    active_index_directory: /loki/index
+    cache_location: /loki/index-cache
+  filesystem:
+    directory: /loki/chunks
+
+ingester:
+  wal:
+    enabled: true
+    dir: /loki/wal
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  retention_delete_delay: 2h
+  retention_delete_worker_count: 10
+  delete_request_store: filesystem
+
+limits_config:
+  retention_period: 168h
+  reject_old_samples: true
+  reject_old_samples_max_age: 24h
+  max_query_lookback: 168h
+  ingestion_rate_mb: 4
+  ingestion_burst_size_mb: 8
+  max_line_size: 16384
+  max_line_size_truncate: false
+  max_streams_per_user: 1000
+  max_global_streams_per_user: 1000
+  max_query_series: 500
+  split_queries_by_interval: 15m
+
+query_range:
+  align_queries_with_step: true
+
+analytics:
+  reporting_enabled: false

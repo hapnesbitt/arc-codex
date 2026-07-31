@@ -1,0 +1,335 @@
+// Alloy 1.16.1 Caddy access-log pilot. Only reconstructed allow-listed JSON is
+// forwarded. Positions live beneath --storage.path (/var/lib/alloy at runtime).
+
+local.file_match "caddy_access" {
+	path_targets = [
+		{"__path__" = "/var/log/caddy/arc-codex-access.log", "site" = "arc", "logger" = "arc-codex"},
+		{"__path__" = "/var/log/caddy/huntaegis-access.log", "site" = "huntaegis", "logger" = "huntaegis"},
+		{"__path__" = "/var/log/caddy/dlb-access.log", "site" = "dlb", "logger" = "dlb"},
+		{"__path__" = "/var/log/caddy/soc-access.log", "site" = "school_of_chat", "logger" = "soc"},
+		{"__path__" = "/var/log/caddy/plantorium-access.log", "site" = "plantorium", "logger" = "plantorium"},
+		{"__path__" = "/var/log/caddy/athena-access.log", "site" = "athena", "logger" = "athena"},
+		{"__path__" = "/var/log/caddy/mark-access.log", "site" = "mark", "logger" = "mark"},
+		{"__path__" = "/var/log/caddy/holmes-access.log", "site" = "holmes", "logger" = "holmes"},
+		{"__path__" = "/var/log/caddy/beowulf-access.log", "site" = "beowulf", "logger" = "beowulf"},
+	]
+}
+
+loki.source.file "caddy_access" {
+	targets                 = local.file_match.caddy_access.targets
+	forward_to              = [loki.process.caddy_sanitize.receiver]
+	tail_from_end           = true
+	on_positions_file_error = "restart_from_end"
+}
+
+loki.process "caddy_sanitize" {
+	stage.static_labels {
+		values = {
+			job         = "caddy_access",
+			environment = "production",
+		}
+	}
+
+	// The source line is parsed, but never forwarded. stage.output below replaces
+	// it with a JSON object built only from these extracted fields.
+	stage.json {
+		drop_malformed = true
+		expressions    = {
+			timestamp           = "ts",
+			raw_host            = "request.host",
+			method_raw          = "request.method",
+			raw_uri             = "request.uri",
+			status              = "status",
+			duration_seconds    = "duration",
+			response_size_bytes = "size",
+			protocol_raw        = "request.proto",
+			client_ip           = "request.client_ip",
+			remote_ip           = "request.remote_ip",
+			request_headers     = "request.headers",
+			tls_version         = "request.tls.version",
+			tls_cipher          = "request.tls.cipher_suite",
+		}
+	}
+
+	// Initialize a bounded fallback from the fixed source file. The exact Host
+	// allow-list below overwrites these values before they enter the body/labels.
+	stage.match {
+		selector = "{site=\"arc\"}"
+
+		stage.template {
+			source   = "site_body"
+			template = "arc"
+		}
+
+		stage.template {
+			source   = "host_body"
+			template = "arc-codex.com"
+		}
+	}
+
+	stage.match {
+		selector = "{site=\"huntaegis\"}"
+
+		stage.template {
+			source   = "site_body"
+			template = "huntaegis"
+		}
+
+		stage.template {
+			source   = "host_body"
+			template = "huntaegis.com"
+		}
+	}
+
+	stage.match {
+		selector = "{site=\"dlb\"}"
+
+		stage.template {
+			source   = "site_body"
+			template = "dlb"
+		}
+
+		stage.template {
+			source   = "host_body"
+			template = "dlb"
+		}
+	}
+
+	stage.match {
+		selector = "{site=\"school_of_chat\"}"
+
+		stage.template {
+			source   = "site_body"
+			template = "school_of_chat"
+		}
+
+		stage.template {
+			source   = "host_body"
+			template = "school_of_chat"
+		}
+	}
+
+	stage.match {
+		selector = "{site=\"plantorium\"}"
+
+		stage.template {
+			source   = "site_body"
+			template = "plantorium"
+		}
+
+		stage.template {
+			source   = "host_body"
+			template = "plantorium"
+		}
+	}
+
+	stage.match {
+		selector = "{site=\"athena\"}"
+
+		stage.template {
+			source   = "site_body"
+			template = "athena"
+		}
+
+		stage.template {
+			source   = "host_body"
+			template = "athena"
+		}
+	}
+
+	stage.match {
+		selector = "{site=\"mark\"}"
+
+		stage.template {
+			source   = "site_body"
+			template = "mark"
+		}
+
+		stage.template {
+			source   = "host_body"
+			template = "mark"
+		}
+	}
+
+	stage.match {
+		selector = "{site=\"holmes\"}"
+
+		stage.template {
+			source   = "site_body"
+			template = "holmes"
+		}
+
+		stage.template {
+			source   = "host_body"
+			template = "holmes"
+		}
+	}
+
+	stage.match {
+		selector = "{site=\"beowulf\"}"
+
+		stage.template {
+			source   = "site_body"
+			template = "beowulf"
+		}
+
+		stage.template {
+			source   = "host_body"
+			template = "beowulf"
+		}
+	}
+
+	// The externally supplied Host value can enter a label only through this
+	// exact allow-list. Unknown or malicious values become other.
+	stage.template {
+		source   = "site_body"
+		template = "{{ if or (eq .raw_host `arc-codex.com`) (eq .raw_host `www.arc-codex.com`) }}arc{{ else if or (eq .raw_host `huntaegis.com`) (eq .raw_host `www.huntaegis.com`) }}huntaegis{{ else if eq .raw_host `dlb.arc-codex.com` }}dlb{{ else if eq .raw_host `soc.arc-codex.com` }}school_of_chat{{ else if eq .raw_host `plantorium.arc-codex.com` }}plantorium{{ else if eq .raw_host `athena.arc-codex.com` }}athena{{ else if eq .raw_host `mark.arc-codex.com` }}mark{{ else if eq .raw_host `holmes.arc-codex.com` }}holmes{{ else if eq .raw_host `beowulf.arc-codex.com` }}beowulf{{ else }}other{{ end }}"
+	}
+
+	stage.template {
+		source   = "host_body"
+		template = "{{ if or (eq .raw_host `arc-codex.com`) (eq .raw_host `www.arc-codex.com`) }}arc-codex.com{{ else if or (eq .raw_host `huntaegis.com`) (eq .raw_host `www.huntaegis.com`) }}huntaegis.com{{ else if eq .raw_host `dlb.arc-codex.com` }}dlb.arc-codex.com{{ else if eq .raw_host `soc.arc-codex.com` }}soc.arc-codex.com{{ else if eq .raw_host `plantorium.arc-codex.com` }}plantorium.arc-codex.com{{ else if eq .raw_host `athena.arc-codex.com` }}athena.arc-codex.com{{ else if eq .raw_host `mark.arc-codex.com` }}mark.arc-codex.com{{ else if eq .raw_host `holmes.arc-codex.com` }}holmes.arc-codex.com{{ else if eq .raw_host `beowulf.arc-codex.com` }}beowulf.arc-codex.com{{ else }}other{{ end }}"
+	}
+
+	// Strip queries/fragments and control characters before applying hard body
+	// length limits. These values remain body fields, never index labels.
+	stage.template {
+		source   = "path"
+		template = "{{ $uri := printf `%v` .raw_uri }}{{ if regexMatch `^/` $uri }}{{ regexReplaceAll `[?#].*$` $uri `` }}{{ else }}{{ end }}"
+	}
+
+	stage.template {
+		source   = "path"
+		template = "{{ regexReplaceAll `[[:cntrl:]]` .Value `` }}"
+	}
+
+	stage.template {
+		source   = "path_clean"
+		template = "{{ $uri := printf `%v` .raw_uri }}{{ if and (regexMatch `^/` $uri) (not (regexMatch `[{}\\[\\]]` $uri)) }}{{ $clean := regexReplaceAll `[?#].*$` $uri `` }}{{ if regexMatch `^/[-A-Za-z0-9._~!$&'()*+,;=:@/%]*$` $clean }}{{ $clean }}{{ end }}{{ end }}"
+	}
+
+	stage.template {
+		source   = "referer_clean"
+		template = "{{ $headers := .Value }}{{ if $headers }}{{ $referer := index $headers `Referer` }}{{ if $referer }}{{ $referer = regexReplaceAll `^\\[|\\]$` (printf `%v` $referer) `` }}{{ $referer = regexReplaceAll `[[:cntrl:]]` $referer `` }}{{ $referer = regexReplaceAll `[?#].*$` $referer `` }}{{ if regexMatch `^[A-Za-z][A-Za-z0-9+.-]*://[A-Za-z0-9.-]+(:[0-9]+)?/[-A-Za-z0-9._~!$&'()*+,;=:@/%]*$` $referer }}{{ $referer }}{{ end }}{{ end }}{{ end }}"
+	}
+
+	stage.template {
+		source   = "user_agent_clean"
+		template = "{{ $headers := .Value }}{{ if $headers }}{{ $user_agent := index $headers `User-Agent` }}{{ if $user_agent }}{{ $user_agent = regexReplaceAll `^\\[|\\]$` (printf `%v` $user_agent) `` }}{{ $user_agent = regexReplaceAll `[[:cntrl:]]` $user_agent `` }}{{ if regexMatch `^[[:alnum:] .;:/+()_-]*$` $user_agent }}{{ $user_agent }}{{ end }}{{ end }}{{ end }}"
+	}
+
+	stage.template {
+		source   = "status"
+		template = "{{ $status := printf `%v` .Value }}{{ if regexMatch `^[0-9]+$` $status }}{{ $status }}{{ end }}"
+	}
+
+	stage.truncate {
+		rule {
+			source_type = "extracted"
+			sources     = [
+				"path",
+				"referer",
+			]
+			limit = "2KiB"
+		}
+	}
+
+	stage.truncate {
+		rule {
+			source_type = "extracted"
+			sources     = ["user_agent"]
+			limit       = "1KiB"
+		}
+	}
+
+	stage.truncate {
+		rule {
+			source_type = "extracted"
+			sources     = ["client_ip", "remote_ip"]
+			limit       = "64B"
+		}
+	}
+
+	// Labels are normalized into small fixed vocabularies. Original arbitrary
+	// method and protocol strings remain unavailable as labels.
+	stage.template {
+		source   = "method"
+		template = "{{ if or (eq .method_raw `GET`) (eq .method_raw `POST`) (eq .method_raw `HEAD`) (eq .method_raw `PUT`) (eq .method_raw `PATCH`) (eq .method_raw `DELETE`) (eq .method_raw `OPTIONS`) }}{{ .method_raw }}{{ else }}OTHER{{ end }}"
+	}
+
+	stage.template {
+		source   = "protocol"
+		template = "{{ if eq .protocol_raw `HTTP/1.0` }}http1{{ else if eq .protocol_raw `HTTP/1.1` }}http1{{ else if eq .protocol_raw `HTTP/2.0` }}http2{{ else if eq .protocol_raw `HTTP/2` }}http2{{ else if eq .protocol_raw `HTTP/3.0` }}http3{{ else if eq .protocol_raw `HTTP/3` }}http3{{ else }}other{{ end }}"
+	}
+
+	stage.template {
+		source   = "status_class"
+		template = "{{ if and (ge (int .status) 100) (lt (int .status) 600) }}{{ div (int .status) 100 }}xx{{ else }}other{{ end }}"
+	}
+
+	stage.labels {
+		values = {
+			method       = "method",
+			protocol     = "protocol",
+			site         = "site_body",
+			status_class = "status_class",
+		}
+	}
+
+	stage.label_keep {
+		values = ["job", "environment", "site", "logger", "method", "status_class", "protocol"]
+	}
+
+	stage.label_drop {
+		values = ["detected_level", "service_name"]
+	}
+
+	// Sprig dict/toJson constructs the replacement line. raw_host/raw_uri and all
+	// nested headers are intentionally absent from this allow-list.
+	stage.template {
+		source   = "sanitized"
+		template = "{{ dict `timestamp` .timestamp `site` .site_body `host` .host_body `method` .method `path` .path_clean `status` .status `status_class` .status_class `duration_seconds` .duration_seconds `response_size_bytes` .response_size_bytes `protocol` .protocol `client_ip` .client_ip `remote_ip` .remote_ip `user_agent` .user_agent_clean `referer` .referer_clean `tls_version` .tls_version `tls_cipher` .tls_cipher | toJson }}"
+	}
+
+	stage.timestamp {
+		source            = "timestamp"
+		format            = "Unix"
+		action_on_failure = "skip"
+	}
+
+	stage.output {
+		source = "sanitized"
+	}
+
+	forward_to = [loki.relabel.caddy_sanitize_drop_auto.receiver]
+}
+
+loki.relabel "caddy_sanitize_drop_auto" {
+	forward_to = [loki.write.local.receiver]
+
+	rule {
+		action = "labeldrop"
+		regex  = "^(detected_level|service_name)$"
+	}
+}
+
+loki.write "local" {
+	endpoint {
+		url = "http://127.0.0.1:3100/loki/api/v1/push"
+
+		queue_config {
+			block_on_overflow = true
+			capacity          = "8MiB"
+			drain_timeout     = "30s"
+			min_shards        = 1
+		}
+	}
+
+	wal {
+		enabled            = true
+		drain_timeout      = "30s"
+		max_read_frequency = "1s"
+		max_segment_age    = "1h"
+		min_read_frequency = "250ms"
+	}
+}
