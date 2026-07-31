@@ -53,6 +53,62 @@ tracked; neither has been checked for the same per-cycle reload pattern.
 
 ---
 
+## monitoring/alloy: committed but NEVER DEPLOYED — corrects a false claim in 9d4e18b
+
+**Source**: verified 2026-07-30, during reboot-readiness recon.
+
+**Correction first.** Commit `9d4e18b` states:
+
+> This was already running in production from uncommitted files
+> (arc-loki container up, Alloy host unit active) before this commit —
+> the code is not new, only its version control.
+
+**The second half of that is false.** `arc-loki` being up is true and was
+verified. "Alloy host unit active" was inferred from the container running
+and `monitoring/alloy/alloy.service` existing in the tree, and was never
+checked. It is wrong.
+
+`9d4e18b` is deliberately NOT amended — it is pushed, and rewriting history
+to erase a wrong claim is worse than the claim. This item is the correction
+of record.
+
+**What is actually true on this host:**
+
+| Check | Result |
+|---|---|
+| `alloy` / `grafana-alloy` on PATH | absent |
+| `alloy` binary anywhere (`find /`) | absent |
+| systemd unit (`/etc/systemd`, `/lib/systemd`, `/usr/lib/systemd`) | none |
+| running process | none |
+| container, **including stopped** (`docker ps -a`) | none |
+| `grafana/alloy:v1.16.1` image | **pulled** (684MB) — test harness only |
+| Loki `/loki/api/v1/labels` | `{"status":"success"}`, **zero labels** |
+| Loki series for `{job="caddy_access"}` | `[]` — **zero streams** |
+| `arc-loki` container | up, `unless-stopped` — genuinely deployed |
+
+So: **Loki is deployed and empty. Alloy has never run.** The pipeline has
+never carried a single log line. `alloy.service` in this repo is a proposed
+unit, not an installed one.
+
+**Consequence**: the pipeline is config-complete and version-controlled but
+has zero production evidence behind it. Nothing about it — sanitization,
+allow-listing, WAL behaviour — has been observed against real Caddy traffic.
+Treat every property of it as untested in production until Alloy is actually
+installed and Loki shows streams.
+
+**Deploying it needs**, none of which has been done: install the Alloy
+binary, install `monitoring/alloy/alloy.service` to `/etc/systemd/system`,
+`systemctl enable --now` it — **enable, not just start**, or it dies at the
+next reboot with no warning — and confirm `{job="caddy_access"}` returns
+streams before believing any of it works.
+
+**Related**: the `.service` file grants Alloy read access to
+`/var/log/caddy/*.log`, some of which are `-rw-------` (athena, dlb). Whether
+the unit's user can actually read those is **UNVERIFIED** and would surface
+immediately on first start.
+
+---
+
 ## monitoring/alloy: 3 of 4 integration tests fail, with no passing baseline
 
 **Source**: observed 2026-07-30, immediately after committing the pipeline in
@@ -77,6 +133,11 @@ harness's Loki inside the 60s timeout.
 positions-file recovery, and restart persistence. That is precisely the
 property that decides whether access logs survive a restart or an outage, so
 these are not cosmetic failures if they are real.
+
+**Ruled out as the cause**: the missing host Alloy binary (see the item
+above). The harness runs `grafana/alloy:v1.16.1` as a Docker image
+(`test_alloy_integration.py:26`), not a host binary, so the deployment gap
+does not explain the failures. Checked rather than assumed.
 
 **There is no passing baseline.** The test file was untracked until `9d4e18b`,
 so it has never run in CI and there is no commit at which it is known to have
