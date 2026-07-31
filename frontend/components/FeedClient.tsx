@@ -1,7 +1,12 @@
 // File: /frontend/components/FeedClient.tsx
 // VERSION: Tribonacci Lazy Loading + Staggered Waterfall Animation
-// v3 — Auto-translate: reads preferred_lang from UserPrefsContext, passes as
-//       initialLang to each IntelligenceCard so cards auto-translate on mount
+// NOTE: cards must NOT auto-translate on mount from a user preference. One
+//       feed render is ~33 cards, and each translation is a blocking local
+//       Ollama call on the request thread, so a preference-driven mount fetch
+//       fans out to 33 concurrent inferences and starves gunicorn. Translation
+//       is click-triggered per article only. Do not reintroduce initialLang
+//       here; the ?lang= deep link on the article page is the only sanctioned
+//       mount-time translate.
 //   - role="feed" moved from <main> to <ol> (preserves main landmark)
 //   - aria-posinset + aria-setsize on each feed item (required by feed pattern)
 //   - Decorative spinner divs get aria-hidden
@@ -15,7 +20,6 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X } from 'lucide-react';
 import IntelligenceCard from '@/components/IntelligenceCard';
-import { useUserPrefs } from '@/components/UserPrefsContext';
 import type { Article, Comment } from '@/lib/types';
 
 // --- TYPE DEFINITIONS ---
@@ -59,9 +63,6 @@ function FeedClient({ initialFeed, initialComments }: FeedClientProps): React.JS
   const [loading, setLoading] = useState<boolean>(false);
   const [hasMore, setHasMore] = useState<boolean>((initialFeed || []).length > 0);
   const [error, setError]     = useState<string | null>(null);
-
-  const { prefs } = useUserPrefs();
-  const preferredLang = prefs?.preferred_lang ?? null;
 
   const searchParams   = useSearchParams();
   const router         = useRouter();
