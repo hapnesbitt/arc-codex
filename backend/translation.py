@@ -157,26 +157,52 @@ def _get_article(article_id: str) -> dict | None:
     return None
 
 
-def _translate(fields: dict, language: str, source_lang: str = "English") -> dict | None:
+def _translate(
+    fields: dict, language: str, source_lang: str = "English"
+) -> tuple[dict, list[str]] | None:
     """
     Translate each field individually.
     Fields are translated one at a time (model works best on plain text, not JSON).
-    Returns a dict of translated fields, or None on total failure.
+
+    Returns ``(translated_fields, failed_field_names)``, or None if *every*
+    field failed — the caller turns that into a 503.
+
+    Each field is isolated. Previously a raise from _call_translation_model
+    (typically the 300s read timeout) propagated straight out of the request
+    handler, discarding the fields that had already translated successfully
+    and returning a bare Flask 500 after minutes of work. Four good fields
+    were thrown away because the fifth timed out.
     """
     payload = {k: v for k, v in fields.items() if v and str(v).strip()}
     if not payload:
-        return {}
+        return {}, []
 
-    translated = {}
+    translated: dict = {}
+    failed: list[str] = []
+
     for key, value in payload.items():
-        result = _call_translation_model(value, language, source_lang)
+        try:
+            result = _call_translation_model(value, language, source_lang)
+        except Exception as exc:
+            logger.warning(
+                "Field '%s' translation raised for lang=%s (%s) — keeping original",
+                key, language, exc,
+            )
+            translated[key] = value
+            failed.append(key)
+            continue
+
         if result:
             translated[key] = result
         else:
             logger.warning("Field '%s' translation failed for lang=%s — keeping original", key, language)
             translated[key] = value  # keep original on per-field failure
+            failed.append(key)
 
-    return translated if translated else None
+    if len(failed) == len(payload):
+        return None
+
+    return translated, failed
 
 
 # ---------------------------------------------------------------------------
@@ -221,17 +247,35 @@ def translate_article(article_id: str):
     source_lang = article.get("source_lang") or "English"
 
     # Translate
-    translated = _translate(fields_to_translate, lang, source_lang)
-    if translated is None:
+    result = _translate(fields_to_translate, lang, source_lang)
+    if result is None:
         return jsonify({"error": "Translation failed — model unavailable"}), 503
+    translated, failed = result
 
     response = {
         "article_id": article_id,
         "language": lang,
         "rtl": _is_rtl(lang),
         "cached": False,
+        # Surfaced so the client can show a real error state instead of
+        # presenting a half-translated article as a clean success.
+        "partial": bool(failed),
+        "failed_fields": failed,
         **translated,
     }
+
+    # A partial result is deliberately NOT cached. Caching it would freeze the
+    # failure for the full TTL and, worse, add the language to
+    # translation:langs — advertising a complete translation that isn't one.
+    # Leaving it uncached means the next reader retries and can get a whole
+    # article. The cost is that a partial result is recomputed; that is the
+    # right trade when the alternative is a permanent bad cache entry.
+    if failed:
+        logger.warning(
+            "Partial translation for %s lang=%s — %d/%d fields failed (%s); not caching",
+            article_id, lang, len(failed), len(fields_to_translate), ", ".join(failed),
+        )
+        return jsonify(response)
 
     # Cache result — English gets 7-day TTL (foreign->EN is high-value and slow to regenerate)
     ttl = TRANSLATION_TTL_ENGLISH if lang.lower() == "english" else TRANSLATION_TTL
