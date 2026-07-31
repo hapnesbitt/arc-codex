@@ -1,5 +1,4 @@
 {"name": "Haps Dance Club Blog", "url": "https://hapsdanceclub.wordpress.com", "category": "Personal Blog"}
-{"name": "My Medium Blog", "url": "https://medium.com/feed/@rossnesbitt_62306", "category": "Personal Blog"}
 {"name": "Chicago Tribune", "url": "https://www.chicagotribune.com/rss", "category": "General News"}
 {"name": "The Boston Globe", "url": "https://www.bostonglobe.com/rss/world", "category": "General News"}
 {"name": "San Francisco Chronicle", "url": "https://www.sfchronicle.com/world/feed/World-News-and-Events-RSS-Feed-438.php", "category": "General News"}
@@ -12,13 +11,11 @@
 {"name": "The Heritage Foundation", "url": "https://www.heritage.org/rss", "category": "Academic Journals"}
 {"name": "Center for American Progress", "url": "https://www.americanprogress.org/feed/", "category": "Academic Journals"}
 {"name": "International Consortium of Investigative Journalists (ICIJ)", "url": "https://www.icij.org/feed/", "category": "Intelligence & Security"}
-{"name": "Reveal (from The Center for Investigative Reporting)", "url": "https://revealnews.org/feed/", "category": "Intelligence & Security"}
 {"name": "PolitiFact", "url": "https://www.politifact.com/rss/", "category": "Media & Information"}
 {"name": "Snopes", "url": "https://www.snopes.com/feed/", "category": "Media & Information"}
 {"name": "Stratechery by Ben Thompson", "url": "https://stratechery.com/feed/", "category": "Technology & AI"}
 {"name": "CoinDesk", "url": "https://www.coindesk.com/arc/outboundfeeds/rss/", "category": "Technology & AI"}
 {"name": "The Block", "url": "https://www.theblock.co/rss.xml", "category": "Technology & AI"}
-{"name": "Tom's Hardware", "url": "https://www.tomshardware.com/feeds/all", "category": "Technology & AI"}
 {"name": "Dark Reading", "url": "https://www.darkreading.com/rss_simple.asp", "category": "Technology & AI"}
 {"name": "InsideClimate News", "url": "https://insideclimatenews.org/feed/", "category": "Technology & AI"}
 {"name": "Grist", "url": "https://grist.org/feed/", "category": "Technology & AI"}
@@ -28,7 +25,6 @@
 {"name": "Marginal Revolution", "url": "https://marginalrevolution.com/feed", "category": "Finance & Economics"}
 {"name": "Calculated Risk", "url": "https://www.calculatedriskblog.com/feeds/posts/default", "category": "Finance & Economics"}
 {"name": "StrictlyVC", "url": "https://www.strictlyvc.com/feed/", "category": "Finance & Economics"}
-{"name": "Above the Law", "url": "https://abovethelaw.com/feed/", "category": "Finance & Economics"}
 {"name": "Nieman Journalism Lab", "url": "https://www.niemanlab.org/feed/", "category": "Media & Information"}
 {"name": "Meduza (English)", "url": "https://meduza.io/rss/en/all", "category": "General News"}
 {"name": "The Wire (India)", "url": "https://thewire.in/feed", "category": "General News"}
@@ -41,7 +37,6 @@
 {"name": "The Millions", "url": "https://themillions.com/feed", "category": "Technology & AI"}
 {"name": "Longreads", "url": "https://longreads.com/feed/", "category": "Technology & AI"}
 {"name": "Serious Eats", "url": "https://www.seriouseats.com/feeds/2.0/atom", "category": "Technology & AI"}
-{"name": "CityLab", "url": "https://www.bloomberg.com/citylab/rss.xml", "category": "Culture & Society"}
 {"name": "The Chronicle of Higher Education", "url": "https://www.chronicle.com/blogs/rss-feeds/chronicle-today", "category": "Academic Journals"}
 {"name": "EdSurge", "url": "https://www.edsurge.com/news/rss", "category": "Academic Journals"}
 {"name": "The Grayzone", "url": "https://thegrayzone.com/feed/", "category": "Governance & Policy"}
@@ -55,7 +50,6 @@
 {"name": "Ars Technica", "url": "http://feeds.arstechnica.com/arstechnica/index", "category": "Technology & AI"}
 {"name": "BBC News - Technology", "url": "http://feeds.bbci.co.uk/news/technology/rss.xml", "category": "Technology & AI"}
 {"name": "BBC News - World", "url": "http://feeds.bbci.co.uk/news/world/rss.xml", "category": "Technology & AI"}
-{"name": "MarketWatch", "url": "http://feeds.marketwatch.com/marketwatch/topstories/", "category": "Finance & Economics"}
 {"name": "Language Log", "url": "http://languagelog.ldc.upenn.edu/nll/feed", "category": "Eggheads"}
 {"name": "Nautilus \u2013 Culture & Mind", "url": "http://nautil.us/feed", "category": "Eggheads"}
 {"name": "Die Zeit (DE)", "url": "http://newsfeed.zeit.de/index", "category": "World News"}
@@ -99,7 +93,6 @@
 {"name": "Asia Times", "url": "https://asiatimes.com/feed/", "category": "World News"}
 {"name": "Bachtrack", "url": "https://bachtrack.com/rss", "category": "Culture & Society"}
 {"name": "BAIR Blog", "url": "https://bair.berkeley.edu/blog/feed.xml", "category": "Technology & AI"}
-{"name": "Barbados Today", "url": "https://barbadostoday.bb/feed/", "category": "World News"}
 {"name": "DatumBox Blog", "url": "https://blog.datumbox.com/feed/", "category": "Technology & AI"}
 {"name": "EleutherAI Blog", "url": "https://blog.eleuther.ai/feed.xml", "category": "Technology & AI"}
 {"name": "Breaking Muscle", "url": "https://breakingmuscle.com/feed", "category": "Culture & Society"}
@@ -107,7 +100,6 @@
 {"name": "Busted Halo", "url": "https://bustedhalo.com/rss", "category": "Culture & Society"}
 {"name": "US Court of Appeals for the Federal Circuit - Opinions", "url": "https://cafc.uscourts.gov/category/opinion-order/feed/", "category": "Governance & Policy"}
 {"name": "The Caribbean Camera", "url": "https://caribbeancamera.com/feed/", "category": "World News"}
-{"name": "Catholic Courier", "url": "https://catholiccourier.com/feed", "category": "Culture & Society"}
 {"name": "Catholic Digest", "url": "https://catholicdigest.com/feed", "category": "Culture & Society"}
 {"name": "Catholic Education Resource", "url": "https://catholiceducation.org/feed", "category": "Academic Journals"}
 {"name": "Catholic Herald", "url": "https://catholicherald.co.uk/feed", "category": "Culture & Society"}
@@ -120,7 +112,6 @@
 {"name": "Christian Daily", "url": "https://christianitydaily.com/feed", "category": "Culture & Society"}
 {"name": "ChurchLeaders.com - Devotional", "url": "https://churchleaders.com/devotional/feed", "category": "Culture & Society"}
 {"name": "Church Leaders", "url": "https://churchleaders.com/rss", "category": "Culture & Society"}
-{"name": "ChurchMag", "url": "https://churchm.ag/feed", "category": "Culture & Society"}
 {"name": "Clarion Project", "url": "https://clarionproject.org/feed/", "category": "Technology & AI"}
 {"name": "Classical Antiquity Review", "url": "https://classicalantiquityreview.org/rss", "category": "Eggheads"}
 {"name": "Classical Civilization Review", "url": "https://classicalcivilizationreview.org/feed", "category": "Eggheads"}
@@ -130,7 +121,6 @@
 {"name": "Journal of Classical Philology", "url": "https://classicalphilologyjournal.org/feed", "category": "Eggheads"}
 {"name": "Classical Philology Review", "url": "https://classicalphilologyreview.org/feed", "category": "Eggheads"}
 {"name": "Catholic New York", "url": "https://cny.org/rss", "category": "Culture & Society"}
-{"name": "Cogito Tech Blog", "url": "https://cogitotech.com/blog/feed/", "category": "Technology & AI"}
 {"name": "Cognition and Culture", "url": "https://cognitionandculture.net/feed", "category": "Eggheads"}
 {"name": "Journal of Cognitive History", "url": "https://cognitivehistory.org/rss", "category": "Eggheads"}
 {"name": "Comparative Classical Studies", "url": "https://comparativeclassical.org/rss", "category": "Eggheads"}
@@ -165,17 +155,12 @@
 {"name": "Journal of Esoteric Studies", "url": "https://esotericstudies.org/rss", "category": "Eggheads"}
 {"name": "History of Esoteric Thought", "url": "https://esotericthoughtjournal.org/rss", "category": "Eggheads"}
 {"name": "Evangelical Focus", "url": "https://evangelicalfocus.com/feed", "category": "Culture & Society"}
-{"name": "Wall Street Journal (WSJ) - Tech", "url": "https://feeds.a.dj.com/rss/RSSWSJD.xml", "category": "Technology & AI"}
-{"name": "Wall Street Journal (WSJ) - World News", "url": "https://feeds.a.dj.com/rss/RSSWorldNews.xml", "category": "Technology & AI"}
 {"name": "BBC Sport", "url": "https://feeds.bbci.co.uk/sport/rss.xml?edition=uk", "category": "Culture & Society"}
-{"name": "Bloomberg - All", "url": "https://feeds.bloomberg.com/bview/rss.xml", "category": "Finance & Economics"}
 {"name": "Brookings - Foreign Policy", "url": "https://feeds.brookings.edu/brookingsrss/topics/foreign-policy", "category": "Academic Journals"}
 {"name": "Brookings - Technology & Innovation", "url": "https://feeds.brookings.edu/brookingsrss/topics/technology-and-innovation", "category": "Academic Journals"}
 {"name": "Business Insider", "url": "https://feeds.businessinsider.com/custom/all", "category": "Finance & Economics"}
 {"name": "El Pa\u00eds (ES)", "url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/portada", "category": "World News"}
 {"name": "Folha de S.Paulo (BR)", "url": "https://feeds.folha.uol.com.br/emcimadahora/rss091.xml", "category": "World News"}
-{"name": "NPR", "url": "https://feeds.npr.org/1001/rss.xml", "category": "General News"}
-{"name": "Reuters World News", "url": "https://feeds.reuters.com/reuters/worldNews", "category": "Technology & AI"}
 {"name": "Fiji Sun", "url": "https://fijisun.com.fj/feed/", "category": "Geopolitics & World Affairs"}
 {"name": "The Fitnessista", "url": "https://fitnessista.com/feed", "category": "Culture & Society"}
 {"name": "FiveThirtyEight", "url": "https://fivethirtyeight.com/features/feed/", "category": "Governance & Policy"}
@@ -186,7 +171,6 @@
 {"name": "Gastronomica", "url": "https://gastronomica.org/feed", "category": "Culture & Society"}
 {"name": "Gizmodo", "url": "https://gizmodo.com/rss", "category": "Technology & AI"}
 {"name": "Global Voices", "url": "https://globalvoices.org/feeds/", "category": "Media & Information"}
-{"name": "Greatist", "url": "https://greatist.com/feed", "category": "Health & Medicine"}
 {"name": "Gulf News", "url": "https://gulfnews.com/rss", "category": "Geopolitics & World Affairs"}
 {"name": "Hackaday", "url": "https://hackaday.com/blog/feed", "category": "Technology & AI"}
 {"name": "Haps Dance Club", "url": "https://hapsdanceclub.wordpress.com/feed", "category": "Culture & Society"}
@@ -209,7 +193,6 @@
 {"name": "Iris AI Blog", "url": "https://iris.ai/blog/feed.xml", "category": "Eggheads"}
 {"name": "Import AI (Jack Clark)", "url": "https://jack-clark.net/feed", "category": "Technology & AI"}
 {"name": "The Jakarta Globe", "url": "https://jakartaglobe.id/rss", "category": "Geopolitics & World Affairs"}
-{"name": "Jamestown Foundation", "url": "https://jamestown.org/feed/", "category": "Intelligence & Security"}
 {"name": "Journal of Classical Studies", "url": "https://jclassics.org/rss", "category": "Eggheads"}
 {"name": "Journal of Medieval and Early Modern Studies", "url": "https://jmems.org/feed", "category": "Eggheads"}
 {"name": "Cultural Anthropology", "url": "https://journal.culanth.org/feed", "category": "Eggheads"}
@@ -219,7 +202,6 @@
 {"name": "Theory, Culture & Society", "url": "https://journals.sagepub.com/feed/tcs", "category": "Eggheads"}
 {"name": "AI Ethics Journal", "url": "https://journals.sagepub.com/rss/aiej", "category": "Technology & AI"}
 {"name": "Journal of Phenomenological Psychology", "url": "https://journals.sagepub.com/rss/jpp", "category": "Health & Medicine"}
-{"name": "Just AI News", "url": "https://justainews.com/feed", "category": "Technology & AI"}
 {"name": "The Kathmandu Post", "url": "https://kathmandupost.com/feed", "category": "Geopolitics & World Affairs"}
 {"name": "Kaiser Health News (KHN)", "url": "https://khn.org/feed/", "category": "Health & Medicine"}
 {"name": "Kotaku", "url": "https://kotaku.com/rss", "category": "Technology & AI"}
@@ -242,7 +224,6 @@
 {"name": "Literary Hub", "url": "https://lithub.com/feed/", "category": "Technology & AI"}
 {"name": "Language, Thought & Culture", "url": "https://ltcjournal.org/rss", "category": "Eggheads"}
 {"name": "Machine Learning Mastery", "url": "https://machinelearningmastery.com/blog/feed/", "category": "Technology & AI"}
-{"name": "MarkTechPost", "url": "https://marktechpost.com/feed/", "category": "Media & Information"}
 {"name": "Matador Network", "url": "https://matadornetwork.com/feed", "category": "Technology & AI"}
 {"name": "Mauritius Times", "url": "https://mauritiustimes.com/rss", "category": "Geopolitics & World Affairs"}
 {"name": "Manila Bulletin", "url": "https://mb.com.ph/feed/", "category": "Geopolitics & World Affairs"}
@@ -260,7 +241,6 @@
 {"name": "Navbharat Times (IN)", "url": "https://navbharattimes.indiatimes.com/rssfeeds/2277153.cms", "category": "World News"}
 {"name": "New Humanist", "url": "https://newhumanist.org.uk/rss.xml", "category": "Eggheads"}
 {"name": "The New Republic", "url": "https://newrepublic.com/feed/main", "category": "Media & Information"}
-{"name": "Crunchbase News \u2013 AI", "url": "https://news.crunchbase.com/sections/ai/feed/", "category": "Technology & AI"}
 {"name": "MIT News", "url": "https://news.mit.edu/rss/feed", "category": "Eggheads"}
 {"name": "Hacker News", "url": "https://news.ycombinator.com/rss", "category": "Technology & AI"}
 {"name": "Nutrition Stripped", "url": "https://nutritionstripped.com/feed", "category": "Health & Medicine"}
@@ -296,7 +276,6 @@
 {"name": "The Public Domain Review", "url": "https://publicdomainreview.org/feed/", "category": "Technology & AI"}
 {"name": "publicintegrity.org", "url": "https://publicintegrity.org/feed", "category": "Intelligence & Security"}
 {"name": "Public Medievalist", "url": "https://publicmedievalist.com/feed", "category": "Eggheads"}
-{"name": "pudding.cool", "url": "https://pudding.cool/feed", "category": "Culture & Society"}
 {"name": "Purdue Ag Econ Report", "url": "https://purdueag.com/feed/", "category": "Agriculture & Food"}
 {"name": "reason.com", "url": "https://reason.com/feed", "category": "Governance & Policy"}
 {"name": "Relevant Church Blog", "url": "https://relevantmagazine.com/church/feed", "category": "Culture & Society"}
@@ -308,9 +287,6 @@
 {"name": "RJLipton", "url": "https://rjlipton.com/feed", "category": "Science & Environment"}
 {"name": "Robb Report", "url": "https://robbreport.com/feed", "category": "Culture & Society"}
 {"name": "Philosophical Transactions of the Royal Society \u2013 Mind & Brain", "url": "https://royalsocietypublishing.org/action/showFeed?type=etoc&feed=rss&jc=ptsb", "category": "Eggheads"}
-{"name": "Dong-A Ilbo (KR)", "url": "https://rss.donga.com/total.xml", "category": "World News"}
-{"name": "New York Times - Technology", "url": "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml", "category": "Technology & AI"}
-{"name": "New York Times - World", "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml", "category": "Technology & AI"}
 {"name": "S\u00fcddeutsche Zeitung (DE)", "url": "https://rss.sueddeutsche.de/rss/Topthemen", "category": "World News"}
 {"name": "Scroll.in", "url": "https://scroll.in/rss", "category": "Geopolitics & World Affairs"}
 {"name": "Singularity Hub", "url": "https://singularityhub.com/feed", "category": "Technology & AI"}
@@ -356,7 +332,6 @@
 {"name": "Asian Development Bank (ADB) - News", "url": "https://www.adb.org/rss/feed/feeds-news.xml", "category": "Geopolitics & World Affairs"}
 {"name": "Africa Intelligence", "url": "https://www.africaintelligence.com/info/rss", "category": "Geopolitics & World Affairs"}
 {"name": "African Business Magazine", "url": "https://www.africanbusinessmagazine.com/feed/", "category": "Finance & Economics"}
-{"name": "Africa News", "url": "https://www.africanews.com/feed/", "category": "Geopolitics & World Affairs"}
 {"name": "Aftenposten (NO)", "url": "https://www.aftenposten.no/rss", "category": "World News"}
 {"name": "Successful Farming News", "url": "https://www.agriculture.com/news/feed", "category": "Agriculture & Food"}
 {"name": "Agri-Pulse News", "url": "https://www.agripulse.com/rss", "category": "Agriculture & Food"}
@@ -385,11 +360,9 @@
 {"name": "Bangkok Post Business", "url": "https://www.bangkokpost.com/rss/business.rss", "category": "Technology & AI"}
 {"name": "Bangkok Post", "url": "https://www.bangkokpost.com/rss/data.rss", "category": "Geopolitics & World Affairs"}
 {"name": "UK Prudential Regulation Authority (PRA) - News", "url": "https://www.bankofengland.co.uk/rss/prudential-regulation", "category": "Governance & Policy"}
-{"name": "Barron's", "url": "https://www.barrons.com/news/rss_news", "category": "Finance & Economics"}
 {"name": "Bellingcat", "url": "https://www.bellingcat.com/feed/", "category": "Cybersecurity & Threat Intel"}
 {"name": "Berean Blog", "url": "https://www.bereanblog.com/feed", "category": "Culture & Society"}
 {"name": "Dainik Bhaskar (IN)", "url": "https://www.bhaskar.com/rss-feed/2318/", "category": "World News"}
-{"name": "Bible Gateway Blog", "url": "https://www.biblegateway.com/blog/feed", "category": "Culture & Society"}
 {"name": "Bible Study Tools", "url": "https://www.biblestudytools.com/feed", "category": "Culture & Society"}
 {"name": "Bank for International Settlements (BIS) - News", "url": "https://www.bis.org/list/press_releases_rss.xml", "category": "Governance & Policy"}
 {"name": "Basel Committee on Banking Supervision (BCBS) - Press Releases", "url": "https://www.bis.org/press/basel_rss.xml", "category": "Culture & Society"}
@@ -423,7 +396,6 @@
 {"name": "Christian Today", "url": "https://www.christiantoday.com/rss", "category": "Culture & Society"}
 {"name": "Central Intelligence Agency", "url": "https://www.cia.gov/news-information/press-releases-statements/rss/rss-press-releases.xml", "category": "Intelligence & Security"}
 {"name": "Civil Society News", "url": "https://www.civilsociety.co.uk/rss", "category": "Culture & Society"}
-{"name": "Clar\u00edn (AR)", "url": "https://www.clarin.com/rss/lo-ultimo/", "category": "World News"}
 {"name": "Classical FM News", "url": "https://www.classicalfm.com/rss/news/", "category": "Culture & Society"}
 {"name": "Comparative Literature Studies", "url": "https://www.clstudies.org/rss", "category": "Eggheads"}
 {"name": "CNBC - Top News", "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "category": "Finance & Economics"}
@@ -436,7 +408,6 @@
 {"name": "International Crisis Group", "url": "https://www.crisisgroup.org/rss-0", "category": "Intelligence & Security"}
 {"name": "Critical Theory Journal", "url": "https://www.criticaltheory.org/feed", "category": "Eggheads"}
 {"name": "Crossway", "url": "https://www.crossway.org/rss", "category": "Culture & Society"}
-{"name": "Center for Strategic and International Studies", "url": "https://www.csis.org/feeds/all", "category": "Intelligence & Security"}
 {"name": "Cultural Weekly", "url": "https://www.culturalweekly.com/feed", "category": "Technology & AI"}
 {"name": "The Cultured Chef", "url": "https://www.culturedchef.com/rss", "category": "Culture & Society"}
 {"name": "Daily Maverick", "url": "https://www.dailymaverick.co.za/feed/", "category": "Geopolitics & World Affairs"}
@@ -444,7 +415,6 @@
 {"name": "Dance Magazine", "url": "https://www.dancemagazine.com/feed", "category": "Culture & Society"}
 {"name": "Dance Spirit", "url": "https://www.dancespirit.com/feed/", "category": "Culture & Society"}
 {"name": "Decadent Wine", "url": "https://www.decadentwine.com/rss", "category": "Culture & Society"}
-{"name": "Decanter - Wine News", "url": "https://www.decanter.com/feed", "category": "Culture & Society"}
 {"name": "Decanter Asia", "url": "https://www.decanterasia.com/feed", "category": "Culture & Society"}
 {"name": "Deccan Herald", "url": "https://www.deccanherald.com/rss-internal/top-stories.rss", "category": "Geopolitics & World Affairs"}
 {"name": "Department of Defense", "url": "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=727&max=10", "category": "Intelligence & Security"}
@@ -466,9 +436,7 @@
 {"name": "European Medicines Agency (EMA) - News", "url": "https://www.ema.europa.eu/en/news_room/rss.xml", "category": "Governance & Policy"}
 {"name": "Engadget", "url": "https://www.engadget.com/rss.xml", "category": "Technology & AI"}
 {"name": "European Space Agency (ESA)", "url": "https://www.esa.int/rssfeed/ESA_in_your_country/United_Kingdom", "category": "Technology & AI"}
-{"name": "ESPN", "url": "https://www.espn.com/espn/rss/news", "category": "Technology & AI"}
 {"name": "eWeek \u2013 Artificial Intelligence", "url": "https://www.eweek.com/artificial-intelligence/rss.xml", "category": "Technology & AI"}
-{"name": "EWTN News", "url": "https://www.ewtn.com/rss/news", "category": "Culture & Society"}
 {"name": "Iowa State University Extension - Ag Decision Maker", "url": "https://www.extension.iastate.edu/agdm/rss.xml", "category": "Agriculture & Food"}
 {"name": "Faith Gateway", "url": "https://www.faithgateway.com/feed", "category": "Culture & Society"}
 {"name": "Farm Journal", "url": "https://www.farmjournal.com/api/rss/content.xml?categories=news,ag-policy,business,crops,livestock", "category": "Agriculture & Food"}
@@ -485,7 +453,6 @@
 {"name": "The Fine Dining Guide", "url": "https://www.finediningguide.com/feed", "category": "Culture & Society"}
 {"name": "Fine Wine & Good Spirits", "url": "https://www.finewineandgoodspirits.com/feed", "category": "Culture & Society"}
 {"name": "Focus on the Family", "url": "https://www.focusonthefamily.com/feed", "category": "Culture & Society"}
-{"name": "Fodor's Travel", "url": "https://www.fodors.com/feed", "category": "Technology & AI"}
 {"name": "Food Republic", "url": "https://www.foodrepublic.com/feed", "category": "Culture & Society"}
 {"name": "The Motley Fool", "url": "https://www.fool.com/a/feeds/foolwatch", "category": "Finance & Economics"}
 {"name": "Forbes - Business", "url": "https://www.forbes.com/business/feed/", "category": "Finance & Economics"}
@@ -510,7 +477,6 @@
 {"name": "The Hollywood Reporter", "url": "https://www.hollywoodreporter.com/feed/", "category": "Technology & AI"}
 {"name": "Human Rights Watch", "url": "https://www.hrw.org/rss", "category": "Governance & Policy"}
 {"name": "Helsingin Sanomat (FI)", "url": "https://www.hs.fi/rss/teasers/etusivu.xml", "category": "World News"}
-{"name": "H\u00fcrriyet (TR)", "url": "https://www.hurriyet.com.tr/rss/gundem", "category": "World News"}
 {"name": "International Atomic Energy Agency", "url": "https://www.iaea.org/newscenter/news/rss", "category": "Intelligence & Security"}
 {"name": "International Center of Photography", "url": "https://www.icp.org/rss.xml", "category": "Culture & Society"}
 {"name": "International Energy Agency (IEA) - News & Events", "url": "https://www.iea.org/rss", "category": "Science & Environment"}
@@ -595,7 +561,6 @@
 {"name": "Daily Nation", "url": "https://www.nation.co.ke/rss.xml", "category": "Geopolitics & World Affairs"}
 {"name": "The Seychelles Nation", "url": "https://www.nation.sc/rss", "category": "Geopolitics & World Affairs"}
 {"name": "National Dance Magazine", "url": "https://www.nationaldancemagazine.com/feed", "category": "Culture & Society"}
-{"name": "National Review", "url": "https://www.nationalreview.com/feed/", "category": "Governance & Policy"}
 {"name": "The Nation (Thailand)", "url": "https://www.nationthailand.com/rss", "category": "Geopolitics & World Affairs"}
 {"name": "NATO", "url": "https://www.nato.int/nato_static_fl2014/assets/rss/rss-news.xml", "category": "Intelligence & Security"}
 {"name": "Nature Magazine", "url": "https://www.nature.com/nature.rss", "category": "Academic Journals"}
@@ -629,14 +594,12 @@
 {"name": "Panama America", "url": "https://www.panamaamerica.com.pa/rss", "category": "Geopolitics & World Affairs"}
 {"name": "Partnership on AI", "url": "https://www.partnershiponai.org/feed", "category": "Eggheads"}
 {"name": "Past & Present", "url": "https://www.pastandpresent.org/rss", "category": "Eggheads"}
-{"name": "PBS NewsHour", "url": "https://www.pbs.org/newshour/feeds/rss/headlines", "category": "General News"}
 {"name": "History of Philosophy Quarterly", "url": "https://www.pdcnet.org/hpq/feed", "category": "Eggheads"}
 {"name": "Psychoanalytic Review", "url": "https://www.pep-web.org/feed/psychoanalytic-review", "category": "Health & Medicine"}
 {"name": "The Philanthropy Hub", "url": "https://www.philanthropyhub.org/feed", "category": "Culture & Society"}
 {"name": "Philanthropy Spotlight", "url": "https://www.philanthropyspotlight.com/feed", "category": "Culture & Society"}
 {"name": "Philological Quarterly", "url": "https://www.philologicalquarterly.org/feed", "category": "Eggheads"}
 {"name": "The Philosopher\u2019s Magazine", "url": "https://www.philosophersmag.com/feed/", "category": "Eggheads"}
-{"name": "Philippine Star", "url": "https://www.philstar.com/rss", "category": "Geopolitics & World Affairs"}
 {"name": "Peterson Institute for International Economics", "url": "https://www.piie.com/rss/publications", "category": "Academic Journals"}
 {"name": "Police Foundation", "url": "https://www.policefoundation.org/feed/", "category": "Intelligence & Security"}
 {"name": "Politico", "url": "https://www.politico.com/rss/politicopicks.xml", "category": "Governance & Policy"}
@@ -653,11 +616,9 @@
 {"name": "Journal of Speculative Philosophy", "url": "https://www.psupress.org/journals/jsp/rss.xml", "category": "Eggheads"}
 {"name": "Philosophy, Psychiatry & Psychology", "url": "https://www.psychandphilosophy.org/feed", "category": "Eggheads"}
 {"name": "Psyche Magazine", "url": "https://www.psyche.co/rss", "category": "Health & Medicine"}
-{"name": "Public Books", "url": "https://www.publicbooks.org/feed/", "category": "Eggheads"}
 {"name": "RAND Corporation", "url": "https://www.rand.org/news.xml", "category": "Intelligence & Security"}
 {"name": "Reserve Bank of Australia (RBA) - Media Releases", "url": "https://www.rba.gov.au/rss/media-releases.xml", "category": "Finance & Economics"}
 {"name": "La Repubblica (IT)", "url": "https://www.repubblica.it/rss/homepage/rss2.0.xml", "category": "World News"}
-{"name": "Reuters Business News", "url": "https://www.reuters.com/rssFeed/businessNews", "category": "Finance & Economics"}
 {"name": "Radio New Zealand", "url": "https://www.rnz.co.nz/rss", "category": "Geopolitics & World Affairs"}
 {"name": "The Wine Advocate", "url": "https://www.robertparker.com/feed", "category": "Culture & Society"}
 {"name": "Rugby World News", "url": "https://www.rugbyworld.com/feed", "category": "Culture & Society"}
@@ -669,7 +630,6 @@
 {"name": "ScienceAlert", "url": "https://www.sciencealert.com/rss", "category": "Eggheads"}
 {"name": "ScienceDaily \u2013 AI News", "url": "https://www.sciencedaily.com/rss/earth_climate/artificial_intelligence.xml", "category": "Eggheads"}
 {"name": "Science Magazine", "url": "https://www.sciencemag.org/rss/news_current.xml", "category": "Eggheads"}
-{"name": "Science News \u2013 AI", "url": "https://www.sciencenews.org/topic/artificial-intelligence/feed", "category": "Eggheads"}
 {"name": "Journal of Consciousness Exploration & Research", "url": "https://www.scientificexploration.org/rss/jcer.xml", "category": "Eggheads"}
 {"name": "South China Morning Post", "url": "https://www.scmp.com/rss/91/feed", "category": "General News"}
 {"name": "SCOTUSblog", "url": "https://www.scotusblog.com/feed/", "category": "Governance & Policy"}
@@ -690,7 +650,6 @@
 {"name": "St Lucia News Online", "url": "https://www.stlucianewsonline.com/feed/", "category": "World News"}
 {"name": "The Straits Times", "url": "https://www.straitstimes.com/rss", "category": "World News"}
 {"name": "The Straits Times \u2013 World", "url": "https://www.straitstimes.com/world/rss", "category": "World News"}
-{"name": "Stuff.co.nz", "url": "https://www.stuff.co.nz/rss", "category": "Geopolitics & World Affairs"}
 {"name": "Cognitive Neuropsychology", "url": "https://www.tandfonline.com/action/showFeed?type=etoc&feed=rss&jc=cogn", "category": "Eggheads"}
 {"name": "Brain & Mind", "url": "https://www.tandfonline.com/rss/brainandmind", "category": "Eggheads"}
 {"name": "Cognition and Emotion", "url": "https://www.tandfonline.com/rss/cogemotion", "category": "Health & Medicine"}
@@ -719,7 +678,6 @@
 {"name": "The Hindu Business Line", "url": "https://www.thehindubusinessline.com/rss", "category": "Finance & Economics"}
 {"name": "The History Blog", "url": "https://www.thehistoryblog.com/rss", "category": "Eggheads"}
 {"name": "Jakarta Post", "url": "https://www.thejakartapost.com/rss", "category": "Geopolitics & World Affairs"}
-{"name": "The Lancet", "url": "https://www.thelancet.com/rssfeed/lancet_current.xml", "category": "Academic Journals"}
 {"name": "The Nation", "url": "https://www.thenation.com/feed/rss/", "category": "Governance & Policy"}
 {"name": "The National (UAE)", "url": "https://www.thenationalnews.com/rss", "category": "Geopolitics & World Affairs"}
 {"name": "The New Atlantis \u2013 Mind, Culture & Society", "url": "https://www.thenewatlantis.com/feed", "category": "Technology & AI"}
@@ -730,7 +688,6 @@
 {"name": "The Root", "url": "https://www.theroot.com/rss", "category": "Media & Information"}
 {"name": "The Star (Malaysia)", "url": "https://www.thestar.com.my/rss", "category": "Geopolitics & World Affairs"}
 {"name": "The Statesman", "url": "https://www.thestatesman.com/rss", "category": "Geopolitics & World Affairs"}
-{"name": "St Kitts & Nevis Observer", "url": "https://www.thestkittsnevisobserver.com/feed/", "category": "World News"}
 {"name": "The Tablet", "url": "https://www.thetablet.co.uk/rss", "category": "Culture & Society"}
 {"name": "The Urbanite", "url": "https://www.theurbanite.com/feed", "category": "Culture & Society"}
 {"name": "The Verge \u2013 AI", "url": "https://www.theverge.com/rss/ai/artificial-intelligence/index.xml", "category": "Media & Information"}
@@ -739,7 +696,6 @@
 {"name": "US Treasury Department", "url": "https://www.treasury.gov/resource-center/sanctions/Pages/default.aspx", "category": "Intelligence & Security"}
 {"name": "United Nations", "url": "https://www.un.org/en/rss.xml", "category": "Technology & AI"}
 {"name": "USCCB - Catholic News", "url": "https://www.usccb.org/feed", "category": "Culture & Society"}
-{"name": "USDA Press Releases", "url": "https://www.usda.gov/rss/latest-releases.xml", "category": "Agriculture & Food"}
 {"name": "US International Trade Commission (ITC) - News Releases", "url": "https://www.usitc.gov/press_room/news_releases_rss.xml", "category": "Governance & Policy"}
 {"name": "US Patent and Trademark Office (USPTO) - Press Releases", "url": "https://www.uspto.gov/about-us/news-updates/rss.xml", "category": "Governance & Policy"}
 {"name": "Victoria and Albert Museum Blog", "url": "https://www.vam.ac.uk/blog/feed", "category": "Culture & Society"}
@@ -761,27 +717,20 @@
 {"name": "Ynet (Hebrew)", "url": "https://www.ynet.co.il/Integration/StoryRss1854.xml", "category": "World News"}
 {"name": "Yoga Journal", "url": "https://www.yogajournal.com/feed", "category": "Culture & Society"}
 {"name": "Yomiuri Shimbun (JP)", "url": "https://www.yomiuri.co.jp/rss/yol/latestnews", "category": "World News"}
-{"name": "ZDNet", "url": "https://www.zdnet.com/news/rss.xml", "category": "Technology & AI"}
 {"name": "The Zinn Education Project", "url": "https://www.zinnedproject.org/feed/", "category": "Philosophy & Humanities"}
 {"name": "CBN News", "url": "https://www1.cbn.com/rss/cbnnews", "category": "Culture & Society"}
 {"name": "Zee News", "url": "https://zeenews.india.com/rss/world-news.xml", "category": "Geopolitics & World Affairs"}
 {"name": "Zenit News Agency", "url": "https://zenit.org/rss", "category": "Culture & Society"}
-{"name": "New York Times - US", "url": "https://rss.nytimes.com/services/xml/rss/nyt/US.xml", "category": "General News"}
-{"name": "Bloomberg - Politics", "url": "https://www.bloomberg.com/politics/feeds/sitemap_news.xml", "category": "Finance & Economics"}
-{"name": "Medium - Top Stories", "url": "https://medium.com/feed/tag/news", "category": "Media & Information"}
 {"name": "Boston Globe - News", "url": "https://www.bostonglobe.com/arc/outboundfeeds/rss/", "category": "World News"}
 {"name": "The Economist - Latest", "url": "https://www.economist.com/latest/rss.xml", "category": "Technology & AI"}
 {"name": "Associated Press - Top News", "url": "https://apnews.com/apf-topnews", "category": "General News"}
-{"name": "Microsoft Secure Blog", "url": "https://cloudblogs.microsoft.com/microsoftsecure/feed/", "category": "Intelligence & Security"}
 {"name": "UK NCSC Blog", "url": "https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml", "category": "Intelligence & Security"}
 {"name": "The Hacker News", "url": "https://thehackernews.com/feeds/posts/default", "category": "Intelligence & Security"}
 {"name": "EU DisinfoLab", "url": "https://www.disinfo.eu/feed/", "category": "Media & Information"}
 {"name": "OpenAI Safety Blog", "url": "https://openai.com/blog/rss/", "category": "Technology & AI"}
 {"name": "Google AI Safety", "url": "https://ai.googleblog.com/feeds/posts/default", "category": "Technology & AI"}
-{"name": "Anthropic Safety Research", "url": "https://www.anthropic.com/news/rss", "category": "Technology & AI"}
 {"name": "AI Now Institute", "url": "https://ainowinstitute.org/rss.xml", "category": "Technology & AI"}
 {"name": "Future of Humanity Institute", "url": "https://www.fhi.ox.ac.uk/feed/", "category": "Technology & AI"}
-{"name": "Center for Security and Emerging Technology", "url": "https://cset.georgetown.edu/feed/", "category": "Intelligence & Security"}
 {"name": "CNAS Technology & National Security", "url": "https://www.cnas.org/topics/technology-national-security/feed", "category": "Intelligence & Security"}
 {"name": "RAND Artificial Intelligence", "url": "https://www.rand.org/topics/artificial-intelligence.xml", "category": "Technology & AI"}
 {"name": "DMARC Analyzer Blog", "url": "https://www.dmarcanalyzer.com/blog/feed/", "category": "Technology & AI"}
@@ -818,8 +767,6 @@
 {"name": "AI Safety Camp", "url": "https://aisafety.camp/feed/", "category": "Technology & AI"}
 {"name": "Alignment Research Center", "url": "https://alignmentresearchcenter.org/feed/", "category": "Technology & AI"}
 {"name": "Center for AI Safety", "url": "https://www.safe.ai/rss", "category": "Technology & AI"}
-{"name": "The Wall Street Journal - Markets", "url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml", "category": "Finance & Economics"}
-{"name": "Bloomberg Markets", "url": "https://feeds.bloomberg.com/markets/news.rss", "category": "Finance & Economics"}
 {"name": "Seeking Alpha - Market News", "url": "https://seekingalpha.com/market_currents.xml", "category": "Finance & Economics"}
 {"name": "Investor's Business Daily", "url": "https://www.investors.com/feed/", "category": "Finance & Economics"}
 {"name": "CNBC Markets", "url": "https://www.cnbc.com/id/10000664/device/rss/rss.html", "category": "Finance & Economics"}
@@ -853,27 +800,21 @@
 {"name": "Boat International", "url": "https://www.boatinternational.com/feed", "category": "Culture & Society"}
 {"name": "Artnet News", "url": "https://news.artnet.com/feed", "category": "Culture & Society"}
 {"name": "JCK Online (Jewelry)", "url": "https://www.jckonline.com/feed/", "category": "Culture & Society"}
-{"name": "Elite Traveler", "url": "https://www.elitetraveler.com/feed", "category": "Culture & Society"}
 {"name": "Racked (High-End Fashion)", "url": "https://www.thecut.com/fashion/rss/index.xml", "category": "Culture & Society"}
 {"name": "Business Insider - Finance", "url": "https://www.businessinsider.com/finance/rss", "category": "Finance & Economics"}
 {"name": "Yahoo Finance", "url": "https://finance.yahoo.com/news/rss", "category": "Finance & Economics"}
 {"name": "Benzinga", "url": "https://www.benzinga.com/feed", "category": "Finance & Economics"}
 {"name": "TechCrunch - Venture Capital", "url": "https://techcrunch.com/tag/venture-capital/feed/", "category": "Finance & Economics"}
 {"name": "PitchBook", "url": "https://pitchbook.com/news/rss/all", "category": "Finance & Economics"}
-{"name": "Crunchbase News", "url": "https://news.crunchbase.com/feed/", "category": "Finance & Economics"}
-{"name": "The Information", "url": "https://www.theinformation.com/feed", "category": "Finance & Economics"}
 {"name": "Axios Pro Rata (Dan Primack)", "url": "https://www.axios.com/newsletters/axios-pro-rata", "category": "Finance & Economics"}
 {"name": "Term Sheet (Fortune)", "url": "https://fortune.com/section/term-sheet/feed/", "category": "Finance & Economics"}
 {"name": "Private Equity News", "url": "https://www.penews.com/rss", "category": "Finance & Economics"}
-{"name": "Buyouts Insider", "url": "https://www.buyoutsinsider.com/feed/", "category": "Finance & Economics"}
-{"name": "Dealbook (NY Times)", "url": "https://www.nytimes.com/section/business/dealbook/rss", "category": "Finance & Economics"}
 {"name": "Zero Hedge", "url": "https://www.zerohedge.com/feed/all", "category": "Finance & Economics"}
 {"name": "Abnormal Returns", "url": "https://abnormalreturns.com/feed/", "category": "Finance & Economics"}
 {"name": "The Big Picture (Barry Ritholtz)", "url": "https://ritholtz.com/feed/", "category": "Finance & Economics"}
 {"name": "Of Two Minds (Charles Hugh Smith)", "url": "https://www.oftwominds.com/blog.xml", "category": "Finance & Economics"}
 {"name": "Naked Capitalism", "url": "https://www.nakedcapitalism.com/feed", "category": "Finance & Economics"}
 {"name": "Credit Writedowns", "url": "https://www.creditwritedowns.com/feed", "category": "Finance & Economics"}
-{"name": "Matt Levine (Bloomberg Opinion)", "url": "https://www.bloomberg.com/opinion/authors/ARbTQlRLRjE/matthew-s-levine", "category": "Finance & Economics"}
 {"name": "The Diff (Byrne Hobart)", "url": "https://diff.substack.com/feed", "category": "Intelligence & Security"}
 {"name": "Net Interest (Marc Rubinstein)", "url": "https://www.netinterest.co/feed", "category": "Finance & Economics"}
 {"name": "Margins (Ranjan Roy)", "url": "https://themargins.substack.com/feed", "category": "Finance & Economics"}
@@ -886,7 +827,6 @@
 {"name": "BOAT Pro", "url": "https://www.boatinternational.com/yachts/feed", "category": "Culture & Society"}
 {"name": "JetForums (Private Aviation News)", "url": "https://www.jetforums.net/feed/", "category": "Culture & Society"}
 {"name": "WatchPro", "url": "https://www.watchpro.com/feed/", "category": "Culture & Society"}
-{"name": "A Blog to Watch", "url": "https://www.ablogtowatch.com/feed/", "category": "Culture & Society"}
 {"name": "Monochrome Watches", "url": "https://monochrome-watches.com/feed/", "category": "Culture & Society"}
 {"name": "Revolution Watch", "url": "https://revolutionwatch.com/feed/", "category": "Culture & Society"}
 {"name": "Wine-Searcher News", "url": "https://www.wine-searcher.com/rss", "category": "Culture & Society"}
@@ -899,18 +839,11 @@
 {"name": "Private Islands Online", "url": "https://www.privateislandsonline.com/feed", "category": "Culture & Society"}
 {"name": "Robb Report Real Estate", "url": "https://robbreport.com/shelter/real-estate/feed/", "category": "Culture & Society"}
 {"name": "Cigar Aficionado", "url": "https://www.cigaraficionado.com/rss", "category": "Culture & Society"}
-{"name": "Elite Traveler Private Jet", "url": "https://www.elitetraveler.com/private-jets/feed", "category": "Culture & Society"}
 {"name": "Pursuitist", "url": "https://pursuitist.com/feed/", "category": "Culture & Society"}
 {"name": "Worth Magazine", "url": "https://www.worth.com/feed/", "category": "Finance & Economics"}
 {"name": "WSJ - CFO Journal", "url": "https://feeds.a.dj.com/rss/RSSWSJCFOJournal.xml", "category": "Finance & Economics"}
 {"name": "WSJ - CIO Journal", "url": "https://feeds.a.dj.com/rss/RSSWSJCIO.xml", "category": "Technology & AI"}
 {"name": "WSJ - CMO Today", "url": "https://feeds.a.dj.com/rss/RSSWSJCMO.xml", "category": "Finance & Economics"}
-{"name": "Bloomberg Technology", "url": "https://feeds.bloomberg.com/technology/news.rss", "category": "Technology & AI"}
-{"name": "Bloomberg Opinion", "url": "https://feeds.bloomberg.com/opinion/news.rss", "category": "Finance & Economics"}
-{"name": "Bloomberg Wealth", "url": "https://feeds.bloomberg.com/wealth/news.rss", "category": "Finance & Economics"}
-{"name": "Reuters Markets", "url": "https://www.reuters.com/business/finance", "category": "Finance & Economics"}
-{"name": "Reuters Technology", "url": "https://www.reuters.com/technology", "category": "Technology & AI"}
-{"name": "Reuters Deals", "url": "https://www.reuters.com/business/deals", "category": "Finance & Economics"}
 {"name": "South China Morning Post - Business", "url": "https://www.scmp.com/rss/2/feed", "category": "Finance & Economics"}
 {"name": "The Straits Times - Business", "url": "https://www.straitstimes.com/business/rss.xml", "category": "Finance & Economics"}
 {"name": "Arab News - Business", "url": "https://www.arabnews.com/rss.xml", "category": "Finance & Economics"}
@@ -920,14 +853,12 @@
 {"name": "Il Sole 24 Ore", "url": "https://www.ilsole24ore.com/rss", "category": "Finance & Economics"}
 {"name": "B\u00f8rsen (Danish Business)", "url": "https://borsen.dk/rss", "category": "Finance & Economics"}
 {"name": "Euromoney", "url": "https://www.euromoney.com/rss", "category": "Finance & Economics"}
-{"name": "Global Finance Magazine", "url": "https://www.gfmag.com/feed", "category": "Finance & Economics"}
 {"name": "The Banker", "url": "https://www.thebanker.com/rss", "category": "Finance & Economics"}
 {"name": "American Banker", "url": "https://www.americanbanker.com/feed", "category": "Finance & Economics"}
 {"name": "Bank Director", "url": "https://www.bankdirector.com/feed/", "category": "Finance & Economics"}
 {"name": "Credit Union Times", "url": "https://www.cutimes.com/feed/", "category": "Finance & Economics"}
 {"name": "Asset Management News", "url": "https://www.ai-cio.com/feed/", "category": "Finance & Economics"}
 {"name": "Chief Investment Officer", "url": "https://www.ai-cio.com/news/feed/", "category": "Finance & Economics"}
-{"name": "Fund Selector Asia", "url": "https://fundselectorasia.com/feed/", "category": "Finance & Economics"}
 {"name": "Citywire", "url": "https://citywire.com/feeds/news.xml", "category": "Finance & Economics"}
 {"name": "Fund Strategy", "url": "https://www.fundstrategy.co.uk/feed/", "category": "Finance & Economics"}
 {"name": "Morningstar", "url": "https://www.morningstar.com/rss", "category": "Finance & Economics"}
@@ -959,14 +890,12 @@
 {"name": "Ultra High Net Worth", "url": "https://uhnw.com/feed/", "category": "Finance & Economics"}
 {"name": "Citywire Wealth Manager", "url": "https://citywireselector.com/feed", "category": "Finance & Economics"}
 {"name": "Private Wealth", "url": "https://www.fa-mag.com/rss", "category": "Finance & Economics"}
-{"name": "Barron's Advisor", "url": "https://www.barrons.com/advisor?mod=nav_rss", "category": "Finance & Economics"}
 {"name": "InvestmentNews", "url": "https://www.investmentnews.com/feed", "category": "Finance & Economics"}
 {"name": "RIA Biz", "url": "https://riabiz.com/feed/", "category": "Finance & Economics"}
 {"name": "AdvisorHub", "url": "https://www.advisorhub.com/feed/", "category": "Finance & Economics"}
 {"name": "ThinkAdvisor", "url": "https://www.thinkadvisor.com/feed/", "category": "Finance & Economics"}
 {"name": "Financial Planning", "url": "https://www.financial-planning.com/feed", "category": "Finance & Economics"}
 {"name": "Journal of Financial Planning", "url": "https://www.financialplanningassociation.org/rss", "category": "Finance & Economics"}
-{"name": "CoinTelegraph", "url": "https://cointelegraph.com/rss", "category": "Finance & Economics"}
 {"name": "Decrypt", "url": "https://decrypt.co/feed", "category": "Finance & Economics"}
 {"name": "Bitcoin Magazine", "url": "https://bitcoinmagazine.com/.rss/full/", "category": "Finance & Economics"}
 {"name": "CryptoSlate", "url": "https://cryptoslate.com/feed/", "category": "Finance & Economics"}
@@ -1002,7 +931,6 @@
 {"name": "Defence News", "url": "https://www.defensenews.com/arc/outboundfeeds/rss/", "category": "Intelligence & Security"}
 {"name": "Jane's 360", "url": "https://www.janes.com/feeds", "category": "Intelligence & Security"}
 {"name": "Space News", "url": "https://spacenews.com/feed/", "category": "Science & Environment"}
-{"name": "Satellite Today", "url": "https://www.satellitetoday.com/feed/", "category": "Science & Environment"}
 {"name": "The Space Review", "url": "https://www.thespacereview.com/rss.xml", "category": "Governance & Policy"}
 {"name": "Automotive News", "url": "https://www.autonews.com/rss/00/all.xml", "category": "Culture & Society"}
 {"name": "Automotive News Europe", "url": "https://europe.autonews.com/rss", "category": "Culture & Society"}
@@ -1012,7 +940,6 @@
 {"name": "Electrek", "url": "https://electrek.co/feed/", "category": "Technology & AI"}
 {"name": "InsideEVs", "url": "https://insideevs.com/feed/", "category": "Technology & AI"}
 {"name": "The Verge - Transportation", "url": "https://www.theverge.com/transportation/rss/index.xml", "category": "Technology & AI"}
-{"name": "FreightWaves", "url": "https://www.freightwaves.com/feed", "category": "Finance & Economics"}
 {"name": "Supply Chain Dive", "url": "https://www.supplychaindive.com/feeds/news/", "category": "Technology & AI"}
 {"name": "DC Velocity", "url": "https://www.dcvelocity.com/rss", "category": "Finance & Economics"}
 {"name": "Logistics Management", "url": "https://www.logisticsmgmt.com/rss/topic/TID/1", "category": "Finance & Economics"}
@@ -1026,7 +953,6 @@
 {"name": "Robb Report Travel", "url": "https://robbreport.com/travel/feed/", "category": "Culture & Society"}
 {"name": "Private Jet Card Comparisons", "url": "https://privatejetcardcomparisons.com/feed/", "category": "Culture & Society"}
 {"name": "PrivateFly", "url": "https://www.privatefly.com/blog/feed", "category": "Culture & Society"}
-{"name": "Corporate Jet Investor", "url": "https://www.corporatejetinvestor.com/feed", "category": "Culture & Society"}
 {"name": "Business Jet Traveler", "url": "https://bjtonline.com/feed", "category": "Culture & Society"}
 {"name": "AIN Online", "url": "https://www.ainonline.com/rss.xml", "category": "Culture & Society"}
 {"name": "Robb Report Watches", "url": "https://robbreport.com/style/watch-collector/feed/", "category": "Culture & Society"}
@@ -1053,7 +979,6 @@
 {"name": "Business of Fashion", "url": "https://www.businessoffashion.com/feed", "category": "Culture & Society"}
 {"name": "WWD (Women's Wear Daily)", "url": "https://wwd.com/feed/", "category": "Culture & Society"}
 {"name": "Drapers", "url": "https://www.drapersonline.com/rss", "category": "Technology & AI"}
-{"name": "Just Style", "url": "https://www.just-style.com/feed/", "category": "Finance & Economics"}
 {"name": "Professional Jeweller", "url": "https://www.professionaljeweller.com/feed/", "category": "Culture & Society"}
 {"name": "National Jeweler", "url": "https://www.nationaljeweler.com/rss", "category": "Culture & Society"}
 {"name": "Rapaport", "url": "https://www.diamonds.net/Rss/RssNews.aspx", "category": "Culture & Society"}
@@ -1099,7 +1024,6 @@
 {"name": "EITB", "url": "https://www.eitb.eus/eu/rss/", "category": "World News"}
 {"name": "Radio Svaboda", "url": "https://www.svaboda.org/api/z-kq_ieyv_", "category": "World News"}
 {"name": "BBC News Bangla", "url": "https://www.bbc.com/bengali/index.xml", "category": "World News"}
-{"name": "Prothom Alo", "url": "https://www.prothomalo.com/feed", "category": "World News"}
 {"name": "Radio Free Asia (Bhojpuri)", "url": "https://www.rfa.org/bhojpuri/rss2.xml", "category": "World News"}
 {"name": "BBC News Bihar", "url": "https://www.bbc.com/hindi/topics/c7zp578xex5t", "category": "World News"}
 {"name": "VilaWeb", "url": "https://www.vilaweb.cat/feed/", "category": "World News"}
@@ -1114,7 +1038,6 @@
 {"name": "DR Nyheder", "url": "https://www.dr.dk/nyheder/service/feeds/alle-nyheder", "category": "World News"}
 {"name": "Jyllands-Posten", "url": "https://jyllands-posten.dk/indland/?service=rssfeed", "category": "World News"}
 {"name": "NOS Nieuws", "url": "https://feeds.nos.nl/nosnieuwsalgemeen", "category": "World News"}
-{"name": "NU.nl", "url": "https://www.nu.nl/rss/Algemeen", "category": "World News"}
 {"name": "ERR Uudised", "url": "https://news.err.ee/rss", "category": "World News"}
 {"name": "Postimees", "url": "https://www.postimees.ee/rss", "category": "World News"}
 {"name": "Yle Uutiset", "url": "https://feeds.yle.fi/uutiset/v1/recent.rss?publisherIds=YLE_UUTISET", "category": "World News"}
@@ -1143,7 +1066,6 @@
 {"name": "Tengrinews", "url": "https://tengrinews.kz/news.rss", "category": "World News"}
 {"name": "Yonhap News", "url": "https://www.yna.co.kr/rss/news.xml", "category": "World News"}
 {"name": "KurdPress", "url": "https://kurdpress.com/fa/rss", "category": "World News"}
-{"name": "LSM.lv", "url": "https://www.lsm.lv/rss", "category": "World News"}
 {"name": "Delfi.lt", "url": "https://www.delfi.lt/rss/", "category": "World News"}
 {"name": "Net.hr", "url": "https://net.hr/feed/", "category": "World News"}
 {"name": "A1on", "url": "https://a1on.mk/feed/", "category": "World News"}
@@ -1174,7 +1096,6 @@
 {"name": "RTVE", "url": "https://www.rtve.es/rss/noticias.xml", "category": "World News"}
 {"name": "SVT Nyheter", "url": "https://www.svt.se/nyheter/rss.xml", "category": "World News"}
 {"name": "Dagens Nyheter", "url": "https://www.dn.se/rss/nyheter/", "category": "World News"}
-{"name": "Philstar", "url": "https://www.philstar.com/rss/headlines", "category": "World News"}
 {"name": "BBC News Tamil", "url": "https://www.bbc.com/tamil/index.xml", "category": "World News"}
 {"name": "Dina Thanthi", "url": "https://www.dailythanthi.com/RSS/News/TopNews", "category": "World News"}
 {"name": "Tatar-Inform", "url": "https://tatar-inform.tatar/rss/", "category": "World News"}
@@ -1183,7 +1104,6 @@
 {"name": "Khaosod", "url": "https://www.khaosod.co.th/feed", "category": "Technology & AI"}
 {"name": "Phayul", "url": "https://www.phayul.com/feed/", "category": "World News"}
 {"name": "Tigray TV", "url": "https://www.tigraytv.com/feed/", "category": "World News"}
-{"name": "H\u00fcrriyet", "url": "https://www.hurriyet.com.tr/rss/anasayfa", "category": "World News"}
 {"name": "Anadolu Agency", "url": "https://www.aa.com.tr/tr/rss/default?cat=guncel", "category": "World News"}
 {"name": "Ukrayinska Pravda", "url": "https://www.pravda.com.ua/rss/", "category": "Technology & AI"}
 {"name": "BBC News Urdu", "url": "https://www.bbc.com/urdu/index.xml", "category": "World News"}
@@ -1192,7 +1112,6 @@
 {"name": "BBC News Yoruba", "url": "https://www.bbc.com/yoruba/index.xml", "category": "World News"}
 {"name": "Klix.ba", "url": "https://www.klix.ba/rss", "category": "World News"}
 {"name": "Agence Bretagne Presse", "url": "https://abp.bzh/rss.php", "category": "World News"}
-{"name": "Dnevnik.bg", "url": "https://www.dnevnik.bg/rss/", "category": "World News"}
 {"name": "Radio Free Asia (Burmese)", "url": "https://www.rfa.org/burmese/rss2.xml", "category": "World News"}
 {"name": "Chechen Info", "url": "http://www.checheninfo.ru/rss.xml", "category": "World News"}
 {"name": "France 3 Corse", "url": "https://france3-regions.francetvinfo.fr/corse/rss", "category": "World News"}
@@ -1266,7 +1185,6 @@
 {"name": "Fastly Blog", "url": "https://www.fastly.com/blog/rss.xml", "category": "Technology & AI"}
 {"name": "Shopify Engineering", "url": "https://shopify.engineering/blogs/engineering.atom", "category": "Technology & AI"}
 {"name": "Stripe Blog", "url": "https://stripe.com/blog/feed.rss", "category": "Technology & AI"}
-{"name": "Airbnb Engineering", "url": "https://medium.com/feed/airbnb-engineering", "category": "Technology & AI"}
 {"name": "Snowflake Blog", "url": "https://www.snowflake.com/blog/feed/", "category": "Technology & AI"}
 {"name": "Weights & Biases Blog", "url": "https://wandb.ai/site/articles/rss", "category": "Technology & AI"}
 {"name": "Papers With Code", "url": "https://paperswithcode.com/latest.rss", "category": "Technology & AI"}
@@ -1284,7 +1202,6 @@
 {"name": "Brave Browser Blog", "url": "https://brave.com/blog/rss/", "category": "Technology & AI"}
 {"name": "Netlify Blog", "url": "https://www.netlify.com/blog/rss/", "category": "Technology & AI"}
 {"name": "Akamai Blog", "url": "https://blogs.akamai.com/rss.xml", "category": "Technology & AI"}
-{"name": "Microsoft 365 Blog", "url": "https://www.microsoft.com/en-us/microsoft-365/blog/feed/", "category": "Technology & AI"}
 {"name": "Zoom Blog", "url": "https://blog.zoom.us/feed/", "category": "Technology & AI"}
 {"name": "Box Blog", "url": "https://blog.box.com/rss.xml", "category": "Technology & AI"}
 {"name": "Notion Blog", "url": "https://www.notion.so/blog/rss.xml", "category": "Technology & AI"}
@@ -1310,8 +1227,6 @@
 {"name": "Spotify Engineering", "url": "https://engineering.atspotify.com/feed/", "category": "Technology & AI"}
 {"name": "LinkedIn Engineering", "url": "https://engineering.linkedin.com/blog.rss", "category": "Technology & AI"}
 {"name": "Meta Engineering", "url": "https://engineering.fb.com/feed/", "category": "Technology & AI"}
-{"name": "Pinterest Engineering", "url": "https://medium.com/feed/pinterest-engineering", "category": "Technology & AI"}
-{"name": "Lyft Engineering", "url": "https://eng.lyft.com/feed", "category": "Technology & AI"}
 {"name": "DoorDash Engineering", "url": "https://doordash.engineering/feed/", "category": "Technology & AI"}
 {"name": "Dropbox Tech Blog", "url": "https://dropbox.tech/feed", "category": "Technology & AI"}
 {"name": "Slack Engineering", "url": "https://slack.engineering/feed/", "category": "Technology & AI"}
@@ -1370,7 +1285,6 @@
 {"name": "Vercel Blog", "url": "https://vercel.com/blog/feed", "category": "Technology & AI"}
 {"name": "Red Hat Developers Blog", "url": "https://developers.redhat.com/blog/feed", "category": "Technology & AI"}
 {"name": "DigitalOcean Engineering Blog", "url": "https://www.digitalocean.com/blog/rss/", "category": "Technology & AI"}
-{"name": "Microsoft AI Blog", "url": "https://blogs.microsoft.com/ai/feed/", "category": "Technology & AI"}
 {"name": "Amazon Science Blog", "url": "https://www.amazon.science/blog/rss.xml", "category": "Technology & AI"}
 {"name": "IBM Research AI Blog", "url": "https://www.ibm.com/blogs/research/feed/", "category": "Technology & AI"}
 {"name": "OpenAI News", "url": "https://openai.com/news/rss.xml", "category": "Technology & AI"}
@@ -1404,7 +1318,6 @@
 {"name": "Alternet", "url": "https://www.alternet.org/feed", "category": "Media & Information"}
 {"name": "The Free Press (Bari Weiss et al.)", "url": "https://www.thefp.com/feed", "category": "Philosophy & Humanities"}
 {"name": "Techdirt", "url": "https://www.techdirt.com/feed/", "category": "Governance & Policy"}
-{"name": "The Jim Rutt Show", "url": "https://www.jimruttshow.com/feed/podcast/", "category": "Philosophy & Humanities"}
 {"name": "Ars Technica (deeper takes)", "url": "https://arstechnica.com/feed/", "category": "Media & Information"}
 {"name": "The Contrarian (Substack)", "url": "https://contrarian.substack.com/feed", "category": "Technology & AI"}
 {"name": "Emptywheel (Marcy Wheeler)", "url": "https://www.emptywheel.net/feed/", "category": "Intelligence & Security"}
@@ -1416,7 +1329,6 @@
 {"name": "Mises Institute Power & Market", "url": "https://mises.org/power-market/rss.xml", "category": "Media & Information"}
 {"name": "Geopolitics Unplugged", "url": "https://geopoliticsunplugged.substack.com/feed", "category": "Geopolitics & World Affairs"}
 {"name": "Securing our Climate (Geopolitics Business)", "url": "https://securingclimate.substack.com/feed", "category": "Geopolitics & World Affairs"}
-{"name": "The Dishcast with Andrew Sullivan", "url": "https://andrewsullivan.substack.com/feed", "category": "Philosophy & Humanities"}
 {"name": "American Alchemy (Jesse Michels)", "url": "https://feeds.megaphone.fm/jessemichels", "category": "Philosophy & Humanities"}
 {"name": "CounterPunch", "url": "https://www.counterpunch.org/feed/", "category": "Media & Information"}
 {"name": "Consortium News", "url": "https://consortiumnews.com/feed/", "category": "Media & Information"}
@@ -1448,8 +1360,6 @@
 {"name": "OECD Economics", "url": "https://oecdecoscope.blog/feed/", "category": "Finance & Economics"}
 {"name": "Bank Underground (Bank of England)", "url": "https://bankunderground.co.uk/feed/", "category": "Finance & Economics"}
 {"name": "FT Economics", "url": "https://www.ft.com/economics?format=rss", "category": "Finance & Economics"}
-{"name": "Bloomberg Economics", "url": "https://feeds.bloomberg.com/economics/news.rss", "category": "Finance & Economics"}
-{"name": "Reuters Business", "url": "https://www.reuters.com/business/rss", "category": "Finance & Economics"}
 {"name": "Hyperdimensional (Dean Ball)", "url": "https://hyperdimensional.co/feed", "category": "Technology & AI"}
 {"name": "Understanding AI (Timothy B. Lee)", "url": "https://www.understandingai.org/feed", "category": "Technology & AI"}
 {"name": "Interconnects (Nathan Lambert)", "url": "https://www.interconnects.ai/feed", "category": "Technology & AI"}
@@ -1487,7 +1397,6 @@
 {"name": "Lawfare", "url": "https://www.lawfaremedia.org/rss.xml", "category": "Governance & Policy"}
 {"name": "The American Interest", "url": "https://www.the-american-interest.com/feed/", "category": "Governance & Policy"}
 {"name": "City Journal", "url": "https://www.city-journal.org/feed.xml", "category": "Governance & Policy"}
-{"name": "Civil Eats", "url": "https://civileats.com/feed/", "category": "Agriculture & Food"}
 {"name": "Agri-Pulse", "url": "https://www.agri-pulse.com/rss/news", "category": "Agriculture & Food"}
 {"name": "Farm Policy News (Keith Good)", "url": "https://farmpolicynews.illinois.edu/feed/", "category": "Agriculture & Food"}
 {"name": "American Farm Bureau Federation", "url": "https://www.fb.org/rss/latest", "category": "Agriculture & Food"}
@@ -1498,9 +1407,7 @@
 {"name": "National Agricultural Law Center", "url": "https://nationalaglawcenter.org/ag-and-food-law-update/feed/", "category": "Agriculture & Food"}
 {"name": "Urban Ag News", "url": "https://urbanagnews.com/feed/", "category": "Agriculture & Food"}
 {"name": "AgNet West", "url": "https://agnetwest.com/feed/", "category": "Agriculture & Food"}
-{"name": "USDA Newsroom", "url": "https://www.usda.gov/rss/home.xml", "category": "Agriculture & Food"}
 {"name": "Agriculture.com (Successful Farming)", "url": "https://www.agriculture.com/rss/news", "category": "Agriculture & Food"}
-{"name": "The Western Producer", "url": "https://www.producer.com/feed/", "category": "Agriculture & Food"}
 {"name": "AgWired", "url": "https://agwired.com/feed/", "category": "Agriculture & Food"}
 {"name": "RealAgriculture", "url": "https://www.realagriculture.com/feed/", "category": "Agriculture & Food"}
 {"name": "Food Tank", "url": "https://foodtank.com/news/category/sustainable-agriculture/feed/", "category": "Agriculture & Food"}
@@ -1510,7 +1417,6 @@
 {"name": "Farms.com News", "url": "https://www.farms.com/rss/news", "category": "Agriculture & Food"}
 {"name": "AgriBusiness Global", "url": "https://www.agribusinessglobal.com/feed/", "category": "Agriculture & Food"}
 {"name": "World Bank - Agriculture and Food", "url": "https://www.worldbank.org/en/topic/agriculture/rss.xml", "category": "Agriculture & Food"}
-{"name": "Organic Insider", "url": "https://organicinsider.com/feed/", "category": "Agriculture & Food"}
 {"name": "Capital Press", "url": "https://www.capitalpress.com/search/?f=rss&t=article&l=100&s=start_time&sd=desc", "category": "Agriculture & Food"}
 {"name": "SAIFood (Sustainable Agricultural Innovations)", "url": "https://saifood.ca/feed/", "category": "Agriculture & Food"}
 {"name": "Indigo Ag Blog", "url": "https://www.indigoag.com/blog/rss.xml", "category": "Agriculture & Food"}
@@ -1518,7 +1424,6 @@
 {"name": "AgProud", "url": "https://www.agproud.com/rss", "category": "Agriculture & Food"}
 {"name": "Journal of Agricultural and Food Chemistry", "url": "https://pubs.acs.org/rss/jafcau.xml", "category": "Agriculture & Food"}
 {"name": "Rabobank Food & Agribusiness", "url": "https://www.rabobank.com/knowledge/food-agribusiness/rss.xml", "category": "Agriculture & Food"}
-{"name": "Center for Strategic and International Studies (CSIS)", "url": "https://www.csis.org/rss.xml", "category": "Governance & Policy"}
 {"name": "Chatham House - What's New", "url": "https://www.chathamhouse.org/rss/whats-new", "category": "Governance & Policy"}
 {"name": "Project On Government Oversight (POGO)", "url": "https://www.pogo.org/feed", "category": "Governance & Policy"}
 {"name": "Public Knowledge", "url": "https://publicknowledge.org/feed", "category": "Governance & Policy"}
@@ -1547,7 +1452,6 @@
 {"name": "Axios - Governance", "url": "https://api.axios.com/feed/governance/", "category": "Governance & Policy"}
 {"name": "The Geopolitics", "url": "https://thegeopolitics.com/feed/", "category": "Intelligence & Security"}
 {"name": "Defense One", "url": "https://www.defenseone.com/rss/all/", "category": "Intelligence & Security"}
-{"name": "Breaking Defense", "url": "https://breakingdefense.com/feed/", "category": "Intelligence & Security"}
 {"name": "C4ISRNET", "url": "https://www.c4isrnet.com/arc/outboundfeeds/rss/", "category": "Intelligence & Security"}
 {"name": "Science Magazine - News", "url": "https://www.science.org/rss/news_current.xml", "category": "Academic Journals"}
 {"name": "Scientific American", "url": "https://www.scientificamerican.com/section/news/feed/", "category": "Health & Medicine"}
@@ -1570,14 +1474,12 @@
 {"name": "Quanta Magazine - Biology", "url": "https://www.quantamagazine.org/tag/biology/feed/", "category": "Eggheads"}
 {"name": "PNAS - All Content", "url": "https://www.pnas.org/action/showFeed?type=etoc&feed=rss&jc=pnas", "category": "Health & Medicine"}
 {"name": "ScienceDaily - Top Science News", "url": "https://www.sciencedaily.com/rss/top/science.xml", "category": "Health & Medicine"}
-{"name": "Phys.org - Science News", "url": "https://phys.org/rss-feed/", "category": "Health & Medicine"}
 {"name": "Retraction Watch", "url": "https://retractionwatch.com/feed/", "category": "Health & Medicine"}
 {"name": "EurekAlert! - Science News", "url": "https://www.eurekalert.org/rss.xml", "category": "Health & Medicine"}
 {"name": "The BMJ - Latest News", "url": "https://www.bmj.com/rss/news", "category": "Health & Medicine"}
 {"name": "IEEE Spectrum", "url": "https://spectrum.ieee.org/rss/fulltext", "category": "Technology & AI"}
 {"name": "Digitimes Asia", "url": "https://www.digitimes.com/rss/daily_news.xml", "category": "Technology & AI"}
 {"name": "Robotics & Automation News", "url": "https://roboticsandautomationnews.com/feed/", "category": "Technology & AI"}
-{"name": "EE Times (Electronic Engineering Times)", "url": "https://www.eetimes.com/feed/", "category": "Technology & AI"}
 {"name": "The Quantum Insider", "url": "https://thequantuminsider.com/feed/", "category": "Technology & AI"}
 {"name": "Quantum Computing Report", "url": "https://quantumcomputingreport.com/feed/", "category": "Technology & AI"}
 {"name": "Solid State Technology", "url": "https://www.electroiq.com/feed/", "category": "Technology & AI"}
@@ -1585,7 +1487,6 @@
 {"name": "Ars Technica - Gear & Gadgets", "url": "https://feeds.arstechnica.com/arstechnica/gadgets", "category": "Technology & AI"}
 {"name": "Assembly Magazine", "url": "https://www.assemblymag.com/rss", "category": "Technology & AI"}
 {"name": "Manufacturing.net", "url": "https://www.manufacturing.net/home/rss/13795551/all-manufacturing-net-content", "category": "Technology & AI"}
-{"name": "Phys.org - Nanotechnology", "url": "https://phys.org/rss-feed/nanotechnology-news/", "category": "Technology & AI"}
 {"name": "Photonics.com - News", "url": "https://www.photonics.com/RSS/News.aspx", "category": "Technology & AI"}
 {"name": "The Engineer (UK)", "url": "https://www.theengineer.co.uk/content/rss", "category": "Technology & AI"}
 {"name": "Design News", "url": "https://www.designnews.com/rss.xml", "category": "Technology & AI"}
@@ -1624,12 +1525,10 @@
 {"name": "Death Penalty Information Center", "url": "https://deathpenaltyinfo.org/rss/news", "category": "Governance & Policy"}
 {"name": "Electronic Privacy Information Center (EPIC)", "url": "https://epic.org/feed/", "category": "Governance & Policy"}
 {"name": "Dorf on Law", "url": "http://feeds.feedburner.com/DorfOnLaw", "category": "Governance & Policy"}
-{"name": "Election Law Blog", "url": "https://electionlawblog.org/?feed=rss2", "category": "Governance & Policy"}
 {"name": "Oyez - Supreme Court Podcasts/News", "url": "https://www.oyez.org/rss", "category": "Governance & Policy"}
 {"name": "Committee to Protect Journalists (CPJ)", "url": "https://cpj.org/feed/", "category": "Governance & Policy"}
 {"name": "International Commission of Jurists (ICJ-Geneva)", "url": "https://www.icj.org/feed/", "category": "Governance & Policy"}
 {"name": "Verdict (Justia Legal News)", "url": "https://verdict.justia.com/feed", "category": "Governance & Policy"}
-{"name": "National Association of Criminal Defense Lawyers (NACDL)", "url": "https://www.nacdl.org/rss/news-releases", "category": "Governance & Policy"}
 {"name": "NZZ - Neue Z\u00fcrcher Zeitung (International)", "url": "https://www.nzz.ch/recent.rss", "category": "Media & Information"}
 {"name": "Le Monde - International (French)", "url": "https://www.lemonde.fr/en/rss/une.xml", "category": "Media & Information"}
 {"name": "El Pa\u00eds - International (Spanish)", "url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/internacional", "category": "Media & Information"}
@@ -1641,7 +1540,6 @@
 {"name": "Project Syndicate", "url": "https://www.project-syndicate.org/rss", "category": "Media & Information"}
 {"name": "London Review of Books", "url": "https://www.lrb.co.uk/feeds/rss", "category": "Media & Information"}
 {"name": "The Spectator (UK)", "url": "https://www.spectator.co.uk/feed/", "category": "Media & Information"}
-{"name": "Guernica Magazine", "url": "https://www.guernicamag.com/feed/", "category": "Media & Information"}
 {"name": "Compact Magazine", "url": "https://compactmag.com/rss", "category": "Media & Information"}
 {"name": "Palladium Magazine", "url": "https://www.palladiummag.com/feed/", "category": "Media & Information"}
 {"name": "The Point Magazine", "url": "https://thepointmag.com/feed/", "category": "Media & Information"}
@@ -1696,7 +1594,6 @@
 {"name": "The Tyee - Environment (Canada)", "url": "https://thetyee.ca/Environment/RSS/", "category": "Science & Environment"}
 {"name": "National Observer (Canada)", "url": "https://www.nationalobserver.com/feeds/all", "category": "Science & Environment"}
 {"name": "Mongabay India", "url": "https://india.mongabay.com/feed/", "category": "Science & Environment"}
-{"name": "RenewEconomy (Australia)", "url": "https://reneweconomy.com.au/feed/", "category": "Science & Environment"}
 {"name": "WRI - World Resources Institute", "url": "https://www.wri.org/news/rss", "category": "Science & Environment"}
 {"name": "UNEP - News", "url": "https://www.unep.org/news-and-stories/rss", "category": "Science & Environment"}
 {"name": "IPCC - Latest Reports", "url": "https://www.ipcc.ch/news/feed/", "category": "Science & Environment"}
@@ -1705,7 +1602,6 @@
 {"name": "NASA Global Climate Change News", "url": "https://climate.nasa.gov/news/rss.xml", "category": "Science & Environment"}
 {"name": "CleanTechnica", "url": "https://cleantechnica.com/feed/", "category": "Science & Environment"}
 {"name": "The Guardian - Investigations", "url": "https://www.theguardian.com/news/series/world-intelligence-network/rss", "category": "Intelligence & Security"}
-{"name": "Frontline (PBS)", "url": "https://www.pbs.org/wgbh/frontline/feed/", "category": "Intelligence & Security"}
 {"name": "The Bureau of Investigative Journalism (UK)", "url": "https://www.thebureauinvestigates.com/rss", "category": "Intelligence & Security"}
 {"name": "AmaBhungane Centre for Investigative Journalism (South Africa)", "url": "https://amabhungane.org/feed/", "category": "Intelligence & Security"}
 {"name": "Rappler - Investigative (Philippines)", "url": "https://www.rappler.com/section/newsbreak/feed/", "category": "Intelligence & Security"}
@@ -1738,12 +1634,10 @@
 {"name": "Global Construction Review", "url": "https://www.globalconstructionreview.com/feed/", "category": "Finance & Economics"}
 {"name": "Roads & Bridges", "url": "https://www.roadsbridges.com/rss.xml", "category": "Finance & Economics"}
 {"name": "Smart Cities Dive - Transportation", "url": "https://www.smartcitiesdive.com/topic/transportation/feed/", "category": "Finance & Economics"}
-{"name": "The Transport Politic", "url": "https://www.thetransportpolitic.com/feed/", "category": "Finance & Economics"}
 {"name": "Airport World", "url": "https://airport-world.com/feed/", "category": "Finance & Economics"}
 {"name": "International Transport Forum (ITF-OECD)", "url": "https://www.itf-oecd.org/rss.xml", "category": "Finance & Economics"}
 {"name": "World Highways", "url": "https://www.worldhighways.com/rss.xml", "category": "Finance & Economics"}
 {"name": "Port Technology International", "url": "https://www.porttechnology.org/feed/", "category": "Finance & Economics"}
-{"name": "American Shipper", "url": "https://www.freightwaves.com/news/american-shipper/feed", "category": "Finance & Economics"}
 {"name": "Tunneling Journal", "url": "https://tunnellingjournal.com/feed/", "category": "Finance & Economics"}
 {"name": "Water Power & Dam Construction", "url": "https://www.waterpowermagazine.com/rss.xml", "category": "Finance & Economics"}
 {"name": "BIM Today (Building Information Modeling)", "url": "https://www.pbctoday.co.uk/news/bim-news/feed", "category": "Finance & Economics"}
@@ -1770,12 +1664,9 @@
 {"name": "SpaceQ (Canada)", "url": "https://spaceq.ca/feed/", "category": "Science & Environment"}
 {"name": "Seradata Space Intelligence", "url": "https://www.seradata.com/feed/", "category": "Science & Environment"}
 {"name": "Space Policy Online", "url": "https://spacepolicyonline.com/feed/", "category": "Science & Environment"}
-{"name": "Airforce Technology", "url": "https://www.airforce-technology.com/feed/", "category": "Science & Environment"}
-{"name": "Aerospace Testing International", "url": "https://www.aerospacetestinginternational.com/feed", "category": "Science & Environment"}
 {"name": "General Aviation News", "url": "https://generalaviationnews.com/feed/", "category": "Science & Environment"}
 {"name": "Leeham News and Analysis", "url": "https://leehamnews.com/feed/", "category": "Science & Environment"}
 {"name": "Space Foundation - News", "url": "https://www.spacefoundation.org/feed/", "category": "Science & Environment"}
-{"name": "USDA Economic Research Service", "url": "https://www.ers.usda.gov/rss/all-news.xml", "category": "Agriculture & Food"}
 {"name": "The Daily Scoop (Ag Retail)", "url": "https://www.thedailyscoop.com/rss/news", "category": "Agriculture & Food"}
 {"name": "The Furrow (John Deere)", "url": "https://www.deere.com/en/publications/the-furrow/index.xml", "category": "Agriculture & Food"}
 {"name": "PrecisionAg", "url": "https://www.precisionag.com/feed/", "category": "Agriculture & Food"}
@@ -1801,19 +1692,15 @@
 {"name": "The Fintech Times", "url": "https://thefintechtimes.com/feed/", "category": "Finance & Economics"}
 {"name": "Bank Automation News", "url": "https://bankautomationnews.com/feed/", "category": "Finance & Economics"}
 {"name": "Central Banking - News", "url": "https://www.centralbanking.com/rss/news", "category": "Finance & Economics"}
-{"name": "Financial IT - News", "url": "https://financialit.net/rss.xml", "category": "Finance & Economics"}
 {"name": "Banking Dive", "url": "https://www.bankingdive.com/feeds/news/", "category": "Finance & Economics"}
 {"name": "Payments Dive", "url": "https://www.paymentsdive.com/feeds/news/", "category": "Finance & Economics"}
 {"name": "Fintech Nexus", "url": "https://www.fintechnexus.com/feed/", "category": "Finance & Economics"}
-{"name": "International Banker", "url": "https://internationalbanker.com/feed/", "category": "Finance & Economics"}
 {"name": "Euromoney - Banking", "url": "https://www.euromoney.com/rss/banking", "category": "Finance & Economics"}
 {"name": "Global Custodian", "url": "https://www.globalcustodian.com/feed/", "category": "Finance & Economics"}
 {"name": "Ledger Insights (Blockchain in Finance)", "url": "https://www.ledgerinsights.com/feed/", "category": "Finance & Economics"}
 {"name": "FSTech (UK & EMEA)", "url": "https://www.fstech.co.uk/fst/RSS_Feed.php", "category": "Finance & Economics"}
 {"name": "AltFi", "url": "https://www.altfi.com/rss", "category": "Finance & Economics"}
-{"name": "Fintech Global", "url": "https://fintech.global/feed/", "category": "Finance & Economics"}
 {"name": "Bank for International Settlements - Speeches", "url": "https://www.bis.org/doclist/cbspeeches.rss", "category": "Finance & Economics"}
-{"name": "Regulatory Intelligence (Thomson Reuters)", "url": "https://www.thomsonreuters.com/en/rss/regulatory-intelligence.xml", "category": "Finance & Economics"}
 {"name": "CoinDesk - Institutional", "url": "https://www.coindesk.com/arc/outboundfeeds/rss/category/institutional/", "category": "Finance & Economics"}
 {"name": "The Block - Infrastructure & Fintech", "url": "https://www.theblock.co/rss", "category": "Finance & Economics"}
 {"name": "S&P Global Market Intelligence - Banking", "url": "https://www.spglobal.com/marketintelligence/en/rss/banking.xml", "category": "Finance & Economics"}
@@ -1826,8 +1713,6 @@
 {"name": "FDA - Recalls and Safety Alerts", "url": "https://www.fda.gov/about-fda/contact-fda/get-email-updates", "category": "Health & Medicine"}
 {"name": "Health Affairs - Latest Content", "url": "https://www.healthaffairs.org/rss/all_content.xml", "category": "Health & Medicine"}
 {"name": "BMJ Global Health", "url": "https://gh.bmj.com/rss/current.xml", "category": "Health & Medicine"}
-{"name": "The Lancet - Global Health", "url": "https://www.thelancet.com/rssfeed/langlo_current.xml", "category": "Academic Journals"}
-{"name": "Medical Xpress", "url": "https://medicalxpress.com/rss-feed/", "category": "Health & Medicine"}
 {"name": "News-Medical.Net", "url": "https://www.news-medical.net/syndication.axd?type=feed", "category": "Health & Medicine"}
 {"name": "Medscape Medical News", "url": "https://www.medscape.com/cx/rssfeeds/2700.xml", "category": "Health & Medicine"}
 {"name": "MobiHealthNews", "url": "https://www.mobihealthnews.com/rss.xml", "category": "Health & Medicine"}
@@ -1841,11 +1726,9 @@
 {"name": "JAMA Network - Current Issue", "url": "https://jamanetwork.com/rss/journals/jama/currentissue.xml", "category": "Health & Medicine"}
 {"name": "Global Biodefense", "url": "https://globalbiodefense.com/feed/", "category": "Health & Medicine"}
 {"name": "Outbreak News Today", "url": "http://outbreaknewstoday.com/feed/", "category": "Health & Medicine"}
-{"name": "Africanews - All Content", "url": "https://www.africanews.com/feed/rss", "category": "Geopolitics & World Affairs"}
 {"name": "AllAfrica - Top Headlines", "url": "https://allafrica.com/tools/headlines/rdf/africa/headlines.rdf", "category": "Geopolitics & World Affairs"}
 {"name": "Asharq Al-Awsat (English)", "url": "https://english.aawsat.com/rss", "category": "Geopolitics & World Affairs"}
 {"name": "MercoPress - South Atlantic News", "url": "https://en.mercopress.com/rss/latin-america", "category": "Geopolitics & World Affairs"}
-{"name": "Prensa Latina (Latin America)", "url": "https://www.plenglish.com/feed/", "category": "Geopolitics & World Affairs"}
 {"name": "CNA (Channel News Asia) - SE Asia", "url": "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=6401", "category": "Geopolitics & World Affairs"}
 {"name": "The Diplomat - Southeast Asia", "url": "https://thediplomat.com/regions/southeast-asia/feed/", "category": "Geopolitics & World Affairs"}
 {"name": "Times of India - World News", "url": "https://timesofindia.indiatimes.com/rssfeeds/296589292.cms", "category": "Geopolitics & World Affairs"}
@@ -1861,7 +1744,6 @@
 {"name": "The Irrawaddy (Myanmar/SE Asia)", "url": "https://www.irrawaddy.com/feed", "category": "Geopolitics & World Affairs"}
 {"name": "Tico Times (Central America)", "url": "https://ticotimes.net/feed", "category": "Geopolitics & World Affairs"}
 {"name": "The Jordan Times", "url": "https://www.jordantimes.com/rss/news", "category": "Geopolitics & World Affairs"}
-{"name": "Kyiv Post", "url": "https://www.kyivpost.com/feed", "category": "Geopolitics & World Affairs"}
 {"name": "Taipei Times", "url": "https://www.taipeitimes.com/xml/index.rss", "category": "Geopolitics & World Affairs"}
 {"name": "Balkan Insight", "url": "https://balkaninsight.com/feed/", "category": "Geopolitics & World Affairs"}
 {"name": "Radio Free Europe / Radio Liberty (RFE/RL)", "url": "https://www.rferl.org/api/z_mte_vki_t", "category": "Geopolitics & World Affairs"}
@@ -1897,11 +1779,7 @@
 {"name": "arXiv - Mathematics", "url": "https://arxiv.org/rss/math", "category": "Academic Journals"}
 {"name": "PLOS ONE", "url": "https://journals.plos.org/plosone/feed/atom", "category": "Academic Journals"}
 {"name": "PLOS Biology", "url": "https://journals.plos.org/plosbiology/feed/atom", "category": "Academic Journals"}
-{"name": "Heterodox Academy", "url": "https://heterodoxacademy.org/feed/", "category": "Eggheads"}
-{"name": "AI Trends", "url": "https://www.aitrends.com/feed/", "category": "Technology & AI"}
 {"name": "RT\u00c9 Nuacht", "url": "https://www.rte.ie/feeds/rss/?index=/news", "category": "General News (Irish)"}
-{"name": "Heterodox Academy Blog", "url": "https://heterodoxacademy.org/blog-rss.xml", "category": "Heterodox Thinking"}
-{"name": "National Farmers Union", "url": "https://nfu.org/feed/", "category": "Farming & Agriculture"}
 {"name": "NASA Earth Observatory", "url": "https://science.nasa.gov/feed/?science_org=19791%2C22453", "category": "Culture & Society"}
 {"name": "NASA Science", "url": "https://science.nasa.gov/feed/", "category": "Science & Environment"}
 {"name": "European Southern Observatory News", "url": "https://www.eso.org/public/news/feed/", "category": "Science & Environment"}
@@ -1919,7 +1797,6 @@
 {"name": "Royal Botanic Garden Edinburgh Science", "url": "https://stories.rbge.org.uk/feed", "category": "Science & Environment"}
 {"name": "BirdLife International News", "url": "https://www.birdlife.org/feed/", "category": "Science & Environment"}
 {"name": "MBARI News", "url": "https://www.mbari.org/feed/", "category": "Science & Environment"}
-{"name": "US Forest Service Research", "url": "https://research.fs.usda.gov/rss.xml", "category": "Science & Environment"}
 {"name": "Copernicus Climate Change Service", "url": "https://climate.copernicus.eu/rss.xml", "category": "Science & Environment"}
 {"name": "Met Office Blog", "url": "https://www.metoffice.gov.uk/blog", "category": "Science & Environment"}
 {"name": "Archaeological Institute of America News", "url": "https://www.archaeological.org/feed/", "category": "Culture & Society"}
@@ -1928,7 +1805,6 @@
 {"name": "Library of Congress Preservation", "url": "https://blogs.loc.gov/preservation/feed/", "category": "Culture & Society"}
 {"name": "British Library Blog", "url": "https://www.bl.uk/stories/blogs", "category": "Culture & Society"}
 {"name": "UK National Archives Blog", "url": "https://webarchive.nationalarchives.gov.uk/ukgwa/20250613000000/https://blog.nationalarchives.gov.uk/feed/", "category": "Culture & Society"}
-{"name": "Internet Archive Blog", "url": "https://blog.archive.org/feed/", "category": "Culture & Society"}
 {"name": "UNESCO World Heritage News", "url": "https://whc.unesco.org/en/news/rss/", "category": "Culture & Society"}
 {"name": "Python Software Foundation Blog", "url": "https://pyfound.blogspot.com/feeds/posts/default", "category": "Technology & AI"}
 {"name": "Linux Foundation Blog", "url": "https://www.linuxfoundation.org/blog/rss.xml", "category": "Technology & AI"}
@@ -1948,11 +1824,9 @@
 {"name": "Raspberry Pi News", "url": "https://www.raspberrypi.com/news/feed/", "category": "Technology & AI"}
 {"name": "Arduino Blog", "url": "https://blog.arduino.cc/feed/", "category": "Technology & AI"}
 {"name": "Prusa Research Blog", "url": "https://blog.prusa3d.com/feed/", "category": "Technology & AI"}
-{"name": "Framework Blog", "url": "https://frame.work/blog.rss", "category": "Technology & AI"}
 {"name": "ASCE Source", "url": "https://www.asce.org/publications-and-news/civil-engineering-source", "category": "Technology & AI"}
 {"name": "Engineering at Cambridge", "url": "https://www.eng.cam.ac.uk/news/rss.xml", "category": "Technology & AI"}
 {"name": "Imperial College Engineering News", "url": "https://www.imperial.ac.uk/news/engineering/rss/", "category": "Technology & AI"}
-{"name": "Cooper Hewitt Stories", "url": "https://www.cooperhewitt.org/feed/", "category": "Culture & Society"}
 {"name": "Make Magazine", "url": "https://makezine.com/feed/", "category": "Technology & AI"}
 {"name": "Fine Woodworking Blog", "url": "https://www.finewoodworking.com/feed", "category": "Technology & AI"}
 {"name": "Popular Woodworking", "url": "https://www.popularwoodworking.com/feed/", "category": "Technology & AI"}
@@ -2111,7 +1985,6 @@
 {"name": "INTI Argentina News", "url": "https://www.argentina.gob.ar/inti/noticias", "category": "Technology & AI"}
 {"name": "Centro de Ciencia del Clima y la Resiliencia", "url": "https://www.cr2.cl/feed/", "category": "Science & Environment"}
 {"name": "INABIO Ecuador News", "url": "https://inabio.biodiversidad.gob.ec/category/noticias/feed/", "category": "Science & Environment"}
-{"name": "Fundaci\u00f3n Museos de la Ciudad", "url": "https://fundacionmuseosquito.gob.ec/feed/", "category": "Culture & Society"}
 {"name": "PROINPA Bolivia", "url": "https://www.proinpa.org/web/noticias/feed/", "category": "Agriculture & Food"}
 {"name": "Instituto Paraguayo de Artesan\u00eda", "url": "https://artesania.gov.py/noticias/", "category": "Culture & Society"}
 {"name": "Museo del Canal News", "url": "https://museodelcanal.com/feed/", "category": "Culture & Society"}
@@ -2121,7 +1994,6 @@
 {"name": "SANSA News", "url": "https://www.sansa.org.za/feed/", "category": "Science & Environment"}
 {"name": "Bibliotheca Alexandrina News", "url": "https://www.bibalex.org/en/news/index/rss", "category": "Culture & Society"}
 {"name": "Sahapedia", "url": "https://www.sahapedia.org/rss.xml", "category": "Culture & Society"}
-{"name": "ICIMOD News", "url": "https://www.icimod.org/feed/", "category": "Science & Environment"}
 {"name": "BRAC Blog", "url": "https://www.brac.net/stay-informed/the-good-feed/feed/", "category": "Finance & Economics"}
 {"name": "Bengal Institute", "url": "https://bengal.institute/feed/", "category": "Technology & AI"}
 {"name": "Dilmah Conservation Blog", "url": "https://www.dilmahconservation.org/blog/feed/", "category": "Science & Environment"}
@@ -2142,7 +2014,6 @@
 {"name": "Hawai\u02bbi Sea Grant News", "url": "https://seagrant.soest.hawaii.edu/feed/", "category": "Science & Environment"}
 {"name": "British Astronomical Association News", "url": "https://britastro.org/feed", "category": "Science & Environment"}
 {"name": "DarkSky International News", "url": "https://darksky.org/news/feed/", "category": "Science & Environment"}
-{"name": "ARRL News", "url": "https://www.arrl.org/arrl.rss", "category": "Technology & AI"}
 {"name": "Heritage Railway Magazine", "url": "https://www.heritagerailway.co.uk/feed/", "category": "Culture & Society"}
 {"name": "National Railway Museum Blog", "url": "https://blog.railwaymuseum.org.uk/feed/", "category": "Culture & Society"}
 {"name": "CIMMYT News", "url": "https://www.cimmyt.org/feed/", "category": "Agriculture & Food"}
@@ -2165,14 +2036,12 @@
 {"name": "TransitCenter Blog", "url": "https://transitcenter.org/feed/", "category": "Technology & AI"}
 {"name": "Strong Towns Articles", "url": "https://www.strongtowns.org/journal/rss.xml", "category": "Culture & Society"}
 {"name": "Cycling Embassy of Denmark News", "url": "https://cyclingsolutions.info/feed/", "category": "Technology & AI"}
-{"name": "The Kid Should See This", "url": "https://thekidshouldseethis.com/feed", "category": "Eggheads"}
 {"name": "MapAction News", "url": "https://mapaction.org/feed/", "category": "Technology & AI"}
 {"name": "Cultural Survival News", "url": "https://www.culturalsurvival.org/rss.xml", "category": "Culture & Society"}
 {"name": "Local Contexts News", "url": "https://localcontexts.org/feed/", "category": "Culture & Society"}
 {"name": "Endangered Languages Archive Blog", "url": "https://elararchive.org/blog/feed/", "category": "Philosophy & Humanities"}
 {"name": "UC Agriculture and Natural Resources News", "url": "https://ucanr.edu/blog/anr-news-blog?feed=yes", "category": "Agriculture & Food"}
 {"name": "ASEAN Centre for Biodiversity News", "url": "https://www.aseanbiodiversity.org/feed/", "category": "Science & Environment"}
-{"name": "International Centre for Integrated Mountain Development Stories", "url": "https://blog.icimod.org/feed/", "category": "Science & Environment"}
 {"name": "Sanitation Learning Hub", "url": "https://sanitationlearninghub.org/feed/", "category": "Health & Medicine"}
 {"name": "Historic England Heritage Calling", "url": "https://heritagecalling.com/feed/", "category": "Culture & Society"}
 {"name": "Crich Tramway Village News", "url": "https://tramway.co.uk/feed/", "category": "Culture & Society"}
