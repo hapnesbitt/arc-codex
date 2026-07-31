@@ -19,6 +19,7 @@ interleaved requests caused swap thrash and 120s timeouts.
 import json
 import logging
 from flask import Blueprint, jsonify, request
+from werkzeug.exceptions import HTTPException
 import redis as redis_lib
 from dotenv import load_dotenv
 
@@ -215,6 +216,12 @@ def _translate(
 
 @translation_bp.errorhandler(Exception)
 def _translation_exception_handler(exc: Exception):
+    # Let HTTPException instances (405, 429, future abort(), etc.) render
+    # themselves via their own handling. Without this, RateLimitExceeded --
+    # which the next commit registers -- would be caught here and returned
+    # as a 500, masquerading as "the model itself broke."
+    if isinstance(exc, HTTPException):
+        return exc
     logger.exception("Unhandled exception in translate route: %s", exc)
     return jsonify({"error": "Translation service error"}), 500
 
