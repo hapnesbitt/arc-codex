@@ -206,6 +206,20 @@ def _translate(
 
 
 # ---------------------------------------------------------------------------
+# Safety net
+# ---------------------------------------------------------------------------
+# Any unhandled exception in a translate route becomes a JSON 500 rather than
+# Flask's default HTML 500 page. The frontend calls these endpoints as JSON
+# and — after a multi-minute inference wait — needs a parseable error to
+# render an actual failure state, not an unparseable HTML body.
+
+@translation_bp.errorhandler(Exception)
+def _translation_exception_handler(exc: Exception):
+    logger.exception("Unhandled exception in translate route: %s", exc)
+    return jsonify({"error": "Translation service error"}), 500
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
