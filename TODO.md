@@ -385,3 +385,71 @@ gemma4:31b cloud allowance in hours. Not touched here.
   gunicorn container (port 5005 conflict). Noted in the report.
 - Numbers: full-chain `/` 74.7 → 219 req/s (+2.9×), 622ms → 218ms avg (−65%).
   Node-direct SSR 76 → 1106 req/s (+14.5×), 636ms → 50ms (−92%).
+
+---
+
+## Carried out of session 2026-08-01 — image derivation + translate rate-limit sweep
+
+Landed this session (branches off main, not merged): `fix/retention-orig-purge`
+(retention.py + test), `feat/image-derive-stage2-scaffold` (Stage 2 module,
+unwired). Rate limiter B.3 landed on `fix/translate-failure-visibility` after
+bd07573 — moves independently only when that branch does.
+
+**T1 — Replace the graphic detector's primary signal.** Palette concentration
+over 542 originals is not bimodal (photograph mass 0.30–0.65, transition
+0.65–0.90, graphic spike 0.95+). Threshold is set to 0.95 so it fires only where
+the signal is real; the middle 40% — magazine covers, text-on-photo,
+screenshots — is unaddressed. Planned replacement: test the band a center-crop
+would *discard* against the retained strip (per-row gradient profile,
+discontinuity at the crop line, text-like runs). Measures the actual harm rather
+than inferring image type; no population split required; checkable ground truth.
+Keep palette ≥0.95 as a high-confidence override.
+
+**T2 — Wire `derive_card()` into `rehost_article_image`** (`scribe.py:665–675`).
+Blocked on T1. Audit says the swap is contained; WebP variants derive from the
+returned card image so they need no change.
+
+**T3 — `retention.py` glob covers `SCRAPED_IMAGE_DIR` only.** Manual-upload
+heroes are content-addressed (`sha256[:16].jpg`) in
+`frontend/public/uploads/`, not `scraped/`, so `purge_article_satellites`
+never sweeps them. Unverified — possible unbounded leak since the manual
+publish path shipped. Enumerate what references them and either extend the
+sweep or accept the divergence explicitly.
+
+**T4 — Unit B.2, the Flask errorhandler, never started.** Referenced in
+B.1's log line as "next commit" but not written.
+
+**T6 — Unit D, language pills.** Data already served as `cached_langs` on the
+article payload; frontend surface not yet built. IntelligenceCard territory.
+
+**T7 — Translation TTL mismatch.** `translation:{id}:{lang}` runs 24h/7d
+depending on model tier; `translation:langs:{id}` is 7d. A pill can outlive
+its underlying translation, so clicking a ghost costs a fresh ~3-minute
+inference. Decision on record: translations should prune with their article,
+not carry their own TTL — remove the per-key expiries and rely on
+kasmir7/retention to clear both keys together.
+
+**T8 — `og:image:height` declares 630, scraped derivatives are 675.** Find
+the hardcode (likely `frontend/app/article/[slug]/page.tsx` metadata) and
+align to 675. Purely metadata, but crawlers/scrapers use this to size cards.
+
+**T9 — systemd units updated in-repo but never installed** to
+`/etc/systemd/system/`. `validate_sites.py` `ExecStartPre` preflight is not
+active as a result — this is the guard that would have caught the Jul 22
+outage. Needs root; can be paired with the next deploy window.
+
+**T10 — Codex full-state survey is running.** Fold its findings in when it
+lands; may collapse into or supersede items above.
+
+### Session-scope notes worth catching next time
+
+- Retention fix (E1) and translate B.3 (E3) landed within the same session.
+  The retention branch was extracted to its own branch off main via
+  detached worktree so it can ship independently. B.3 was NOT extracted —
+  it depends on bd07573 (HTTPException passthrough) which is only on the
+  translate branch; a full extract needs cherry-picking the translate
+  chain first. Left in place for the next session to decide.
+- Image derivation scaffold committed on its own branch but the running
+  scribe still writes the pre-Stage-2 card unchanged. This is by design;
+  see T2.
+
