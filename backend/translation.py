@@ -18,7 +18,10 @@ interleaved requests caused swap thrash and 120s timeouts.
 
 import json
 import logging
+import time
 from flask import Blueprint, jsonify, request
+from flask_limiter.errors import RateLimitExceeded
+from flask_limiter.util import get_remote_address
 from werkzeug.exceptions import HTTPException
 import redis as redis_lib
 from dotenv import load_dotenv
@@ -217,13 +220,40 @@ def _translate(
 @translation_bp.errorhandler(Exception)
 def _translation_exception_handler(exc: Exception):
     # Let HTTPException instances (405, 429, future abort(), etc.) render
-    # themselves via their own handling. Without this, RateLimitExceeded --
-    # which the next commit registers -- would be caught here and returned
-    # as a 500, masquerading as "the model itself broke."
+    # themselves via their own handling -- RateLimitExceeded has a dedicated
+    # handler below; without this passthrough it would be caught here and
+    # returned as a 500, masquerading as "the model itself broke."
     if isinstance(exc, HTTPException):
         return exc
     logger.exception("Unhandled exception in translate route: %s", exc)
     return jsonify({"error": "Translation service error"}), 500
+
+
+@translation_bp.errorhandler(RateLimitExceeded)
+def _translation_rate_limited(exc: RateLimitExceeded):
+    # First-class 429: a JSON body the frontend can render (error =
+    # "rate_limited" is the machine discriminator against "translation
+    # failed"/500 and "no such article"/404) plus the standard Retry-After
+    # header for non-frontend clients that expect the RFC-shaped signal.
+    #
+    # Retry-After is the window duration for the breached limit
+    # (exc.limit.limit is a RateLimitItem; .get_expiry() is the window in
+    # seconds). Flask-Limiter's after_request __inject_headers will overlay
+    # its own precise reset_at via header.set(max(existing, computed)); the
+    # window-duration we set here is the same order of magnitude and, at a
+    # just-breached fresh window, exactly equal -- so the body's
+    # retry_after and the response's Retry-After header agree.
+    try:
+        retry_after = int(exc.limit.limit.get_expiry())
+    except Exception:
+        retry_after = 60
+    response = jsonify({
+        "error": "rate_limited",
+        "detail": "Translation rate limit exceeded. Try again later.",
+        "retry_after": retry_after,
+    })
+    response.headers["Retry-After"] = str(retry_after)
+    return response, 429
 
 
 # ---------------------------------------------------------------------------
@@ -322,3 +352,87 @@ def invalidate_translation_cache(article_id: str):
     if keys:
         _redis.delete(*keys)
     return jsonify({"deleted": len(keys), "article_id": article_id})
+
+
+# ---------------------------------------------------------------------------
+# Rate limits
+# ---------------------------------------------------------------------------
+# Two per-IP buckets attached from main.py after register_blueprint. Applied
+# via a factory (rather than @limiter.limit decorators) because on Hunt the
+# limiter lives in main.py which imports translation_bp from this module --
+# a direct `from main import limiter` would circular-import. Symmetric shape
+# on Arc where limiter lives in auth.py.
+#
+# Fresh translations: 10/hour per IP. A fresh translate costs ~150s of model
+# time (5 fields x ~30s); 10/hour caps single-IP model consumption at ~25
+# min/hour. B.4's semaphore caps concurrent inference; this caps per-IP
+# amplification over time. The shareable ?lang= URL with 158 supported
+# languages is the amplification vector this closes.
+#
+# cached_only=1: 120/hour. Cache-only requests provably cannot reach the
+# model -- that is the guarantee the parameter exists to provide -- so a
+# much higher ceiling applies. Lets a preference-driven caller (Unit D's
+# language pills) page through cached translations without throttling a
+# real reader switching languages across a handful of articles.
+#
+# BOTH exempt_when callables MUST call the shared _cached_only_requested
+# predicate that the route also uses. If a caller reimplemented the
+# truthy-set logic and disagreed on any value, a request the route treats
+# as fresh could land in the 120/hour bucket -- 120 real inferences per
+# hour per IP through a gate designed to allow zero. tests/test_translation
+# pins the shared predicate against exactly that class of drift.
+
+_RATE_LIMITED_MARKER = "_translation_rate_limits_applied"
+_TRANSLATE_ENDPOINT = "translation.translate_article"
+
+
+def apply_rate_limits(app, limiter):
+    """Attach translate rate limits to translate_article.
+
+    The wrapped result MUST replace the view function in app.view_functions:
+    Flask-Limiter's decorated limits are only loaded via the wrapper path,
+    not the middleware `before_request` path. Verified against
+    flask-limiter 4.1.1 -- see flask_limiter._manager.LimitManager.resolve_limits,
+    the `if not in_middleware:` gate on `decorated_limits.extend(...)`. A
+    future flask-limiter upgrade that changes that dispatch shape must be
+    caught here by a human, not by an M1 running hot: if the internal moves,
+    decorated limits might load via before_request and this
+    wrapper-replacement dance becomes unnecessary -- or, worse, doubles the
+    limit count.
+
+    Fails loudly if translate_article is not registered. A limiter that
+    silently no-ops because register_blueprint(translation_bp) has not run
+    yet (or the endpoint name has drifted) is the failure mode you discover
+    from a bill, not a log.
+
+    Idempotent: marks the wrapped view and returns early on re-entry. Flask
+    app factories get called twice more often than anyone expects, and
+    double-wrapping silently halves both limits.
+    """
+    if _TRANSLATE_ENDPOINT not in app.view_functions:
+        raise RuntimeError(
+            f"apply_rate_limits: {_TRANSLATE_ENDPOINT!r} is not registered on "
+            f"the app. Either register_blueprint(translation_bp) has not run "
+            f"yet, or the blueprint/view name has drifted from "
+            f"{_TRANSLATE_ENDPOINT!r}. Refusing to boot with an unlimited "
+            f"translate route -- a silent no-op here would go unnoticed "
+            f"until the next cost spike."
+        )
+
+    view_func = app.view_functions[_TRANSLATE_ENDPOINT]
+    if getattr(view_func, _RATE_LIMITED_MARKER, False):
+        return
+
+    wrapped = translate_article
+    wrapped = limiter.limit(
+        "120/hour",
+        key_func=get_remote_address,
+        exempt_when=lambda: not _cached_only_requested(),
+    )(wrapped)
+    wrapped = limiter.limit(
+        "10/hour",
+        key_func=get_remote_address,
+        exempt_when=_cached_only_requested,
+    )(wrapped)
+    setattr(wrapped, _RATE_LIMITED_MARKER, True)
+    app.view_functions[_TRANSLATE_ENDPOINT] = wrapped
