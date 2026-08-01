@@ -111,7 +111,7 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
         {
           url: article.imageUrl || 'https://arc-codex.com/default-article-image.jpg',
           width: 1200,
-          height: 630,
+          height: 675,
           alt: article.title,
         }
       ],
