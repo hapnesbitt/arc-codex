@@ -69,6 +69,6 @@
     "postcss-import": "^16.1.1",
     "tailwindcss": "^4.3.3",
     "tw-animate-css": "^1.3.5",
-    "typescript": "^7.0.2"
+    "typescript": "^5"
   }
 }
