@@ -21,6 +21,7 @@ pinned-set key) derives from the site slug so each stack stays in its own
 Redis DB family.
 """
 
+import glob
 import logging
 import os
 import time
@@ -85,11 +86,19 @@ def purge_article_satellites(r, article_id, char_state_keys=None):
             pipe.srem(k, article_id)          # pending / posted are SETs
     pipe.execute()
 
-    for name in (f"{article_id}.jpg", f"{article_id}-480.webp",
-                 f"{article_id}-800.webp", f"{article_id}-1200.webp"):
+    # Prefix-glob every scraped derivative for this article. Article ids are
+    # 32-char md5 hex (no hyphens), so `{id}*` is unambiguous. This is the
+    # same shape cleanup.py:213 uses when it recovers the id from a filename;
+    # keeping the two paths symmetric means a new derivative added to
+    # scribe.py sweeps under both. The prior enumeration listed four names
+    # and silently orphaned `{id}-orig.jpg` when Stage 1 added the fifth.
+    # Corollary: nothing under scraped/{id}* can be intended to outlive its
+    # article — if a preserved original ever needs independent retention,
+    # move it out of this directory rather than exempting it here.
+    for path in glob.glob(os.path.join(SCRAPED_IMAGE_DIR, f"{article_id}*")):
         try:
-            os.remove(os.path.join(SCRAPED_IMAGE_DIR, name))
-        except OSError:
+            os.remove(path)
+        except FileNotFoundError:
             pass
 
 
