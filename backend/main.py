@@ -244,8 +244,9 @@ if REDIS_URL:
         r.ping()
         app.register_blueprint(rss_blueprint)
         init_rss(r)
-        from translation import translation_bp
+        from translation import translation_bp, apply_rate_limits
         app.register_blueprint(translation_bp)
+        apply_rate_limits(app, limiter)
         from grade import grade_bp
         app.register_blueprint(grade_bp)
         from user_prefs import user_prefs_bp
