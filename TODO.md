@@ -453,3 +453,53 @@ lands; may collapse into or supersede items above.
   scribe still writes the pre-Stage-2 card unchanged. This is by design;
   see T2.
 
+---
+
+## Carried out of session 2026-08-01 (later) — quick-win sweep
+
+Landed: `perf/scribe-cadence-30` (cfg 1→30), `fix/og-image-height-675`
+(1200×630 → 1200×675), plus follow-up `824ed8d` on
+`fix/translate-failure-visibility` completing B.3's main.py wiring —
+B.3's `apply_rate_limits` call had been left in the working tree, so
+production /api/translate/ ran uncapped from the B.3 commit until
+this fix. Tests didn't catch it because the test file self-wires.
+
+**T11 — Cap /api/grade/ and /api/library/ (Arc only, Hunt has neither
+route).** Parked, not landed. The audit path is clear:
+  - `backend/grade.py:137` — `grade_article` view. Suggested cap 20/hour
+    per IP: grade responses cache 7 days (GRADE_TTL), so real reader
+    traffic hits cache; a fresh grade is a ~300s inference call to
+    `call_ollama_with_fallback`. 20/hour caps single-IP model spend at
+    ~100 min/hour worst case, cache hits fine.
+  - `backend/main.py:2279` — `get_library_work` view. Two buckets like
+    translate: `?lang=en` or absent → 120/hour (SQLite read only),
+    anything else → 10/hour (translates and caches the entire book —
+    heavy).
+  - Blocker: reusing B.3's `apply_rate_limits` helper cleanly requires
+    it to be on main, and B.3 is still on `fix/translate-failure-visibility`.
+    The right shape is to first extract the wrapping pattern
+    (`view_functions[endpoint]` replacement, idempotency marker, loud
+    missing-endpoint failure) into a shared `backend/rate_limit_utils.py`,
+    then have translate/grade/library all use it. Doing that on a branch
+    off main means either (a) refactoring translate's helper on the
+    translate branch first and merging, or (b) shipping the shared util
+    on its own branch off main and refactoring translate later. Option
+    (b) is smaller. Either way, more than a "quick win" commit.
+
+**T12 — Hunt gunicorn access log format lacks the duration field.**
+Arc's has `%(D)s` (or equivalent) appended and produces
+`… 200 9420 "…" "…" 7.365836`; Hunt's stops after the user-agent.
+Blocks any p95 measurement of Hunt's /api/translate/ from access
+logs. One-line change to `backend/gunicorn_arc.sh` (or wherever the
+access_log_format is defined on Hunt); gunicorn restart to pick up.
+
+**W1 AFTER measurement pending.** Scribe restarted at 13:38 UTC-6
+with `cycle_minutes = 30` (was 1 on Arc, 60 on Hunt). Ross's plan
+called for capturing Arc `/api/translate/` p50 and p95 ~60 min after
+the change. BEFORE numbers were: n=55 successful, p50=0.01s (cached),
+p95=451.93s, max=517.41s. Re-run:
+  `python3 -c "import re; ..."` against
+  `/home/www/arc_stack/logs/gunicorn_access.log` at ~14:38 UTC-6 or
+  later. The regex used for the BEFORE capture is at
+  `/tmp/w1-before.txt` alongside the numbers.
+
