@@ -416,9 +416,6 @@ never sweeps them. Unverified — possible unbounded leak since the manual
 publish path shipped. Enumerate what references them and either extend the
 sweep or accept the divergence explicitly.
 
-**T4 — Unit B.2, the Flask errorhandler, never started.** Referenced in
-B.1's log line as "next commit" but not written.
-
 **T6 — Unit D, language pills.** Data already served as `cached_langs` on the
 article payload; frontend surface not yet built. IntelligenceCard territory.
 
@@ -429,17 +426,16 @@ inference. Decision on record: translations should prune with their article,
 not carry their own TTL — remove the per-key expiries and rely on
 kasmir7/retention to clear both keys together.
 
-**T8 — `og:image:height` declares 630, scraped derivatives are 675.** Find
-the hardcode (likely `frontend/app/article/[slug]/page.tsx` metadata) and
-align to 675. Purely metadata, but crawlers/scrapers use this to size cards.
-
-**T9 — systemd units updated in-repo but never installed** to
-`/etc/systemd/system/`. `validate_sites.py` `ExecStartPre` preflight is not
-active as a result — this is the guard that would have caught the Jul 22
-outage. Needs root; can be paired with the next deploy window.
-
 **T10 — Codex full-state survey is running.** Fold its findings in when it
 lands; may collapse into or supersede items above.
+
+---
+
+## Landed / closed 2026-08-01 (removed from active list)
+
+- **T4** — Unit B.2 Flask errorhandler wired (Aug 1 survey).
+- **T8** — `og:image:height=675` aligned (Aug 1 survey; `fix/og-image-height-675`).
+- **T9** — systemd units installed (Aug 1 survey).
 
 ### Session-scope notes worth catching next time
 
@@ -502,4 +498,54 @@ p95=451.93s, max=517.41s. Re-run:
   `/home/www/arc_stack/logs/gunicorn_access.log` at ~14:38 UTC-6 or
   later. The regex used for the BEFORE capture is at
   `/tmp/w1-before.txt` alongside the numbers.
+
+---
+
+## Added 2026-08-02 — fleet-wide (mirrored in huntaegis_stack TODO)
+
+**F1 — Spectre NVIDIA driver DEAD post Ubuntu 26.04 upgrade.** `nvidia-smi`
+cannot reach the driver; Ollama reports `size_vram=0` on both `gemma4:e2b`
+and `gemma4:e4b`. **Spectre is currently a CPU box at 10.7 tok/s against
+the M1's 27.2.** Spectre was reduced to a dedicated inference agent BECAUSE
+of the GPU. This changes the cluster plan — no Spectre-as-analysis-host
+assumption is safe until the driver is back. DKMS module likely unbuilt
+against kernel 7.0.0-28. Recon-only, do not attempt fix now. Direct impact
+on Arc: none today (Arc analysis is on M1), but any future decision to
+offload Arc onto Spectre needs this resolved first.
+
+**F2 — Spectre HAS swap (correct earlier "no swap configured" claim).**
+`free -h` on Spectre: 4.0 Gi configured, ~494 MiB already in use before any
+bench work. Every doc/plan that repeats "Spectre has no swap" needs
+updating. Relevant to co-tenant sizing: swap growth during inference
+presents as slowness, not error.
+
+**F3 — Spectre sshd may have reverted `PasswordAuthentication no` after
+upgrade.** Spectre accepted a password from M1 today (was previously
+disabled via `/etc/ssh/sshd_config.d/99-hardening.conf` on 2026-07-24).
+Ubuntu 26.04 upgrade may have dropped it. `ufw` still limits port 22 to
+LAN so not urgent. Verify with `sshd -T | grep -i passwordauthentication`
+and audit what else the upgrade reset.
+
+**F4 — Resolute has NO ssh key to M1 (blocks unattended M1-side diagnostics).**
+Blocked Step 3.d in the Hunt translate work: could not fetch M1 `vm_stat`
+during a live Hunt translate. M1 is the offsite backup destination
+(LaunchAgent com.rossnesbitt.m1-pull-backups pulls FROM Resolute), so
+checks are strictly one-directional today. `ssh-copy-id ross@192.168.1.185`
+is a one-command fix; quick win, unblocks a whole class of unattended
+health check.
+
+**F5 — Single M1 Ollama process restart during 2026-08-02 benchmarking.**
+One occurrence, not reproducible after Ollama came back. A `/api/chat`
+request against `translategemma:latest` with `think=false` timed out at
+300 s; Ollama process then died. Every subsequent identical request
+succeeded in seconds. Worth watching if M1 continues to carry Arc analysis
+plus co-tenants; Arc analysis health depends on it.
+
+### Arc-side notes worth catching next time
+
+- Arc's `translation.py` payload construction was the reference implementation
+  for Hunt's Unit C work. Hunt now sends `think=false` and `num_ctx=32768`
+  matching Arc's local path. Hunt still bypasses `ollama_client` and hits
+  `/api/chat` instead of `/api/generate` — those diffs are logged as
+  Hunt-side T13/T14 in huntaegis_stack TODO, not Arc's problem to fix.
 
