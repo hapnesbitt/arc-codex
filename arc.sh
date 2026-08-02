@@ -555,7 +555,12 @@ cmd_backup() {
     local SCRAPED_EXCLUDE="--exclude=./frontend/public/uploads/scraped"
     [ "$(grep -oP '^include_scraped_images\s*=\s*\K(true|false)' "$ITC_ROOT/arc.cfg" 2>/dev/null)" = "true" ] \
         && SCRAPED_EXCLUDE=""
-    tar -zcf "$FILE" \
+    # umask scoped to the tar ONLY (subshell): this archive also embeds
+    # backend/.env, so it must not be world-readable — but cmd_backup restarts
+    # the stack below, and a function-level umask would follow cmd_start into
+    # every service log and pidfile it creates. Keep the blast radius here.
+    ( umask 027
+      tar -zcf "$FILE" \
         $SCRAPED_EXCLUDE \
         --exclude="./frontend/node_modules" \
         --exclude="./frontend/.next" \
@@ -567,7 +572,7 @@ cmd_backup() {
         --exclude="*.log.gz" \
         --exclude="./upload/completed" \
         --exclude="./upload/failed" \
-        -C "$ITC_ROOT" .
+        -C "$ITC_ROOT" . )
     if [ -f "$FILE" ]; then
         echo "✅ Backup: $FILE ($(du -sh "$FILE" | cut -f1))"
         # Retain only the most recent N
@@ -595,11 +600,30 @@ cmd_backup() {
 #                                 SOLR_HOME because solr.allowPaths restricts
 #                                 backup locations; moved into the archive.
 #   data_layer/library.db       — SQLite online .backup (safe with readers)
+# Plus host config that lives outside $ITC_ROOT and was captured nowhere:
+#   host_config/Caddyfile       — /etc/caddy/Caddyfile. Sole server of
+#                                 /uploads/* since uploads left the frontend
+#                                 image; without it a restore has no heroes.
+#                                 A required member — no Caddyfile, no archive.
+#   host_config/systemd/        — installed unit files + drop-ins. The repo's
+#                                 ops/systemd/ copies are authoritative and
+#                                 already in the tar; these record what is
+#                                 actually installed, so drift is visible.
+#                                 Best-effort: warns, does not fail the run.
+# Restore drops host_config/ into $ITC_ROOT alongside data_layer/ — both are
+# inert on extraction; reinstalling them to /etc is a deliberate root step
+# (see ops/RUNBOOK.md).
 # Stack does NOT stop. backend/.env rides in the stack tar (known R9 issue —
 # encrypted secret store is a separate fix; do not half-solve it here).
 # Cron: 0 2 * * 0 /home/www/arc_stack/arc.sh backup-cold
 # ==============================================================================
 cmd_backup_cold() {
+    # Archives embed backend/.env (R9). They must not be world-readable: the
+    # off-host pull account (bkpull) reads them via the bkread group, nobody
+    # else needs them. 027 → files 640, dirs 750. The GROUP comes from the
+    # setgid bit on $COLD_BACKUP_DIR (2750 ross:bkread), not from here —
+    # without setgid these land ross:ross and bkpull cannot read them.
+    umask 027
     local DATE=$(date +%Y-%m-%d_%H%M)
     mkdir -p "$COLD_BACKUP_DIR"
     local FILE="$COLD_BACKUP_DIR/arc_cold_$DATE.tar.gz"
@@ -648,6 +672,29 @@ cmd_backup_cold() {
         fi
     fi
 
+    # --- Host config: lives outside $ITC_ROOT, so the stack tar never saw it ---
+    # The Caddyfile is the whole reason this block exists: since uploads left
+    # the frontend image, Caddy's `handle /uploads/*` file_server is the ONLY
+    # thing serving hero images. A restore-from-scratch without it comes back
+    # with every hero 404ing and no config on disk explaining why.
+    mkdir -p "$STAGING/host_config/systemd"
+    if cp /etc/caddy/Caddyfile "$STAGING/host_config/Caddyfile" 2>/dev/null; then
+        echo "   ✅ Caddyfile captured ($(du -sh "$STAGING/host_config/Caddyfile" | cut -f1))"
+    else
+        echo "   ⚠️  Caddyfile capture FAILED — /uploads route will be unrestorable"
+    fi
+    # Installed systemd units. ops/systemd/ in the repo is the source of truth
+    # and already rides in the stack tar, so these copies are the *drift
+    # record*: what is actually installed on the host, drop-ins included.
+    # Best-effort by design — a missing unit is recoverable from the repo copy,
+    # so it warns rather than failing the archive (unlike the Caddyfile).
+    for u in arc-stack arc-watchdog; do
+        cp "/etc/systemd/system/$u.service" "$STAGING/host_config/systemd/" 2>/dev/null \
+            || echo "   ⚠️  systemd unit not captured: $u.service"
+        [ -d "/etc/systemd/system/$u.service.d" ] \
+            && cp -r "/etc/systemd/system/$u.service.d" "$STAGING/host_config/systemd/"
+    done
+
     echo "🗜️  Archiving stack + data layer (this may take a while)..."
     local PARTIAL="$FILE.partial"
     tar -zcf "$PARTIAL" \
@@ -661,12 +708,16 @@ cmd_backup_cold() {
         --exclude="./upload/completed" \
         --exclude="./upload/failed" \
         -C "$ITC_ROOT" . \
-        -C "$STAGING" data_layer
+        -C "$STAGING" data_layer host_config
     local tar_rc=$?
 
-    # --- Verification gate. The .sha256 sidecar is the eligibility token the
-    # off-host pull job keys on (Codex task-7): nothing without a sidecar ever
-    # ships, and nothing gets a sidecar without passing every check here.
+    # --- Verification gate. Nothing gets a .sha256 sidecar without passing
+    # every check here, so a torn archive can never impersonate a good one.
+    # The sidecar is the eligibility token for the off-host pull: as of
+    # 2026-08-01 the M1 (192.168.1.185) pulls cold archives via LaunchAgent
+    # com.rossnesbitt.m1-pull-backups from the bkpull account on this host
+    # (see ops/m1-pull-backups.sh). Missing sidecar = not pulled — this
+    # gate is now load-bearing, not aspirational.
     local fail=""
     [ $tar_rc -eq 0 ] || fail="tar exit $tar_rc"
     if [ -z "$fail" ] && ! redis-check-rdb "$STAGING/data_layer/redis-arc.rdb" >/dev/null 2>&1; then
@@ -676,7 +727,7 @@ cmd_backup_cold() {
         fail="gzip -t integrity check"
     fi
     if [ -z "$fail" ]; then
-        local required="./backend/main.py ./arc.sh data_layer/redis-arc.rdb data_layer/solr-snapshot/"
+        local required="./backend/main.py ./arc.sh data_layer/redis-arc.rdb data_layer/solr-snapshot/ host_config/Caddyfile"
         [ -f /mnt/arcdata/library.db ] && required="$required data_layer/library.db"
         local members
         members=$(tar -tzf "$PARTIAL" 2>/dev/null) || fail="tar -tzf listing"
