@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.rossnesbitt.m1-pull-backups
+  Drives ops/m1-pull-backups.sh on the M1 (secondary cold-archive destination
+  once Spectre becomes primary). PULL model: the M1 fetches from Resolute.
+
+  Deploy as a LaunchAgent (runs in Ross's login session, where the SSH keys and
+  known_hosts live):
+      cp com.rossnesbitt.m1-pull-backups.plist ~/Library/LaunchAgents/
+      launchctl load  ~/Library/LaunchAgents/com.rossnesbitt.m1-pull-backups.plist
+      launchctl start com.rossnesbitt.m1-pull-backups   # optional immediate test
+  (A LaunchDaemon would survive logout but runs as root without the user keychain/
+  ssh context — LaunchAgent matches this script's user-scoped design.)
+
+  Schedule is OFFSET FROM the Sunday cold backups on Resolute
+  (Hunt cold 03:00, Arc cold 04:00). We pull well after the Arc cold archive is
+  written, plus a daily catch-up for rotations and backfilled sidecars.
+      * Daily  06:00  — catch daily rotations / late sidecars (idempotent)
+      * Sunday 07:00  — pull the fresh weekly cold archive (~3h after Arc cold-backup)
+  StartCalendarInterval runs a missed schedule at next wake, so a shut lid just
+  defers the run. caffeinate -s holds the machine awake for the duration.
+
+  PATH puts /opt/homebrew/bin first so a Homebrew rsync (v3) is preferred over the
+  ancient system /usr/bin/rsync (2.6.9) — see the portability note in the script.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.rossnesbitt.m1-pull-backups</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/caffeinate</string>
+        <string>-s</string>
+        <string>/Users/rossnesbitt/ops/m1-pull-backups.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <!-- Override target here if the M1 ever pulls from a rebuilt Resolute:
+             <key>BKPULL_HOST</key><string>192.168.1.198</string> -->
+    </dict>
+
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Hour</key><integer>6</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key><integer>0</integer>
+            <key>Hour</key><integer>7</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+    </array>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/rossnesbitt/ops/logs/m1-pull-backups.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/rossnesbitt/ops/logs/m1-pull-backups.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+</dict>
+</plist>
