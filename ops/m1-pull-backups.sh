@@ -59,6 +59,32 @@
 #     arc archives just to delete 6.5 GB of them seconds later.
 #   * Preflight fails LOUDLY on an unusable rsync instead of degrading to
 #     silence.
+#
+# ------------------------------------------------------------------------------
+# v3 (2026-08-05), after three archives sat with NO valid offsite copy for two
+# weeks while the job dutifully alerted every single day. Not a transfer fault:
+# the M1 copies were byte-exact TRUNCATED PREFIXES of intact originals, so three
+# interrupted fetches (a laptop that sleeps — by design) became permanent.
+#
+# The trap was three mechanisms agreeing:
+#   1. Bare `--partial` parks incomplete data at the FINAL filename.
+#   2. `fetch_one` tested `[ -f ]`, so that stub read as "have" forever, and the
+#      capacity gate used the same test, so it budgeted 0 bytes to repair it.
+#   3. A verification failure left the file exactly where it was, to be
+#      re-verified and re-failed on every subsequent run.
+# Each is defensible alone. Together they made a recoverable interruption
+# permanent, and made the alert unable to distinguish "retrying" from "stuck".
+#
+# v3 breaks all three:
+#   * --partial-dir=.rsync-partial — incomplete data never takes the final name.
+#   * have_complete() compares local size to source size, and BOTH the fetch step
+#     and the capacity gate call it. One helper, so they cannot drift apart.
+#   * A checksum mismatch now quarantines the file so the next run re-fetches it.
+#     Deliberately NOT for sha-passes-but-structurally-broken: that indicts the
+#     original, and re-fetching it forever would be this same bug mirrored.
+#
+# Standing lesson: a self-healing job must be able to say "I cannot fix this".
+# Every failure here alerted correctly and none of them could clear itself.
 # ==============================================================================
 set -u
 
@@ -213,6 +239,26 @@ remote_size() {   # $1 = path relative to the rrsync root. ALWAYS prints an inte
     case "$sz" in ''|*[!0-9]*) echo 0 ;; *) echo "$sz" ;; esac
 }
 
+# Is the local copy actually the whole archive? A bare `[ -f ]` says only that a
+# NAME exists, and with plain --partial an interrupted transfer left its stub at
+# exactly that name — so "have" was satisfied forever by a 4%-complete file that
+# was never re-fetched and failed verification on every run for two weeks
+# (2026-07-21/23 archives; see RUNBOOK). Size equality against the source is what
+# makes the answer honest; the sha256 in section 5 is what makes it correct.
+#
+# Unknown remote size (0) deliberately returns "not complete": re-fetching a good
+# file is a cheap no-op for rsync, whereas skipping a bad one is what caused this.
+have_complete() {   # $1 = rel path from rrsync root, $2 = local dir → 0 if whole
+    local rel="$1" dst="$2" base local_sz remote_sz
+    base=$(basename "$rel")
+    [ -f "$dst/$base" ] || return 1
+    local_sz=$(stat -f%z "$dst/$base" 2>/dev/null || stat -c%s "$dst/$base" 2>/dev/null)
+    case "$local_sz" in ''|*[!0-9]*) return 1 ;; esac
+    remote_sz=$(remote_size "$rel")
+    [ "$remote_sz" -gt 0 ] 2>/dev/null || return 1
+    [ "$local_sz" = "$remote_sz" ]
+}
+
 select_within_budget() {   # $1=list  $2=budget  $3=subdir-prefix  → prints chosen
     local used=0 n=0
     while IFS= read -r f; do
@@ -238,9 +284,11 @@ log "  selected within budget: $n_arc arc, $n_hunt huntaegis"
 # ==============================================================================
 # 3. CAPACITY GATE — floor read at runtime, never assumed.
 # ==============================================================================
+# Same completeness test as fetch_one — one helper, so the gate can never budget
+# 0 bytes for an archive the transfer step is about to re-fetch in full.
 need=0
-for f in $arc_sel;  do [ -f "$DEST/backups/$f" ] || need=$(( need + $(remote_size "$f") )); done
-for f in $hunt_sel; do [ -f "$DEST/backups/huntaegis/$f" ] || need=$(( need + $(remote_size "huntaegis/$f") )); done
+for f in $arc_sel;  do have_complete "$f" "$DEST/backups" || need=$(( need + $(remote_size "$f") )); done
+for f in $hunt_sel; do have_complete "huntaegis/$f" "$DEST/backups/huntaegis" || need=$(( need + $(remote_size "huntaegis/$f") )); done
 free=$(free_bytes)
 log "  need $need B, free $free B, floor $FLOOR_BYTES B"
 if [ "$need" -gt 0 ] && [ $(( free - need )) -lt "$FLOOR_BYTES" ]; then
@@ -258,11 +306,19 @@ fi
 # ==============================================================================
 CAFF=""; command -v caffeinate >/dev/null && CAFF="caffeinate -s"
 
+# --partial-dir, never bare --partial. Interrupted data parks in .rsync-partial/
+# under the destination and resumes from there next run; what it must never do is
+# occupy the final filename, because every "do I have this?" test in this script
+# keys on that name. The laptop sleeping mid-transfer is expected, not exceptional
+# — that is the whole reason --partial is here — so the resume path has to be the
+# safe one. rsync auto-excludes a relative partial-dir from the transfer itself.
 fetch_one() {   # $1 = rel path from rrsync root, $2 = local dir
     local rel="$1" dst="$2" base; base=$(basename "$rel")
-    if [ -f "$dst/$base" ]; then log "  have: $base"; return 0; fi
+    if have_complete "$rel" "$dst"; then log "  have: $base"; return 0; fi
+    [ -f "$dst/$base" ] && log "  incomplete, re-fetching: $base"
     log "  fetching: $base"
-    if ! $CAFF rsync -a --partial -e "$SSH" "$SRC_HOST:/$rel" "$dst/" 2>"$ERR"; then
+    if ! $CAFF rsync -a --partial --partial-dir=.rsync-partial \
+            -e "$SSH" "$SRC_HOST:/$rel" "$dst/" 2>"$ERR"; then
         alert "transfer FAILED: $base"; show_err; return 1
     fi
     return 0
@@ -299,9 +355,32 @@ sha_check() {   # portable: shasum on macOS, sha256sum on Linux
     fi
 }
 
+# A failed archive that stays put is re-verified and re-failed forever while the
+# fetch step keeps saying "have" — the exact deadlock this script sat in from
+# 2026-07-23 to 2026-08-05. Move it aside so the next run re-fetches it.
+#
+# ONLY on checksum mismatch. A mismatch means the local bytes are wrong and a
+# re-fetch is the fix. If the sha MATCHES and the file still fails gzip/tar/RDB,
+# the ORIGINAL on Resolute is bad — re-fetching cannot help, and doing it anyway
+# would burn 7 GB of LAN every run forever. That case stays put and stays loud.
+#
+# One quarantined copy per name (fixed suffix, overwritten): forensics survive,
+# disk use stays bounded on a volume that has a capacity floor to respect.
+QUARANTINE="$DEST/quarantine"
+quarantine_bad() {   # $1 = full path to the bad archive
+    local p="$1" b; b=$(basename "$p")
+    mkdir -p "$QUARANTINE" 2>/dev/null
+    if mv -f "$p" "$QUARANTINE/$b.bad" 2>/dev/null; then
+        alert "  moved aside → quarantine/$b.bad (next run re-fetches)"
+    else
+        rm -f "$p" && alert "  unlinked (quarantine unavailable); next run re-fetches"
+    fi
+}
+
 verify_one() {
     local path="$1" name dir; name=$(basename "$path"); dir=$(dirname "$path")
-    sha_check "$dir" "$name" || { alert "checksum MISMATCH on arrival: $name"; return 1; }
+    sha_check "$dir" "$name" || {
+        alert "checksum MISMATCH on arrival: $name"; quarantine_bad "$path"; return 1; }
     gzip -t "$path" 2>/dev/null   || { alert "gzip -t failed: $name"; return 1; }
     tar -tzf "$path" >/dev/null 2>&1 || { alert "tar -tzf failed: $name"; return 1; }
     local rdb
