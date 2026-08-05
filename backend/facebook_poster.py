@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 facebook_poster.py — Arc Codex auto-poster for Facebook Pages
-v1.2 — 368 rate-limit cooldown; automatic token refresh on OAuthException 190/463
+v1.3 — 368 rate-limit cooldown; Page token re-derived via /me/accounts
 
 On/off:  redis-cli set facebook:autopost 1|0
 Posted set: facebook:posted (SET of article IDs, prevents duplicates)
@@ -20,17 +20,30 @@ Post format:
 Image: downloaded from article imageUrl, uploaded to the Page via Graph API
        (staged as unpublished photo, then attached to the feed post).
 Jitter: 30–180s after article detection to avoid burst-posting on restart.
-Seeds all existing articles on startup to prevent spam.
+Seeds existing articles on first run only (facebook:seeded sentinel) — a
+  restart mid-outage must not silently drop everything queued while down.
 
-Token refresh: on OAuthException code 190 or 463, exchanges the current token
-  for a long-lived token via oauth/access_token (grant_type=fb_exchange_token),
-  persists the new token to .env and retries the failed request once.
+Token lifecycle:
+  Page tokens derived from a long-lived user token inherit the user token's
+  ~60-day lifetime (or no expiry, for System User tokens). We re-derive the
+  Page token at startup, on a 12h proactive cycle, and reactively when a
+  request hits OAuthException 190/463 — calling GET /me/accounts with the
+  user token and selecting the entry whose id matches FACEBOOK_PAGE_ID, then
+  persisting it to .env and retrying the failed request once. Repeated
+  failures back off 60s → 1800s.
+
+  Note the real renewal deadline is Graph *data access* expiry, not the Page
+  token: the Page token itself reports expires_at=0. log_data_access_expiry()
+  logs the remaining runway at startup; re-auth is a browser step.
 
 Requires in .env:
-  FACEBOOK_APP_ID         — Meta app ID
-  FACEBOOK_APP_SECRET     — Meta app secret
-  FACEBOOK_PAGE_ID        — numeric Page ID
-  FACEBOOK_ACCESS_TOKEN   — Page access token (refreshed automatically)
+  FACEBOOK_PAGE_ID              — numeric Page ID
+  FACEBOOK_USER_ACCESS_TOKEN    — long-lived user access token (Page admin);
+                                  without it auto-re-derivation is disabled and
+                                  the cached Page token is used as-is
+  FACEBOOK_ACCESS_TOKEN         — Page access token (cached, auto-refreshed)
+  FACEBOOK_APP_ID               — Meta app ID    ┐ used only to build the app
+  FACEBOOK_APP_SECRET           — Meta app secret┘ token for debug_token
 """
 
 import io
