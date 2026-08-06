@@ -34,7 +34,9 @@ import uuid
 import threading
 import random
 import gc
-import asyncio
+import shutil
+import subprocess
+import tempfile
 from stream_utils import publish_analysis, ensure_stream_group
 from ollama_utils import call_ollama_local_only, OLLAMA_LOCAL_FALLBACK
 from retention import run_retention_pass
@@ -60,7 +62,6 @@ import gzip
 import zlib
 import yaml
 import yt_dlp
-import edge_tts
 from langdetect import detect, DetectorFactory, LangDetectException
 DetectorFactory.seed = 0  # deterministic
 
@@ -383,12 +384,152 @@ def _run_analysis_background(article_id: str, text_for_analysis: str) -> None:
 # English stories only. Non-English stories get nothing: narrating Spanish
 # text with an en-US voice produces gibberish, and translating first is a
 # separate piece of work that does not exist yet.
+#
+# Synthesis runs on the M1 under Kokoro. See the AUDIO_* block near
+# SCRAPED_IMAGE_DIR for why that host makes narration opportunistic work.
+
+# Runs on the M1 inside the dedicated venv. One process for the whole
+# article: importing torch and loading the pipeline costs ~5s, and that is
+# per-process, not per-chunk. Unlike cc.py, which keeps its chunks as
+# separate files to report progress against, this joins them into one WAV
+# remotely — a single file comes back and a single ffmpeg pass encodes it.
+_KOKORO_REMOTE = '''\
+import json, os, sys
+
+staging, voice, speed, rate = sys.argv[1], sys.argv[2], float(sys.argv[3]), int(sys.argv[4])
+with open(os.path.join(staging, "chunks.json"), encoding="utf-8") as f:
+    chunks = json.load(f)
+
+from kokoro import KPipeline
+import numpy as np
+import soundfile as sf
+
+pipe = KPipeline(lang_code="a")
+parts = []
+for idx, text in enumerate(chunks, start=1):
+    spoken = [audio for _, _, audio in pipe(text, voice=voice, speed=speed)]
+    if not spoken:
+        sys.exit("chunk %d produced no audio" % idx)
+    parts.extend(spoken)
+    print("PROGRESS %d/%d" % (idx, len(chunks)), file=sys.stderr, flush=True)
+
+sf.write(os.path.join(staging, "article.wav"), np.concatenate(parts), rate)
+'''
+
+# Emits labelled sections rather than a single verdict: the reason has to
+# come back to us so it can be logged, not just a boolean.
+_KOKORO_PROBE = '''\
+test -x {venv}/bin/python && echo "VENV ok" || echo "VENV missing"
+echo "PAGESIZE $(sysctl -n hw.pagesize)"
+echo "--VMSTAT--"
+vm_stat
+echo "--OLLAMA--"
+curl -s --max-time 3 http://127.0.0.1:11434/api/ps || echo UNREACHABLE
+'''
 
 
-async def _synthesize(text: str, out_path: str) -> None:
-    """Write `text` to `out_path` as mp3 via edge-tts."""
-    communicate = edge_tts.Communicate(text, AUDIO_VOICE, rate=AUDIO_RATE)
-    await communicate.save(out_path)
+def _audio_ssh(args: list, **kw):
+    """Run ssh with a bounded connect timeout and no interactive prompts."""
+    return subprocess.run(
+        ["ssh", "-o", f"ConnectTimeout={AUDIO_SSH_TIMEOUT}",
+         "-o", "BatchMode=yes", AUDIO_HOST, *args],
+        capture_output=True, text=True, **kw)
+
+
+def _free_mb(vmstat: str, page_size: int) -> float:
+    """Reclaimable memory in MB, from vm_stat's page counts.
+
+    free + inactive + speculative + purgeable is the usual macOS
+    approximation of 'available': inactive and speculative pages are
+    file-backed and can be evicted without swapping.
+    """
+    pages = 0
+    for label in ("free", "inactive", "speculative", "purgeable"):
+        m = re.search(rf"Pages {label}:\s+(\d+)", vmstat)
+        if m:
+            pages += int(m.group(1))
+    return pages * page_size / (1024 * 1024)
+
+
+def kokoro_preflight() -> str | None:
+    """Return None if Kokoro may run, else the reason it may not.
+
+    Ported unchanged in substance from lecture_pipeline/cc.py. Every branch
+    yields a sentence, because a silent skip is not diagnosable. The bar is
+    deliberately high in the conservative direction: anything we cannot
+    positively verify counts as a refusal, since the cost of a wrong 'yes' is
+    thrashing Arc's inference host and the cost of a wrong 'no' is a story
+    that stays silent until the next pass looks at it.
+    """
+    probe = _audio_ssh(["sh"], input=_KOKORO_PROBE.format(venv=AUDIO_VENV))
+    if probe.returncode != 0:
+        detail = probe.stderr.strip().splitlines()
+        return f"{AUDIO_HOST} unreachable ({detail[-1] if detail else 'ssh failed'})"
+
+    out = probe.stdout
+    if "VENV ok" not in out:
+        return f"no kokoro venv at {AUDIO_HOST}:{AUDIO_VENV}"
+
+    # A resident model outranks us unconditionally. Note this is the HTTP
+    # API, not `ollama ps`: ollama is not on the non-interactive ssh PATH,
+    # so the CLI exits 127 and a naive check would read "no ollama" as
+    # "nothing resident" — exactly backwards on a busy host.
+    _, _, ollama = out.partition("--OLLAMA--")
+    ollama = ollama.strip()
+    if not ollama or ollama == "UNREACHABLE":
+        return f"cannot read {AUDIO_HOST} ollama state; assuming Arc is live"
+    try:
+        models = json.loads(ollama).get("models", [])
+    except json.JSONDecodeError:
+        return f"unparseable ollama state from {AUDIO_HOST}; assuming Arc is live"
+    if models:
+        names = ", ".join(m.get("name", "?") for m in models)
+        held = sum(m.get("size", 0) for m in models) / (1024 ** 3)
+        return f"{AUDIO_HOST} has {names} resident ({held:.1f} GB)"
+
+    page = re.search(r"PAGESIZE (\d+)", out)
+    vmstat, _, _ = out.partition("--OLLAMA--")
+    if not page:
+        return f"could not read {AUDIO_HOST} memory state"
+    free = _free_mb(vmstat, int(page.group(1)))
+    if free < AUDIO_MIN_FREE_MB:
+        return f"{AUDIO_HOST} has {free:.0f} MB free, needs {AUDIO_MIN_FREE_MB}"
+    return None
+
+
+def _chunk_text(text: str) -> list:
+    """Split an article body on sentence boundaries into TTS-sized pieces.
+
+    AUDIO_MAX_CHARS is read in the body rather than taken as a default
+    argument: the AUDIO_* block lives further down the file with the other
+    publish-time constants, and a default would be evaluated at def time.
+    """
+    max_chars = AUDIO_MAX_CHARS
+    normalized = re.sub(r"([.!?])([A-Za-z])", r"\1 \2", text)
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", normalized) if s.strip()]
+
+    chunks = []
+    current = ""
+    for sentence in sentences:
+        if len(sentence) > max_chars:
+            # Flush first: appending the split pieces ahead of `current`
+            # would put the audio out of order.
+            if current:
+                chunks.append(current)
+                current = ""
+            for i in range(0, len(sentence), max_chars):
+                chunks.append(sentence[i:i + max_chars])
+            continue
+
+        if current and len(current) + len(sentence) + 1 > max_chars:
+            chunks.append(current)
+            current = sentence
+        else:
+            current = f"{current} {sentence}".strip() if current else sentence
+
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 def synthesize_article_audio(article_id: str, text: str) -> str | None:
@@ -397,31 +538,99 @@ def synthesize_article_audio(article_id: str, text: str) -> str | None:
     Returns the relative serving path, or None on any failure — narration is
     a nice-to-have and must never affect whether a story publishes.
 
-    Writes to a temp file and renames into place, so a crashed or timed-out
-    synthesis cannot leave a truncated mp3 at the path the field will point
-    at. rename(2) within one filesystem is atomic: readers see the whole file
-    or no file.
+    Assumes kokoro_preflight() has already passed; the caller runs it, so
+    that a refusal reads as a deferral in the log while a failure here reads
+    as a failure. The preflight cannot cover everything even so — the host
+    can go away mid-run, or Arc can load a model a second after we looked —
+    and every one of those lands here as None and a silent story.
+
+    Encodes to a temp file and renames into place, so a crashed or timed-out
+    run cannot leave a truncated mp3 at the path the field will point at.
+    rename(2) within one filesystem is atomic: readers see the whole file or
+    no file.
     """
     text = (text or '').strip()
     if len(text) < AUDIO_MIN_CHARS:
         logger.info(f"🔊 Audio skipped — too short ({len(text)} chars) for {article_id}")
         return None
 
+    if not shutil.which("ffmpeg"):
+        logger.warning("🔊 Audio skipped — ffmpeg not on PATH, needed to encode Kokoro's WAV")
+        return None
+
     final_path = os.path.join(AUDIO_DIR, f"{article_id}.mp3")
     temp_path = f"{final_path}.partial"
+    chunks = _chunk_text(text)
+    started = time.perf_counter()
 
+    staging = None
+    workdir = None
     try:
         os.makedirs(AUDIO_DIR, exist_ok=True)
-        started = time.perf_counter()
-        asyncio.run(
-            asyncio.wait_for(_synthesize(text, temp_path), timeout=AUDIO_TIMEOUT_SECONDS)
-        )
+        workdir = tempfile.mkdtemp(prefix=f"arc-audio-{article_id[:12]}-")
 
-        # edge-tts reports a clean exit even when the service returns no audio
-        # for the request, which lands as a zero-byte file. Treat that as the
-        # failure it is rather than publishing a silent mp3.
-        if not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
+        staged = _audio_ssh(["mktemp", "-d", "-t", "arc-audio"])
+        if staged.returncode != 0:
+            logger.warning(f"🔊 Audio failed — could not stage on {AUDIO_HOST}: "
+                           f"{staged.stderr.strip()}")
+            return None
+        staging = staged.stdout.strip()
+
+        manifest = os.path.join(workdir, "chunks.json")
+        program = os.path.join(workdir, "synth.py")
+        with open(manifest, "w", encoding="utf-8") as f:
+            json.dump(chunks, f)
+        with open(program, "w", encoding="utf-8") as f:
+            f.write(_KOKORO_REMOTE)
+
+        push = subprocess.run(
+            ["scp", "-q", "-o", f"ConnectTimeout={AUDIO_SSH_TIMEOUT}",
+             "-o", "BatchMode=yes", manifest, program, f"{AUDIO_HOST}:{staging}/"],
+            capture_output=True, text=True)
+        if push.returncode != 0:
+            logger.warning(f"🔊 Audio failed — staging upload: {push.stderr.strip()}")
+            return None
+
+        logger.info(f"🔊 Narrating {article_id}: {len(text)} chars in {len(chunks)} chunk(s), "
+                    f"kokoro voice {AUDIO_VOICE} at {AUDIO_SPEED}x on {AUDIO_HOST}")
+        synth = subprocess.run(
+            ["ssh", "-o", f"ConnectTimeout={AUDIO_SSH_TIMEOUT}", "-o", "BatchMode=yes",
+             AUDIO_HOST,
+             f"{AUDIO_VENV}/bin/python {staging}/synth.py {staging} "
+             f"{AUDIO_VOICE} {AUDIO_SPEED} {AUDIO_SAMPLE_RATE}"],
+            capture_output=True, text=True, timeout=AUDIO_TIMEOUT_SECONDS)
+        if synth.returncode != 0:
+            noise = [line for line in synth.stderr.strip().splitlines()
+                     if line and not line.startswith("PROGRESS ")
+                     and "Warning" not in line and "warn" not in line]
+            logger.warning(f"🔊 Audio failed — remote synthesis for {article_id}: "
+                           f"{noise[-1] if noise else 'no detail'}")
+            return None
+
+        wav_path = os.path.join(workdir, "article.wav")
+        pull = subprocess.run(
+            ["scp", "-q", "-o", f"ConnectTimeout={AUDIO_SSH_TIMEOUT}",
+             "-o", "BatchMode=yes", f"{AUDIO_HOST}:{staging}/article.wav", wav_path],
+            capture_output=True, text=True)
+        if pull.returncode != 0:
+            logger.warning(f"🔊 Audio failed — could not retrieve WAV: {pull.stderr.strip()}")
+            return None
+        if not os.path.exists(wav_path) or os.path.getsize(wav_path) == 0:
             logger.warning(f"🔊 Audio came back empty for {article_id}")
+            return None
+
+        # -f mp3 is not optional: the output is written to a .partial path,
+        # and ffmpeg picks its muxer from the extension unless told.
+        encode = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", wav_path,
+             "-c:a", "libmp3lame", "-b:a", "64k", "-ac", "1", "-f", "mp3", temp_path],
+            capture_output=True, text=True)
+        if encode.returncode != 0:
+            logger.warning(f"🔊 Audio failed — mp3 encode for {article_id}: "
+                           f"{encode.stderr.strip()}")
+            return None
+        if not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
+            logger.warning(f"🔊 Audio encoded to nothing for {article_id}")
             return None
 
         os.replace(temp_path, final_path)
@@ -433,13 +642,28 @@ def synthesize_article_audio(article_id: str, text: str) -> str | None:
         )
         return f"/uploads/audio/{article_id}.mp3"
 
-    except asyncio.TimeoutError:
+    except subprocess.TimeoutExpired:
+        # Killing our ssh leaves the remote python running, and an orphaned
+        # Kokoro holding ~1.6 GB on Arc's inference host is exactly the
+        # contention this whole design avoids. The staging path is unique to
+        # this run, so matching on it cannot hit anything else.
         logger.warning(f"🔊 Audio timed out after {AUDIO_TIMEOUT_SECONDS}s for {article_id}")
+        if staging:
+            _audio_ssh(["pkill", "-f", staging])
         return None
     except Exception as e:
         logger.warning(f"🔊 Audio failed ({type(e).__name__}) for {article_id}: {e}")
         return None
     finally:
+        # Staging is scratch on someone else's production box; clear it
+        # whether or not we succeeded.
+        if staging:
+            try:
+                _audio_ssh(["rm", "-rf", staging])
+            except Exception:
+                pass
+        if workdir:
+            shutil.rmtree(workdir, ignore_errors=True)
         if os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
@@ -447,33 +671,109 @@ def synthesize_article_audio(article_id: str, text: str) -> str | None:
                 pass
 
 
-def _run_audio_background(article_id: str, text: str) -> None:
-    """Narrate a story and record the result on the article hash.
+# One narration at a time, on a thread of its own: a run can hold the M1 for
+# minutes, and _analysis_executor's two workers belong to sentinel and
+# counter-analyst. The lock is what keeps the queue at zero — a pass that
+# finds one already running does nothing rather than stacking up behind it.
+_audio_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"{site.slug}-audio")
+_audio_lock = threading.Lock()
+
+# Articles whose synthesis actually failed, as opposed to being deferred.
+# Without this a story that Kokoro cannot speak would be picked first by
+# every pass forever and no other story would ever get audio. Process-local
+# on purpose: a restart is a clean retry, and the alternative is a second
+# Redis field, which the one-field contract does not allow.
+_audio_failed = set()
+
+
+def _find_silent_article(r_conn):
+    """Newest story in the scan window with no audio yet. (id, text) or None.
+
+    Reads the feed ZSET rather than any queue of its own: the record of what
+    still needs narrating is the absence of audio_url, and that is already in
+    Redis. A story published while the M1 was busy is simply still silent
+    when the next pass looks.
+    """
+    try:
+        ids = r_conn.zrevrange('feed', 0, AUDIO_SCAN_WINDOW - 1)
+    except Exception as e:
+        logger.warning(f"🔊 Audio pass could not read the feed: {e}")
+        return None
+
+    ids = [aid for aid in ids if aid not in _audio_failed]
+    if not ids:
+        return None
+
+    pipe = r_conn.pipeline()
+    for aid in ids:
+        pipe.hmget(f"article:{aid}", ['audio_url', 'source_lang', 'original_text'])
+    for aid, (audio_url, lang, body) in zip(ids, pipe.execute()):
+        if audio_url:
+            continue
+        if (lang or 'English') != 'English':
+            continue
+        body = (body or '').strip()
+        if len(body) < AUDIO_MIN_CHARS:
+            continue
+        return aid, body
+    return None
+
+
+def _run_audio_pass() -> None:
+    """Narrate the newest story that has none, if the M1 can spare the room.
 
     Creates its own Redis connection per the thread-safety rules above.
-    Writes exactly one field, audio_url. A failure writes nothing at all —
-    an absent field simply means this story has no audio.
+    Writes exactly one field, audio_url. A skip writes nothing at all — an
+    absent field simply means this story has no audio yet.
     """
-    audio_url = synthesize_article_audio(article_id, text)
-    if not audio_url:
-        return
-
     try:
         r_bg = redis.Redis(decode_responses=True, password=REDIS_PASSWORD, db=site.redis_db)
     except Exception as e:
-        logger.error(f"🔊 [bg] Redis connect failed for {article_id}: {e}")
+        logger.error(f"🔊 [bg] Redis connect failed for audio pass: {e}")
+        _audio_lock.release()
         return
 
     try:
+        candidate = _find_silent_article(r_bg)
+        if not candidate:
+            return
+        article_id, body = candidate
+
+        # Preflight here rather than inside the synthesis, so the log
+        # distinguishes "the M1 was busy, try later" from "narration broke".
+        # Only reached when there is actually something to narrate: no work
+        # means no ssh at all.
+        reason = kokoro_preflight()
+        if reason:
+            logger.info(f"🔊 Audio deferred for {article_id} — {reason}")
+            return
+
+        audio_url = synthesize_article_audio(article_id, body)
+        if not audio_url:
+            _audio_failed.add(article_id)
+            return
+
         r_bg.hset(f"article:{article_id}", 'audio_url', audio_url)
         logger.info(f"🔊 [bg] audio_url stored for {article_id}: {audio_url}")
     except Exception as e:
-        logger.warning(f"🔊 [bg] Could not store audio_url for {article_id}: {e}")
+        logger.warning(f"🔊 [bg] Audio pass failed (non-fatal): {e}")
     finally:
         try:
             r_bg.close()
         except Exception:
             pass
+        _audio_lock.release()
+
+
+def run_audio_pass() -> None:
+    """Start an audio pass in the background unless one is still running."""
+    if not _audio_lock.acquire(blocking=False):
+        return
+    try:
+        _audio_executor.submit(_run_audio_pass)
+    except Exception as e:
+        logger.warning(f"🔊 Could not start audio pass: {e}")
+        _audio_lock.release()
 
 
 # --- APPEARANCE ENHANCEMENT FUNCTIONS ---
@@ -640,20 +940,34 @@ def extract_image_url_enhanced(html_content, url):
 SCRAPED_IMAGE_DIR = os.path.join(os.path.dirname(BASE_DIR), 'frontend', 'public', 'uploads', 'scraped')
 
 # --- Article audio ----------------------------------------------------------
-# English stories are narrated at publish time and the mp3 stored beside the
-# scraped heroes, under the same /uploads/* file_server Caddy already serves.
-# Synthesis is edge-tts: a network call to Microsoft's read-aloud endpoint,
-# deliberately NOT the M1 — ollama analysis already contends for that host and
-# narration is not worth taking inference time away from it.
+# English stories are narrated to an mp3 stored beside the scraped heroes,
+# under the same /uploads/* file_server Caddy already serves (so scribe must
+# run on the host, same constraint as the rehosted images above).
+#
+# Synthesis is Kokoro on the M1, driven over ssh exactly as
+# /home/www/lecture_pipeline/cc.py drives it. That host is Arc's ollama box,
+# which makes narration a guest there and nothing more: the preflight refuses
+# whenever a model is resident or memory is tight, and a refusal is a skip
+# rather than a failure. Nothing falls back, nothing retries, nothing queues.
+# The audio pass simply looks at the feed again next cycle and narrates
+# whatever is still silent, so a busy M1 costs a story its audio for a cycle
+# or two and never costs it anything permanent.
 #
 # One field carries the result: audio_url on the article hash. Its presence is
 # the whole contract — if it is set there is audio, if it is absent there is
 # none. Nothing here writes original_text, title, or source_lang.
 AUDIO_DIR = os.path.join(os.path.dirname(BASE_DIR), 'frontend', 'public', 'uploads', 'audio')
-AUDIO_VOICE = "en-US-ChristopherNeural"
-AUDIO_RATE = "-5%"
+AUDIO_HOST = "mac"                      # ssh alias — scribe runs on the host as ross
+AUDIO_VENV = "~/kokoro-venv"            # provisioned by lecture_pipeline/scripts
+AUDIO_VOICE = "af_heart"
+AUDIO_SPEED = 0.95
+AUDIO_SAMPLE_RATE = 24000               # Kokoro's native output rate
 AUDIO_MIN_CHARS = 100                   # matches the sentinel/counter-analyst skip threshold
+AUDIO_MAX_CHARS = 3500                  # per-request bound; chunks split on sentence boundaries
 AUDIO_TIMEOUT_SECONDS = 600             # a long feature piece still finishes well inside this
+AUDIO_SSH_TIMEOUT = 5                   # short: an unreachable M1 must skip, not stall the pass
+AUDIO_MIN_FREE_MB = 2048                # measured Kokoro peak is ~1.6 GB — do not lower this
+AUDIO_SCAN_WINDOW = 50                  # how far back down the feed a pass looks for silence
 
 REHOST_W, REHOST_H = 1200, 675          # 16:9 — matches the aspect-video card container
 REHOST_ORIG_MAX = 1920                  # longest-side cap for the preserved source; matches main.py:_upload_image_inner
@@ -1929,18 +2243,9 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
 
     # Red/Blue/Purple deferred — fires on first article view via analyzer.py
 
-    # --- ARTICLE AUDIO ---
-    # English only — see the AUDIO_* block near SCRAPED_IMAGE_DIR. Runs in the
-    # background for the same reason analysis does: the story is already live
-    # and narration must not hold up the cycle. Narrates the sanitized body,
-    # the same text stored as original_text, so the audio matches what a
-    # reader sees. Nothing is written back to that field.
-    story_lang = publish_payload.get('source_lang', 'English')
-    if story_lang == 'English':
-        _analysis_executor.submit(_run_audio_background, article_id, sanitized_body)
-        logger.info(f"🔊 Audio queued in background for {article_id}")
-    else:
-        logger.info(f"🔊 Audio skipped — {story_lang} story {article_id}")
+    # Audio deliberately does NOT fire here. The story is in the feed now,
+    # and the audio pass at the end of the cycle narrates it from there if
+    # the M1 has room — see run_audio_pass().
 
     if directive.get('name'):
         recently_published.append(directive['name'])
@@ -2175,6 +2480,15 @@ def main():
                 except Exception as e:
                     logger.warning(f"Retention pass failed (non-fatal): {e}")
                     scribe_ops.increment('errors_retention')
+
+            # --- ARTICLE AUDIO PASS ---
+            # Narrates one still-silent story per cycle, in the background and
+            # only when the M1 has room for it. Anything it skips — a busy
+            # host, a story published a moment ago — is simply still silent
+            # when the next cycle looks, which is the whole retry mechanism.
+            # Deliberately not run on the priority-queue path above: that path
+            # exists to keep the M1 free for the user's own submission.
+            run_audio_pass()
 
             logger.info(f"💤 Cycle complete. Sleeping {CYCLE_MINUTES} minutes ...")
             scribe_ops.mark_success()
