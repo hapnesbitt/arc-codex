@@ -34,6 +34,7 @@ import uuid
 import threading
 import random
 import gc
+import asyncio
 from stream_utils import publish_analysis, ensure_stream_group
 from ollama_utils import call_ollama_local_only, OLLAMA_LOCAL_FALLBACK
 from retention import run_retention_pass
@@ -59,6 +60,7 @@ import gzip
 import zlib
 import yaml
 import yt_dlp
+import edge_tts
 from langdetect import detect, DetectorFactory, LangDetectException
 DetectorFactory.seed = 0  # deterministic
 
@@ -377,6 +379,103 @@ def _run_analysis_background(article_id: str, text_for_analysis: str) -> None:
         pass
 
 
+# --- ARTICLE AUDIO ---
+# English stories only. Non-English stories get nothing: narrating Spanish
+# text with an en-US voice produces gibberish, and translating first is a
+# separate piece of work that does not exist yet.
+
+
+async def _synthesize(text: str, out_path: str) -> None:
+    """Write `text` to `out_path` as mp3 via edge-tts."""
+    communicate = edge_tts.Communicate(text, AUDIO_VOICE, rate=AUDIO_RATE)
+    await communicate.save(out_path)
+
+
+def synthesize_article_audio(article_id: str, text: str) -> str | None:
+    """Narrate `text` to frontend/public/uploads/audio/{article_id}.mp3.
+
+    Returns the relative serving path, or None on any failure — narration is
+    a nice-to-have and must never affect whether a story publishes.
+
+    Writes to a temp file and renames into place, so a crashed or timed-out
+    synthesis cannot leave a truncated mp3 at the path the field will point
+    at. rename(2) within one filesystem is atomic: readers see the whole file
+    or no file.
+    """
+    text = (text or '').strip()
+    if len(text) < AUDIO_MIN_CHARS:
+        logger.info(f"🔊 Audio skipped — too short ({len(text)} chars) for {article_id}")
+        return None
+
+    final_path = os.path.join(AUDIO_DIR, f"{article_id}.mp3")
+    temp_path = f"{final_path}.partial"
+
+    try:
+        os.makedirs(AUDIO_DIR, exist_ok=True)
+        started = time.perf_counter()
+        asyncio.run(
+            asyncio.wait_for(_synthesize(text, temp_path), timeout=AUDIO_TIMEOUT_SECONDS)
+        )
+
+        # edge-tts reports a clean exit even when the service returns no audio
+        # for the request, which lands as a zero-byte file. Treat that as the
+        # failure it is rather than publishing a silent mp3.
+        if not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
+            logger.warning(f"🔊 Audio came back empty for {article_id}")
+            return None
+
+        os.replace(temp_path, final_path)
+        duration = time.perf_counter() - started
+        size_kb = os.path.getsize(final_path) / 1024
+        logger.info(
+            f"🔊 Audio written for {article_id}: {len(text)} chars → "
+            f"{size_kb:.0f} KB in {duration:.1f}s"
+        )
+        return f"/uploads/audio/{article_id}.mp3"
+
+    except asyncio.TimeoutError:
+        logger.warning(f"🔊 Audio timed out after {AUDIO_TIMEOUT_SECONDS}s for {article_id}")
+        return None
+    except Exception as e:
+        logger.warning(f"🔊 Audio failed ({type(e).__name__}) for {article_id}: {e}")
+        return None
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+
+def _run_audio_background(article_id: str, text: str) -> None:
+    """Narrate a story and record the result on the article hash.
+
+    Creates its own Redis connection per the thread-safety rules above.
+    Writes exactly one field, audio_url. A failure writes nothing at all —
+    an absent field simply means this story has no audio.
+    """
+    audio_url = synthesize_article_audio(article_id, text)
+    if not audio_url:
+        return
+
+    try:
+        r_bg = redis.Redis(decode_responses=True, password=REDIS_PASSWORD, db=site.redis_db)
+    except Exception as e:
+        logger.error(f"🔊 [bg] Redis connect failed for {article_id}: {e}")
+        return
+
+    try:
+        r_bg.hset(f"article:{article_id}", 'audio_url', audio_url)
+        logger.info(f"🔊 [bg] audio_url stored for {article_id}: {audio_url}")
+    except Exception as e:
+        logger.warning(f"🔊 [bg] Could not store audio_url for {article_id}: {e}")
+    finally:
+        try:
+            r_bg.close()
+        except Exception:
+            pass
+
+
 # --- APPEARANCE ENHANCEMENT FUNCTIONS ---
 
 @lru_cache(maxsize=512)
@@ -539,6 +638,23 @@ def extract_image_url_enhanced(html_content, url):
 # The original URL is kept in image_source_url for provenance. ~3% of scraped
 # sources 403 on hotlink (measured 2026-07-02) and URLs rot over time.
 SCRAPED_IMAGE_DIR = os.path.join(os.path.dirname(BASE_DIR), 'frontend', 'public', 'uploads', 'scraped')
+
+# --- Article audio ----------------------------------------------------------
+# English stories are narrated at publish time and the mp3 stored beside the
+# scraped heroes, under the same /uploads/* file_server Caddy already serves.
+# Synthesis is edge-tts: a network call to Microsoft's read-aloud endpoint,
+# deliberately NOT the M1 — ollama analysis already contends for that host and
+# narration is not worth taking inference time away from it.
+#
+# One field carries the result: audio_url on the article hash. Its presence is
+# the whole contract — if it is set there is audio, if it is absent there is
+# none. Nothing here writes original_text, title, or source_lang.
+AUDIO_DIR = os.path.join(os.path.dirname(BASE_DIR), 'frontend', 'public', 'uploads', 'audio')
+AUDIO_VOICE = "en-US-ChristopherNeural"
+AUDIO_RATE = "-5%"
+AUDIO_MIN_CHARS = 100                   # matches the sentinel/counter-analyst skip threshold
+AUDIO_TIMEOUT_SECONDS = 600             # a long feature piece still finishes well inside this
+
 REHOST_W, REHOST_H = 1200, 675          # 16:9 — matches the aspect-video card container
 REHOST_ORIG_MAX = 1920                  # longest-side cap for the preserved source; matches main.py:_upload_image_inner
 REHOST_MAX_BYTES = 10 * 1024 * 1024     # same cap as the manual-upload endpoint
@@ -1812,6 +1928,19 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
             logger.info(f"🔬 Analysis queued in background for {article_id}")
 
     # Red/Blue/Purple deferred — fires on first article view via analyzer.py
+
+    # --- ARTICLE AUDIO ---
+    # English only — see the AUDIO_* block near SCRAPED_IMAGE_DIR. Runs in the
+    # background for the same reason analysis does: the story is already live
+    # and narration must not hold up the cycle. Narrates the sanitized body,
+    # the same text stored as original_text, so the audio matches what a
+    # reader sees. Nothing is written back to that field.
+    story_lang = publish_payload.get('source_lang', 'English')
+    if story_lang == 'English':
+        _analysis_executor.submit(_run_audio_background, article_id, sanitized_body)
+        logger.info(f"🔊 Audio queued in background for {article_id}")
+    else:
+        logger.info(f"🔊 Audio skipped — {story_lang} story {article_id}")
 
     if directive.get('name'):
         recently_published.append(directive['name'])
