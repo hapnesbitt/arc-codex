@@ -32,14 +32,18 @@ charset-normalizer, python-dotenv. Storage is stdlib sqlite3 via library_db.
 from __future__ import annotations
 
 import hashlib
+import fcntl
 import logging
 import os
 import re
+import signal
 import sys
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional, TextIO
+from urllib.parse import parse_qs, urlparse
 
 import requests
 import yaml
@@ -63,9 +67,17 @@ TXT_URL_TMPLS = [
 ]
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0"
 REQUEST_TIMEOUT = 30
+PUBLICATION_TIMEOUT = 10
+PUBLICATION_ATTEMPTS = 3
 SECTION_HEADING = "Top 100 EBooks last 30 days"
 RECHECK_AFTER_SECONDS = 7 * 24 * 60 * 60  # 7 days
 SHELVES_CONFIG_PATH = Path(__file__).resolve().parent.parent / "shelves.yaml"
+REFRESH_LOCK_PATH = Path(
+    os.environ.get(
+        "LIBRARY_REFRESH_LOCK_PATH",
+        str(Path(__file__).resolve().parent.parent / "pids" / "library_fetcher.lock"),
+    )
+)
 # Hard bound on corpus size: current top-100 + 34 shelves × 50 ≈ 1,800
 # referenced works; the rest is churn history. Above this, oldest-fetched
 # unreferenced works are pruned after each run.
@@ -76,6 +88,47 @@ logging.basicConfig(
     format="%(asctime)s [library_fetcher] %(levelname)s %(message)s",
 )
 log = logging.getLogger("library_fetcher")
+
+
+class ShelfFetchError(RuntimeError):
+    """A shelf listing could not be fetched completely and safely."""
+
+
+class WorkFetchError(RuntimeError):
+    """A work could not be checked completely because transport failed."""
+
+
+class JobInterrupted(RuntimeError):
+    """The process received a graceful termination signal."""
+
+
+@dataclass
+class RunStats:
+    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    started_monotonic: float = field(default_factory=time.monotonic)
+    examined: int = 0
+    inserted: int = 0
+    updated: int = 0
+    skipped: int = 0
+    failed: int = 0
+    shelves_completed: int = 0
+    shelves_failed: int = 0
+    last_completed_shelf: str = ""
+    pruned: int = 0
+    final_count: Optional[int] = None
+    publication: str = "NOT_ATTEMPTED"
+    errors: list[str] = field(default_factory=list)
+
+    def record_work(self, status: str) -> None:
+        self.examined += 1
+        if status == "inserted":
+            self.inserted += 1
+        elif status == "updated":
+            self.updated += 1
+        elif status in {"fresh", "unavailable"}:
+            self.skipped += 1
+        else:
+            self.failed += 1
 
 
 # ---------------------------------------------------------------------------
@@ -117,61 +170,146 @@ def fetch_top_100_ids() -> list[int]:
 # Curated shelf scraping
 # ---------------------------------------------------------------------------
 
-def _parse_shelf_page(html: str) -> list[int]:
-    """Extract /ebooks/<id> ids from a single bookshelf page, preserving order."""
+@dataclass(frozen=True)
+class ShelfPage:
+    ids: tuple[int, ...]
+    total_results: int
+    start_index: int
+    items_per_page: int
+    next_start: Optional[int]
+
+
+def _required_meta_int(soup: BeautifulSoup, name: str) -> int:
+    element = soup.find("meta", attrs={"name": name})
+    value = element.get("content") if element else None
+    if not isinstance(value, str) or not value.isdigit():
+        raise ValueError(f"missing or invalid {name} metadata")
+    return int(value)
+
+
+def _parse_shelf_page(
+    html: str,
+    bookshelf_id: int,
+    expected_start: int,
+) -> ShelfPage:
+    """Validate one Gutenberg shelf result page and its pagination metadata."""
     soup = BeautifulSoup(html, "lxml")
+    total_results = _required_meta_int(soup, "totalResults")
+    start_index = _required_meta_int(soup, "startIndex")
+    items_per_page = _required_meta_int(soup, "itemsPerPage")
+    if start_index != expected_start:
+        raise ValueError(
+            f"startIndex={start_index} does not match requested {expected_start}"
+        )
+    if items_per_page <= 0:
+        raise ValueError("itemsPerPage must be positive")
+
+    results = soup.select_one("ul.results")
+    if results is None:
+        raise ValueError("missing ul.results container")
+
     ids: list[int] = []
     seen: set[int] = set()
-    for a in soup.find_all("a", href=True):
+    booklinks = results.select("li.booklink")
+    for booklink in booklinks:
+        a = booklink.select_one("a.link[href]")
+        if a is None:
+            raise ValueError("booklink is missing its ebook link")
         m = re.match(r"^/ebooks/(\d+)$", a["href"])
         if not m:
-            continue
+            raise ValueError(f"unexpected booklink href: {a['href']!r}")
         gid = int(m.group(1))
         if gid in seen:
-            continue
+            raise ValueError(f"duplicate ebook id {gid} on one result page")
         seen.add(gid)
         ids.append(gid)
-    return ids
+
+    next_links = results.select('a[accesskey="+"][href]')
+    next_targets: set[tuple[str, int]] = set()
+    for next_link in next_links:
+        parsed = urlparse(next_link["href"])
+        expected_path = f"/ebooks/bookshelf/{bookshelf_id}"
+        query = parse_qs(parsed.query)
+        values = query.get("start_index", [])
+        if parsed.path != expected_path or len(values) != 1 or not values[0].isdigit():
+            raise ValueError("Next link does not target the requested bookshelf")
+        next_targets.add((parsed.path, int(values[0])))
+    if len(next_targets) > 1:
+        raise ValueError("conflicting Next links found")
+    next_start = next(iter(next_targets))[1] if next_targets else None
+
+    if next_start is not None:
+        expected_next = start_index + items_per_page
+        if next_start != expected_next:
+            raise ValueError(
+                f"expected Next start_index={expected_next}, found {next_start!r}"
+            )
+        if total_results < next_start:
+            raise ValueError(
+                f"totalResults={total_results} precedes Next start_index={next_start}"
+            )
+        expected_count = items_per_page
+    else:
+        expected_count = max(total_results - start_index + 1, 0)
+
+    if len(ids) != expected_count:
+        raise ValueError(
+            f"expected {expected_count} booklink(s) from pagination metadata, "
+            f"parsed {len(ids)}"
+        )
+
+    return ShelfPage(
+        ids=tuple(ids),
+        total_results=total_results,
+        start_index=start_index,
+        items_per_page=items_per_page,
+        next_start=next_start,
+    )
 
 
 def fetch_shelf_ids(bookshelf_id: int, limit: int = 50) -> list[int]:
     """Fetch the first N book IDs from a Gutenberg bookshelf.
 
     Gutenberg paginates 25 results per page via ?start_index=1, 26, 51, 76.
-    Returns IDs in the order Gutenberg lists them on the shelf page.
-    Returns an empty list (with a warning logged) on parse / fetch failure
-    rather than raising — one bad shelf shouldn't stop the rest.
+    Returns IDs in the order Gutenberg lists them on the shelf page. Raises
+    ShelfFetchError if any required page fails so callers never replace a
+    valid shelf with a partial response.
     """
     ids: list[int] = []
     seen: set[int] = set()
-    for start in range(1, limit + 1, 25):
+    start = 1
+    while len(ids) < limit:
         url = SHELF_URL_TMPL.format(id=bookshelf_id, start=start)
         try:
             resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT)
             resp.raise_for_status()
         except requests.RequestException as e:
-            log.warning("Bookshelf %d page start_index=%d fetch failed: %s", bookshelf_id, start, e)
-            break
+            raise ShelfFetchError(
+                f"Bookshelf {bookshelf_id} page start_index={start} fetch failed: {e}"
+            ) from e
 
         try:
-            page_ids = _parse_shelf_page(resp.text)
+            page = _parse_shelf_page(resp.text, bookshelf_id, start)
+        except JobInterrupted:
+            raise
         except Exception as e:
-            log.warning("Bookshelf %d page start_index=%d parse failed: %s", bookshelf_id, start, e)
-            break
+            raise ShelfFetchError(
+                f"Bookshelf {bookshelf_id} page start_index={start} parse failed: {e}"
+            ) from e
 
-        if not page_ids:
-            break
-
-        for gid in page_ids:
+        for gid in page.ids:
             if gid in seen:
-                continue
+                raise ShelfFetchError(
+                    f"Bookshelf {bookshelf_id} repeated ebook id {gid} across pages"
+                )
             seen.add(gid)
             ids.append(gid)
             if len(ids) >= limit:
                 break
 
-        if len(ids) >= limit:
+        if len(ids) >= limit or page.next_start is None:
             break
+        start = page.next_start
         time.sleep(0.5)
 
     return ids[:limit]
@@ -269,12 +407,14 @@ def fetch_book_text(gid: int) -> tuple[Optional[str], Optional[str], Optional[st
     Return (text, encoding_used, source_url) on success, (None, None, None) otherwise.
     Tries each candidate URL with utf-8 → latin-1 → charset-normalizer detection.
     """
+    request_errors: list[str] = []
     for tmpl in TXT_URL_TMPLS:
         url = tmpl.format(id=gid)
         try:
             resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT)
         except requests.RequestException as e:
             log.debug("[%d] %s — request error: %s", gid, url, e)
+            request_errors.append(f"{url}: {e}")
             continue
         if resp.status_code != 200:
             log.debug("[%d] %s — HTTP %d", gid, url, resp.status_code)
@@ -300,6 +440,10 @@ def fetch_book_text(gid: int) -> tuple[Optional[str], Optional[str], Optional[st
         if text is not None:
             return text, enc_used, url
 
+    if request_errors:
+        raise WorkFetchError(
+            f"{len(request_errors)} text request(s) failed; no candidate URL succeeded"
+        )
     return None, None, None
 
 
@@ -346,7 +490,7 @@ def is_fresh(conn, gid: int) -> bool:
     return age < RECHECK_AFTER_SECONDS
 
 
-def write_work(conn, gid: int, meta: dict, text: str, encoding: str, source_url: str) -> None:
+def write_work(conn, gid: int, meta: dict, text: str, encoding: str, source_url: str) -> str:
     new_text_md5 = hashlib.md5(text.encode("utf-8", errors="replace")).hexdigest()
     old = conn.execute(
         "SELECT text_md5 FROM works WHERE gutenberg_id = ?", (gid,)
@@ -372,6 +516,7 @@ def write_work(conn, gid: int, meta: dict, text: str, encoding: str, source_url:
         if deleted:
             log.info("library #%d — invalidated %d cached translation(s) after text change", gid, deleted)
     conn.commit()
+    return "updated" if old else "inserted"
 
 
 # ---------------------------------------------------------------------------
@@ -381,7 +526,7 @@ def write_work(conn, gid: int, meta: dict, text: str, encoding: str, source_url:
 def ensure_work_exists(conn, gid: int, label: str = "") -> str:
     """Fetch + write a single Gutenberg work if it isn't already fresh.
 
-    Returns one of: 'fresh', 'fetched', 'failed'. Idempotent — running twice
+    Returns one of: 'fresh', 'unavailable', 'inserted', 'updated', 'failed'. Idempotent — running twice
     on the same id within RECHECK_AFTER_SECONDS performs no network I/O on the
     second call. Failures are logged and swallowed so callers can keep going.
     """
@@ -389,17 +534,27 @@ def ensure_work_exists(conn, gid: int, label: str = "") -> str:
         log.info("%s%d — fresh, skipping", label, gid)
         return "fresh"
 
-    meta = fetch_rdf_metadata(gid)
+    try:
+        meta = fetch_rdf_metadata(gid)
+    except JobInterrupted:
+        raise
+    except Exception as e:
+        log.error("%s%d — RDF metadata check failed: %s", label, gid, e)
+        return "failed"
     if meta is None:
         return "failed"
 
-    text, encoding, source_url = fetch_book_text(gid)
-    if text is None:
-        log.warning("%s%d — no plain-text URL succeeded; skipping", label, gid)
+    try:
+        text, encoding, source_url = fetch_book_text(gid)
+    except WorkFetchError as e:
+        log.error("%s%d — text fetch failed: %s", label, gid, e)
         return "failed"
+    if text is None:
+        log.warning("%s%d — no published plain-text rendition; skipping", label, gid)
+        return "unavailable"
 
     cleaned = strip_gutenberg_boilerplate(text)
-    write_work(conn, gid, meta, cleaned, encoding or "unknown", source_url or "")
+    status = write_work(conn, gid, meta, cleaned, encoding or "unknown", source_url or "")
     log.info(
         "%s%d — %s · %s · %s · %d chars · enc=%s",
         label, gid,
@@ -410,7 +565,7 @@ def ensure_work_exists(conn, gid: int, label: str = "") -> str:
         encoding,
     )
     time.sleep(0.5)  # gentle on Gutenberg
-    return "fetched"
+    return status
 
 
 # ---------------------------------------------------------------------------
@@ -434,28 +589,48 @@ def load_shelves_config() -> Optional[dict]:
     return cfg
 
 
-def fetch_all_shelves(conn, shelves_config: dict) -> None:
-    """Fetch every configured shelf and rebuild its membership."""
+def fetch_all_shelves(conn, shelves_config: dict, stats: RunStats) -> None:
+    """Fetch every configured shelf, preserving valid work from other shelves."""
     limit = int(shelves_config.get("books_per_shelf", 50))
     shelves = shelves_config.get("shelves", {})
 
     for slug, cfg in shelves.items():
         if not isinstance(cfg, dict):
-            log.warning("Shelf '%s' config is not a mapping; skipping", slug)
+            message = f"Shelf '{slug}' config is not a mapping"
+            log.error("%s; leaving existing membership untouched", message)
+            stats.shelves_failed += 1
+            stats.errors.append(message)
             continue
         bookshelf_id = cfg.get("gutenberg_bookshelf_id")
         if not isinstance(bookshelf_id, int):
-            log.warning("Shelf '%s' missing integer gutenberg_bookshelf_id; skipping", slug)
+            message = f"Shelf '{slug}' missing integer gutenberg_bookshelf_id"
+            log.error("%s; leaving existing membership untouched", message)
+            stats.shelves_failed += 1
+            stats.errors.append(message)
             continue
 
         log.info("Shelf '%s' (Gutenberg #%d) — fetching id list", slug, bookshelf_id)
-        ids = fetch_shelf_ids(bookshelf_id, limit)
+        try:
+            ids = fetch_shelf_ids(bookshelf_id, limit)
+        except JobInterrupted:
+            raise
+        except Exception as e:
+            message = f"Shelf '{slug}' listing failed: {e}"
+            log.error("%s; leaving existing membership untouched", message)
+            stats.shelves_failed += 1
+            stats.errors.append(message)
+            continue
         if not ids:
-            log.warning("Shelf '%s' returned no ids — leaving existing membership untouched", slug)
+            message = f"Shelf '{slug}' returned no ids"
+            log.error("%s; leaving existing membership untouched", message)
+            stats.shelves_failed += 1
+            stats.errors.append(message)
             continue
 
+        failures_before = stats.failed
         for i, gid in enumerate(ids, 1):
-            ensure_work_exists(conn, gid, label=f"[{slug} {i}/{len(ids)}] ")
+            status = ensure_work_exists(conn, gid, label=f"[{slug} {i}/{len(ids)}] ")
+            stats.record_work(status)
 
         # Rebuild membership fresh so removed books drop out.
         library_db.replace_shelf(conn, slug, {
@@ -466,64 +641,246 @@ def fetch_all_shelves(conn, shelves_config: dict) -> None:
             "book_count":              len(ids),
         }, ids)
         conn.commit()
-        log.info("Shelf '%s': %d works", slug, len(ids))
+        if stats.failed == failures_before:
+            stats.shelves_completed += 1
+            stats.last_completed_shelf = slug
+            log.info("Shelf '%s': %d works — complete", slug, len(ids))
+        else:
+            failed_here = stats.failed - failures_before
+            message = f"Shelf '{slug}' completed with {failed_here} work failure(s)"
+            stats.shelves_failed += 1
+            stats.errors.append(message)
+            log.error("%s", message)
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Publication + main
 # ---------------------------------------------------------------------------
 
-def main() -> int:
+def publish_library() -> None:
+    """Ask the local Next server to invalidate only Library landing caches."""
+    url = os.environ.get(
+        "LIBRARY_REVALIDATE_URL",
+        "http://127.0.0.1:3000/api/internal/revalidate-library",
+    )
+    secret = os.environ.get("LIBRARY_REVALIDATE_SECRET", "")
+    if not secret:
+        raise RuntimeError("LIBRARY_REVALIDATE_SECRET is not configured")
+
+    last_error: Optional[Exception] = None
+    for attempt in range(1, PUBLICATION_ATTEMPTS + 1):
+        try:
+            response = requests.post(
+                url,
+                headers={"Authorization": f"Bearer {secret}"},
+                timeout=PUBLICATION_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if payload.get("revalidated") is not True:
+                raise RuntimeError("revalidation endpoint did not confirm success")
+            log.info("Library landing cache revalidated (attempt %d)", attempt)
+            return
+        except JobInterrupted:
+            raise
+        except (requests.RequestException, ValueError, RuntimeError) as e:
+            last_error = e
+            if attempt < PUBLICATION_ATTEMPTS:
+                log.warning(
+                    "Library revalidation attempt %d/%d failed; retrying: %s",
+                    attempt,
+                    PUBLICATION_ATTEMPTS,
+                    e,
+                )
+                time.sleep(2)
+
+    raise RuntimeError(
+        f"Library revalidation failed after {PUBLICATION_ATTEMPTS} attempts: {last_error}"
+    )
+
+
+def try_acquire_refresh_lock() -> Optional[TextIO]:
+    """Acquire the process-wide Library refresh lock without waiting."""
+    REFRESH_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(REFRESH_LOCK_PATH, os.O_CREAT | os.O_RDWR, 0o600)
+    lock_file = os.fdopen(descriptor, "r+")
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock_file.close()
+        return None
+    return lock_file
+
+
+def run_ingestion(stats: RunStats) -> bool:
+    """Run and commit the Gutenberg refresh. Return True only if fully clean."""
     conn = library_db.connect()
-    library_db.init_schema(conn)
+    try:
+        library_db.init_schema(conn)
+        ids = fetch_top_100_ids()
+
+        top_failures_before = stats.failed
+        for i, gid in enumerate(ids, 1):
+            status = ensure_work_exists(conn, gid, label=f"[top100 {i}/{len(ids)}] ")
+            stats.record_work(status)
+
+        top_failed = stats.failed - top_failures_before
+        log.info(
+            "Top-100 done. examined=%d inserted=%d updated=%d skipped=%d failed=%d",
+            len(ids),
+            stats.inserted,
+            stats.updated,
+            stats.skipped,
+            top_failed,
+        )
+
+        # Surface the Top-100 list as a shelf so the /library landing page
+        # picks it up alongside the curated thematic shelves. Membership is
+        # rebuilt fresh each run so works that fall off the list drop out.
+        library_db.replace_shelf(conn, "top100", {
+            "name":         "Top 100 (Last 30 Days)",
+            "description":  "Most-downloaded works on Project Gutenberg over the past month.",
+            "fetched_at":   datetime.now(timezone.utc).isoformat(),
+            "book_count":   len(ids),
+        }, ids)
+        conn.commit()
+        if top_failed:
+            message = f"Shelf 'top100' completed with {top_failed} work failure(s)"
+            stats.shelves_failed += 1
+            stats.errors.append(message)
+            log.error("%s", message)
+        else:
+            stats.shelves_completed += 1
+            stats.last_completed_shelf = "top100"
+            log.info("Shelf 'top100': %d works — complete", len(ids))
+
+        shelves_config = load_shelves_config()
+        if shelves_config is None:
+            stats.errors.append("shelves.yaml was unavailable or invalid")
+        else:
+            fetch_all_shelves(conn, shelves_config, stats)
+
+        ingestion_clean = (
+            stats.failed == 0 and stats.shelves_failed == 0 and not stats.errors
+        )
+        if ingestion_clean:
+            # Pruning is publication-affecting housekeeping. Never perform it
+            # after a known partial or failed refresh.
+            stats.pruned = library_db.prune_unreferenced_works(
+                conn, LIBRARY_MAX_WORKS
+            )
+            conn.commit()
+            if stats.pruned:
+                log.info(
+                    "Pruned %d unreferenced work(s) — corpus bound %d",
+                    stats.pruned,
+                    LIBRARY_MAX_WORKS,
+                )
+        else:
+            log.warning("Skipping prune because ingestion recorded failures")
+        stats.final_count = library_db.count_works(conn)
+        return ingestion_clean
+    finally:
+        conn.close()
+
+
+def _best_effort_final_count(stats: RunStats) -> None:
+    if stats.final_count is not None:
+        return
+    try:
+        with library_db.db() as conn:
+            stats.final_count = library_db.count_works(conn)
+    except JobInterrupted:
+        raise
+    except Exception as e:
+        log.error("Could not read final work count for summary: %s", e)
+
+
+def log_final_summary(stats: RunStats, exit_status: int) -> None:
+    finished_at = datetime.now(timezone.utc)
+    runtime = time.monotonic() - stats.started_monotonic
+    status = "SUCCESS" if exit_status == 0 else "FAILURE"
+    log.info(
+        "LIBRARY REFRESH SUMMARY status=%s exit_status=%d "
+        "start=%s finish=%s runtime_seconds=%.3f examined=%d inserted=%d "
+        "updated=%d unchanged_skipped=%d failed=%d pruned=%d "
+        "shelves_completed=%d shelves_failed=%d last_completed_shelf=%s "
+        "final_works=%s publication=%s errors=%d",
+        status,
+        exit_status,
+        stats.started_at.isoformat(),
+        finished_at.isoformat(),
+        runtime,
+        stats.examined,
+        stats.inserted,
+        stats.updated,
+        stats.skipped,
+        stats.failed,
+        stats.pruned,
+        stats.shelves_completed,
+        stats.shelves_failed,
+        stats.last_completed_shelf or "NONE",
+        stats.final_count if stats.final_count is not None else "UNKNOWN",
+        stats.publication,
+        len(stats.errors),
+    )
+
+
+def main(publisher: Optional[Callable[[], None]] = None) -> int:
+    try:
+        lock_file = try_acquire_refresh_lock()
+    except JobInterrupted:
+        raise
+    except Exception as e:
+        log.error("Could not acquire Library refresh lock: %s", e)
+        return 1
+    if lock_file is None:
+        log.warning(
+            "Another Library refresh is already active; skipping this invocation"
+        )
+        return 0
+
+    stats = RunStats()
+    exit_status = 1
+    publisher = publisher or publish_library
+    log.info("Library refresh started at %s", stats.started_at.isoformat())
 
     try:
-        ids = fetch_top_100_ids()
-    except Exception as e:
-        log.error("Top-100 list fetch failed: %s", e)
-        return 1
-
-    fetched = skipped = failed = 0
-    for i, gid in enumerate(ids, 1):
-        status = ensure_work_exists(conn, gid, label=f"[top100 {i}/{len(ids)}] ")
-        if status == "fresh":
-            skipped += 1
-        elif status == "fetched":
-            fetched += 1
+        if not run_ingestion(stats):
+            exit_status = 2
         else:
-            failed += 1
+            publisher()
+            stats.publication = "SUCCESS"
+            exit_status = 0
+    except JobInterrupted as e:
+        stats.errors.append(str(e))
+        log.error("Library refresh interrupted: %s", e)
+        exit_status = 128
+    except Exception as e:
+        stats.errors.append(str(e))
+        if stats.publication == "NOT_ATTEMPTED" and stats.final_count is not None:
+            stats.publication = "FAILURE"
+            exit_status = 3
+        log.error("Library refresh failed: %s", e, exc_info=True)
+    finally:
+        if exit_status != 128:
+            _best_effort_final_count(stats)
+        log_final_summary(stats, exit_status)
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        lock_file.close()
 
-    log.info("Top-100 done. fetched=%d skipped=%d failed=%d", fetched, skipped, failed)
+    return exit_status
 
-    # Surface the Top-100 list as a shelf so the /library landing page
-    # picks it up alongside the curated thematic shelves. Membership is
-    # rebuilt fresh each run so works that fall off the list drop out.
-    library_db.replace_shelf(conn, "top100", {
-        "name":         "Top 100 (Last 30 Days)",
-        "description":  "Most-downloaded works on Project Gutenberg over the past month.",
-        "fetched_at":   datetime.now(timezone.utc).isoformat(),
-        "book_count":   len(ids),
-    }, ids)
-    conn.commit()
-    log.info("Shelf 'top100': %d works", len(ids))
 
-    shelves_config = load_shelves_config()
-    if shelves_config is not None:
-        try:
-            fetch_all_shelves(conn, shelves_config)
-        except Exception as e:
-            log.error("Shelf fetch failed: %s", e, exc_info=True)
-            return 2
+def install_signal_handlers() -> None:
+    def handle_signal(signum, _frame) -> None:
+        name = signal.Signals(signum).name
+        raise JobInterrupted(f"received {name}")
 
-    # Hard bound — prune oldest-fetched works not on any current shelf.
-    pruned = library_db.prune_unreferenced_works(conn, LIBRARY_MAX_WORKS)
-    conn.commit()
-    if pruned:
-        log.info("Pruned %d unreferenced work(s) — corpus bound %d", pruned, LIBRARY_MAX_WORKS)
-    conn.close()
-
-    return 0 if failed == 0 else 2
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
 
 
 if __name__ == "__main__":
+    install_signal_handlers()
     sys.exit(main())

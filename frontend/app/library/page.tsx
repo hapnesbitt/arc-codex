@@ -10,6 +10,7 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import { ChevronRight } from 'lucide-react';
 import LibrarySearch from './LibrarySearch';
+import { LIBRARY_LANDING_CACHE_TAG } from '@/lib/library-cache';
 
 export const metadata: Metadata = {
   title: 'Library — Arc Codex',
@@ -37,7 +38,9 @@ const BACKEND = process.env.BACKEND_INTERNAL_URL ?? process.env.NEXT_PUBLIC_BACK
 
 async function getShelves(): Promise<Shelf[]> {
   try {
-    const res = await fetch(`${BACKEND}/api/library/shelves`, { next: { revalidate: 3600 } });
+    const res = await fetch(`${BACKEND}/api/library/shelves`, {
+      next: { revalidate: 3600, tags: [LIBRARY_LANDING_CACHE_TAG] },
+    });
     if (!res.ok) return [];
     return await res.json();
   } catch {
@@ -49,7 +52,9 @@ async function getShelves(): Promise<Shelf[]> {
 // double-counts works that sit on more than one shelf.
 async function getTotalWorks(): Promise<number> {
   try {
-    const res = await fetch(`${BACKEND}/api/library/stats`, { next: { revalidate: 3600 } });
+    const res = await fetch(`${BACKEND}/api/library/stats`, {
+      next: { revalidate: 3600, tags: [LIBRARY_LANDING_CACHE_TAG] },
+    });
     if (!res.ok) return 0;
     const d = await res.json();
     return d.works ?? 0;

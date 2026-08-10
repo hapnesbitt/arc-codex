@@ -2,6 +2,20 @@
 frontend/node_modules
 backend/venv
 
+# Runtime environment and secret files. The repository root is the Docker
+# build context, so ignored Git files must also be excluded here. Keep only
+# non-secret examples/templates available to Dockerfiles and documentation.
+**/.env
+**/.env.*
+**/*.env
+**/*.env.*
+!**/.env.example
+!**/.env.sample
+!**/.env.template
+!**/*.env.example
+!**/*.env.sample
+!**/*.env.template
+
 # Build output
 frontend/.next
 

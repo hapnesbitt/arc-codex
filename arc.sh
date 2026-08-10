@@ -192,6 +192,57 @@ ensure_uploads_dir() {
     return 0
 }
 
+# The fetcher and the internal Next route share one scoped bearer secret.
+# Generate it once at frontend start and copy it only to the two ignored env
+# files that need it. Never print the value. A mismatch is treated as a hard
+# configuration error rather than silently rotating a live credential.
+read_library_revalidation_secret() {
+    local env_file="$1" line value
+    [ -f "$env_file" ] || return 0
+    line=$(grep -E '^LIBRARY_REVALIDATE_SECRET=' "$env_file" 2>/dev/null | tail -n 1)
+    value="${line#*=}"
+    value="${value%$'\r'}"
+    value="${value#\"}"
+    value="${value%\"}"
+    value="${value#\'}"
+    value="${value%\'}"
+    printf '%s' "$value"
+}
+
+append_library_revalidation_secret() {
+    local env_file="$1" secret="$2"
+    [ -f "$env_file" ] || { echo "  ❌ Missing environment file: $env_file"; return 1; }
+    (
+        umask 077
+        printf '\n# Local fetcher → Next Library cache revalidation\nLIBRARY_REVALIDATE_SECRET=%s\n' "$secret" >> "$env_file"
+    ) || return 1
+    chmod go-rwx "$env_file" 2>/dev/null || true
+}
+
+ensure_library_revalidation_secret() {
+    local backend_env="$BACKEND_DIR/.env"
+    local frontend_env="$FRONTEND_DIR/.env.local"
+    local backend_secret frontend_secret secret
+
+    backend_secret=$(read_library_revalidation_secret "$backend_env")
+    frontend_secret=$(read_library_revalidation_secret "$frontend_env")
+    if [ -n "$backend_secret" ] && [ -n "$frontend_secret" ] && [ "$backend_secret" != "$frontend_secret" ]; then
+        echo "  ❌ LIBRARY_REVALIDATE_SECRET differs between backend/.env and frontend/.env.local"
+        return 1
+    fi
+
+    secret="${backend_secret:-$frontend_secret}"
+    if [ -z "$secret" ]; then
+        command -v openssl >/dev/null 2>&1 || { echo "  ❌ openssl is required to create the Library revalidation secret"; return 1; }
+        secret=$(openssl rand -hex 32) || return 1
+        echo "  🔐 Created scoped Library revalidation credential"
+    fi
+
+    [ -n "$backend_secret" ] || append_library_revalidation_secret "$backend_env" "$secret" || return 1
+    [ -n "$frontend_secret" ] || append_library_revalidation_secret "$frontend_env" "$secret" || return 1
+    return 0
+}
+
 start_service() {
     local name dir cmd use_venv port
     IFS='|' read -r name dir cmd use_venv port <<< "$1"
@@ -207,7 +258,10 @@ start_service() {
 
     # Docker-managed services
     if [ "$cmd" = "docker" ]; then
-        [ "$name" = "frontend" ] && { ensure_uploads_dir || return 1; }
+        [ "$name" = "frontend" ] && {
+            ensure_uploads_dir || return 1
+            ensure_library_revalidation_secret || return 1
+        }
         docker compose -f "$COMPOSE_FILE" up -d --no-deps "$name" >> "$LOG_DIR/$name.log" 2>&1
         sleep 6
         if docker ps --filter "name=arc-$name" --filter "status=running" -q | grep -q .; then
@@ -508,6 +562,7 @@ cmd_build() {
         echo "✅ Build complete."
         echo "  🔄 Starting new frontend container..."
         ensure_uploads_dir || { echo "❌ Refusing to start frontend without a usable uploads/ mount."; exit 1; }
+        ensure_library_revalidation_secret || { echo "❌ Refusing to start frontend without Library revalidation authentication."; exit 1; }
         docker compose -f "$COMPOSE_FILE" up -d --no-deps frontend 2>&1
         sleep 6
         if is_running "frontend"; then

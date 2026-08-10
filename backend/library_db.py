@@ -145,6 +145,11 @@ def get_text(conn: sqlite3.Connection, gid: int | str) -> str:
     return row["text"] if row else ""
 
 
+def count_works(conn: sqlite3.Connection) -> int:
+    """Return the canonical public Library work count."""
+    return int(conn.execute("SELECT COUNT(*) FROM works").fetchone()[0])
+
+
 def upsert_work(conn: sqlite3.Connection, gid: int | str, meta: dict, text: str) -> None:
     """Insert or refresh a fetched work. `meta` uses library_fetcher's dict
     shape. Preserves existing score columns on refresh (scores are managed

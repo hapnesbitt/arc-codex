@@ -2523,7 +2523,7 @@ def get_library_stats():
     double-counts works that sit on multiple shelves."""
     try:
         with library_db.db() as conn:
-            works = conn.execute("SELECT COUNT(*) FROM works").fetchone()[0]
+            works = library_db.count_works(conn)
             shelves = conn.execute("SELECT COUNT(DISTINCT slug) FROM shelf_members").fetchone()[0]
         resp = jsonify({'works': works, 'shelves': shelves})
         resp.headers['Cache-Control'] = 'public, max-age=3600'
