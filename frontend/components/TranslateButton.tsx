@@ -7,6 +7,14 @@
  *      English included in dropdown (valid target for foreign-language articles).
  *      Accessibility pass: aria-label states, aria-controls, aria-hidden on SVGs,
  *      focus management, listbox role alignment.
+ *
+ * v4.1 — cached-language pills sit alongside the icon trigger, with a
+ *        dedicated "Original" pill that surfaces the revert path. The
+ *        "Show original" list item at the top of the 158-language dropdown
+ *        was the only way back before, and on mobile it was buried behind
+ *        a scroll — the pill makes it a one-tap action. Pill styling
+ *        matches the Huntaegis TranslateButton, which is the working
+ *        reference for this pattern.
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -202,8 +210,25 @@ export default function TranslateButton({
     ? `Translated to ${activeLang}. Click to change language`
     : "Translate article";
 
+  // Pills sit next to the icon trigger. `Original` reverts to source and is
+  // rendered only when a translation is active. Cached-language pills give a
+  // one-tap route to every language the backend already has stored for this
+  // article, minus whichever one is active. When neither is present the wrapper
+  // stays inline-block so the icon slots into the parent's icon grid the same
+  // way it always has.
+  const otherCached = allCached.filter((l) => l !== activeLang);
+  const hasPills = !!activeLang || otherCached.length > 0;
+
   return (
-    <div className="relative inline-block" ref={dropdownRef}>
+    <div
+      className={cn(
+        "relative",
+        hasPills
+          ? "col-span-full flex flex-wrap items-center gap-2"
+          : "inline-block"
+      )}
+      ref={dropdownRef}
+    >
       {/* Trigger — icon-only, matches the action-row pattern */}
       <button
         ref={triggerRef}
@@ -229,6 +254,46 @@ export default function TranslateButton({
         )}
       </button>
 
+      {/* Original pill — visible only while a translation is active. This is
+          the fast path back to source, replacing the "Show original" row that
+          used to sit at the top of the 158-language scroll list. */}
+      {activeLang && (
+        <button
+          onClick={handleReset}
+          aria-label="Show original text"
+          className="px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-slate-400 text-[10px] font-bold uppercase tracking-widest hover:text-white hover:bg-white/10 transition-all outline-none focus-visible:ring-2 focus-visible:ring-white"
+        >
+          Original
+        </button>
+      )}
+
+      {/* Cached-language pills. Excludes the active language (the pill would
+          be a no-op) and disables interaction while any translation is in
+          flight, so the abort-and-refetch dance stays predictable. */}
+      {otherCached.map((lang) => (
+        <button
+          key={lang}
+          onClick={() => handleTranslate(lang)}
+          disabled={!!loadingLang}
+          aria-label={
+            loadingLang === lang
+              ? `Translating to ${lang}`
+              : `Switch to ${lang} translation`
+          }
+          aria-busy={loadingLang === lang}
+          className="px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-bold uppercase tracking-widest hover:bg-blue-500/20 transition-all disabled:opacity-50 outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+        >
+          {loadingLang === lang ? (
+            <span className="flex items-center gap-1">
+              <Spinner aria-hidden="true" />
+              <span>{lang}</span>
+            </span>
+          ) : (
+            lang
+          )}
+        </button>
+      ))}
+
       {/* Dropdown menu */}
       {isOpen && (
         <div
@@ -249,18 +314,10 @@ export default function TranslateButton({
             className="max-h-64 overflow-y-auto p-1 custom-scrollbar"
             role="none"
           >
-            {activeLang && (
-              <li role="none" className="border-b border-white/5 mb-1 pb-1">
-                <button
-                  role="menuitem"
-                  onClick={handleReset}
-                  aria-label="Show original text"
-                  className="w-full text-left px-3 py-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-between outline-none text-slate-400 hover:bg-white/5 hover:text-slate-200 focus:bg-amber-500/10 focus:text-amber-400"
-                >
-                  <span>Show original</span>
-                </button>
-              </li>
-            )}
+            {/* No "Show original" entry here — the Original pill outside the
+                dropdown covers that path and is always in view, so hiding a
+                copy of it at the top of a 158-item scroll would just be the
+                bug this component is fixing. */}
             {LANGUAGE_NAMES.map((lang) => (
               <li key={lang} role="none">
                 <button
