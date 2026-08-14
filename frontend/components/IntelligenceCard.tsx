@@ -27,6 +27,7 @@ import {
     Printer,
     Flashlight,
     GraduationCap,
+    Headphones,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card as ShadCard } from "@/components/ui/card";
@@ -1233,6 +1234,18 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                             >
                                 <LinkIcon className="h-5 w-5" aria-hidden="true" />
                             </Link>
+                            {card.audio_url && (
+                                <a
+                                    href={card.audio_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    aria-label="Listen to this article"
+                                    data-tooltip="Play a Kokoro narration of this article — opens the audio in a new tab."
+                                    className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-nb-400 hover:text-icaccent hover:bg-nb-800/40 ring-focus"
+                                >
+                                    <Headphones className="h-5 w-5" aria-hidden="true" />
+                                </a>
+                            )}
                             <Button
                                 variant="ghost"
                                 size="icon"

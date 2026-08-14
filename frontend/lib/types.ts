@@ -35,6 +35,7 @@ export interface Article {
   sentinel_analysis?: string;
   dossier?: Dossier | string;
   reading_label?: string;
+  audio_url?: string;    // /uploads/audio/{id}.mp3 — present iff scribe's audio pass narrated it
 }
 
 export interface Comment {
