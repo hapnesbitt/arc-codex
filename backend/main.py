@@ -1544,6 +1544,7 @@ def submit():
         title       = (data.get('title') or '').strip()
         description = (data.get('description') or '').strip()
         visibility  = (data.get('visibility') or 'public')
+        image_url   = (data.get('image_url') or '').strip()
         owner       = _client_user_id()
 
         if not title:
@@ -1576,6 +1577,11 @@ def submit():
             'source':       'vid.arc-codex.com',
             'directive':    '',
         }
+        # Match scribe's convention: article hash uses camelCase `imageUrl`
+        # (see scribe.py:2240, 2436; Bluesky poster reads via imageUrl too).
+        # Omit the key entirely when no image, matching scraped articles with no hero.
+        if image_url:
+            article_data['imageUrl'] = image_url
 
         try:
             pipe = r.pipeline()
