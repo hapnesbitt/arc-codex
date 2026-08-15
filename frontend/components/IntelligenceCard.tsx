@@ -1074,6 +1074,37 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                 className="w-full max-w-2xl mx-auto"
             >
                 <div className="w-full overflow-hidden border-b border-nb-800/60 bg-nb-900/30">
+                    {card.imageUrl && (
+                        <a
+                            href={videoUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            tabIndex={-1}
+                            aria-hidden="true"
+                        >
+                            {/* Video heroes come through /api/upload_image, which
+                                normalizes to 1200x675 (see backend/main.py:1902-1912) —
+                                same target as scribe's REHOST_W/REHOST_H, so aspect-video
+                                is a pixel-exact fit and object-cover crops nothing. If
+                                upload_image's PIL path ever fails (main.py:1917-1920) the
+                                original dimensions leak through and object-cover crops. */}
+                            <div className="w-full aspect-video bg-nb-950 overflow-hidden border-b border-nb-800/60">
+                                <img
+                                    src={card.imageUrl.startsWith('/uploads/')
+                                        ? `${process.env.NEXT_PUBLIC_BACKEND_URL ?? ''}${card.imageUrl}`
+                                        : card.imageUrl}
+                                    alt=""
+                                    width={1200}
+                                    height={675}
+                                    decoding="async"
+                                    loading={priority ? "eager" : "lazy"}
+                                    fetchPriority={priority ? "high" : "auto"}
+                                    onError={(e) => { (e.target as HTMLImageElement).src = '/uploads/arc-codex-default.jpg'; }}
+                                    className="w-full h-full object-cover"
+                                />
+                            </div>
+                        </a>
+                    )}
                     <div className="p-4 sm:p-8">
                         <header className="flex flex-col-reverse items-end gap-4 sm:flex-row sm:justify-between sm:items-start mb-4">
                             <div className="flex-1 w-full">
