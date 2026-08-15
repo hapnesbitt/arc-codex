@@ -38,7 +38,7 @@ import shutil
 import subprocess
 import tempfile
 from stream_utils import publish_analysis, ensure_stream_group
-from ollama_utils import call_ollama_local_only, OLLAMA_LOCAL_FALLBACK
+from ollama_utils import call_ollama_local_only, OLLAMA_LOCAL_FALLBACK, OLLAMA_URL
 from retention import run_retention_pass
 from operational_state import ScribeOperationalState, run_heartbeat_loop
 from fetch_utils import sanitize_active_content
@@ -418,13 +418,18 @@ sf.write(os.path.join(staging, "article.wav"), np.concatenate(parts), rate)
 
 # Emits labelled sections rather than a single verdict: the reason has to
 # come back to us so it can be logged, not just a boolean.
+# {ollama_url} is filled in from OLLAMA_URL — the same base URL Arc itself
+# uses for local inference. Hardcoding 127.0.0.1:11434 here was wrong even
+# before the M1's supervised daemon stopped listening on loopback (Fix 1,
+# 2026-08-15 plist bind): it probed a different daemon than the one Arc's
+# analysis actually loads models into, so residency readings were fiction.
 _KOKORO_PROBE = '''\
 test -x {venv}/bin/python && echo "VENV ok" || echo "VENV missing"
 echo "PAGESIZE $(sysctl -n hw.pagesize)"
 echo "--VMSTAT--"
 vm_stat
 echo "--OLLAMA--"
-curl -s --max-time 3 http://127.0.0.1:11434/api/ps || echo UNREACHABLE
+curl -s --max-time 3 {ollama_url}/api/ps || echo UNREACHABLE
 '''
 
 
@@ -451,8 +456,8 @@ def _free_mb(vmstat: str, page_size: int) -> float:
     return pages * page_size / (1024 * 1024)
 
 
-def kokoro_preflight() -> str | None:
-    """Return None if Kokoro may run, else the reason it may not.
+def kokoro_preflight() -> tuple[str, int] | None:
+    """Return None if Kokoro may run, else (reason, log_level) for the caller.
 
     Ported unchanged in substance from lecture_pipeline/cc.py. Every branch
     yields a sentence, because a silent skip is not diagnosable. The bar is
@@ -460,15 +465,22 @@ def kokoro_preflight() -> str | None:
     positively verify counts as a refusal, since the cost of a wrong 'yes' is
     thrashing Arc's inference host and the cost of a wrong 'no' is a story
     that stays silent until the next pass looks at it.
+
+    Log level: WARNING for the two "assuming Arc is live" branches — an
+    unreadable inference host being handled by a fallback is silent-failure
+    class and worth surfacing (that class of miss cost six hours today,
+    2026-08-15). INFO for the honestly-diagnosed refusals (unreachable,
+    no venv, resident model, low memory). Behavior on refusal is unchanged
+    in either case: the caller still defers.
     """
-    probe = _audio_ssh(["sh"], input=_KOKORO_PROBE.format(venv=AUDIO_VENV))
+    probe = _audio_ssh(["sh"], input=_KOKORO_PROBE.format(venv=AUDIO_VENV, ollama_url=OLLAMA_URL))
     if probe.returncode != 0:
         detail = probe.stderr.strip().splitlines()
-        return f"{AUDIO_HOST} unreachable ({detail[-1] if detail else 'ssh failed'})"
+        return f"{AUDIO_HOST} unreachable ({detail[-1] if detail else 'ssh failed'})", logging.INFO
 
     out = probe.stdout
     if "VENV ok" not in out:
-        return f"no kokoro venv at {AUDIO_HOST}:{AUDIO_VENV}"
+        return f"no kokoro venv at {AUDIO_HOST}:{AUDIO_VENV}", logging.INFO
 
     # A resident model outranks us unconditionally. Note this is the HTTP
     # API, not `ollama ps`: ollama is not on the non-interactive ssh PATH,
@@ -477,23 +489,23 @@ def kokoro_preflight() -> str | None:
     _, _, ollama = out.partition("--OLLAMA--")
     ollama = ollama.strip()
     if not ollama or ollama == "UNREACHABLE":
-        return f"cannot read {AUDIO_HOST} ollama state; assuming Arc is live"
+        return f"cannot read {AUDIO_HOST} ollama state at {OLLAMA_URL}; assuming Arc is live", logging.WARNING
     try:
         models = json.loads(ollama).get("models", [])
     except json.JSONDecodeError:
-        return f"unparseable ollama state from {AUDIO_HOST}; assuming Arc is live"
+        return f"unparseable ollama state from {AUDIO_HOST}; assuming Arc is live", logging.WARNING
     if models:
         names = ", ".join(m.get("name", "?") for m in models)
         held = sum(m.get("size", 0) for m in models) / (1024 ** 3)
-        return f"{AUDIO_HOST} has {names} resident ({held:.1f} GB)"
+        return f"{AUDIO_HOST} has {names} resident ({held:.1f} GB)", logging.INFO
 
     page = re.search(r"PAGESIZE (\d+)", out)
     vmstat, _, _ = out.partition("--OLLAMA--")
     if not page:
-        return f"could not read {AUDIO_HOST} memory state"
+        return f"could not read {AUDIO_HOST} memory state", logging.INFO
     free = _free_mb(vmstat, int(page.group(1)))
     if free < AUDIO_MIN_FREE_MB:
-        return f"{AUDIO_HOST} has {free:.0f} MB free, needs {AUDIO_MIN_FREE_MB}"
+        return f"{AUDIO_HOST} has {free:.0f} MB free, needs {AUDIO_MIN_FREE_MB}", logging.INFO
     return None
 
 
@@ -743,9 +755,10 @@ def _run_audio_pass() -> None:
         # distinguishes "the M1 was busy, try later" from "narration broke".
         # Only reached when there is actually something to narrate: no work
         # means no ssh at all.
-        reason = kokoro_preflight()
-        if reason:
-            logger.info(f"🔊 Audio deferred for {article_id} — {reason}")
+        result = kokoro_preflight()
+        if result:
+            reason, level = result
+            logger.log(level, f"🔊 Audio deferred for {article_id} — {reason}")
             return
 
         audio_url = synthesize_article_audio(article_id, body)
