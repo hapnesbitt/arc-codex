@@ -968,14 +968,12 @@ AUDIO_TIMEOUT_SECONDS = 600             # a long feature piece still finishes we
 AUDIO_SSH_TIMEOUT = 5                   # short: an unreachable M1 must skip, not stall the pass
 AUDIO_SCAN_WINDOW = 50                  # how far back down the feed a pass looks for silence
 
-# Preflight budget. Measured against a real article, not a test sentence: a
-# 3613-char story ran at 3.04 GB RSS on the M1 (2026-08-06), where the earlier
-# ~1.6 GB figure came from cc.py timing a six-second line and never reloading
-# the pipeline under load. A floor below the real peak is worse than no floor,
-# because it passes and then overcommits the host by the difference — the
-# exact collision the gate exists to prevent. 3584 leaves ~500 MB of headroom
-# over the measured peak. Do not lower this.
-AUDIO_MIN_FREE_MB = 3584
+# Preflight budget. The 3584 MB floor introduced by 93de9c9 exceeded the M1's
+# observed maximum free memory of 3448 MB: 1,141 consecutive checks deferred,
+# and none came within 136 MB of passing. Before that change, a 2048 MB floor
+# produced 31 successful narrations in 70 minutes. Restore the measured working
+# threshold; revisit only with a new free-memory distribution and success run.
+AUDIO_MIN_FREE_MB = 2048
 
 REHOST_W, REHOST_H = 1200, 675          # 16:9 — matches the aspect-video card container
 REHOST_ORIG_MAX = 1920                  # longest-side cap for the preserved source; matches main.py:_upload_image_inner
