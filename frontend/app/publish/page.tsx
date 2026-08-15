@@ -422,6 +422,25 @@ function PublishPageInner() {
     setShowConfirmModal(false);
     setStatus('loading');
 
+    // Upload image if selected (inlined to avoid forward reference).
+    // Runs for ALL paths — including video mode — so a picked image is never
+    // silently dropped. Any upload failure is non-fatal: publish continues.
+    let resolvedImageUrl: string | null = uploadedImageUrl;
+    if (imageFile && !uploadedImageUrl) {
+      try {
+        const fd = new FormData();
+        fd.append('image', imageFile);
+        const imgResp = await fetch('/api/upload_image', { method: 'POST', body: fd });
+        if (imgResp.ok) {
+          const imgData = await imgResp.json();
+          resolvedImageUrl = imgData.url || null;
+          if (resolvedImageUrl) setUploadedImageUrl(resolvedImageUrl);
+        }
+      } catch {
+        // Image upload failed — continue without image (non-fatal)
+      }
+    }
+
     // ── Video mode: POST origin=video directly, no scribe ──────────────────────
     if (isVideoMode) {
       setMessage('Publishing video collection to Arc Codex...');
@@ -434,6 +453,7 @@ function PublishPageInner() {
             content: content.trim(),
             title: title.trim(),
             description: description.trim(),
+            image_url: resolvedImageUrl || undefined,
             visibility,
           }),
         });
@@ -451,23 +471,6 @@ function PublishPageInner() {
         setMessage(err instanceof Error ? err.message : 'Something went wrong.');
       }
       return;
-    }
-
-    // Upload image if selected (inlined to avoid forward reference)
-    let resolvedImageUrl: string | null = uploadedImageUrl;
-    if (imageFile && !uploadedImageUrl) {
-      try {
-        const fd = new FormData();
-        fd.append('image', imageFile);
-        const imgResp = await fetch('/api/upload_image', { method: 'POST', body: fd });
-        if (imgResp.ok) {
-          const imgData = await imgResp.json();
-          resolvedImageUrl = imgData.url || null;
-          if (resolvedImageUrl) setUploadedImageUrl(resolvedImageUrl);
-        }
-      } catch {
-        // Image upload failed — continue without image (non-fatal)
-      }
     }
 
     // --- PROMPT mode → /api/submit_prompt (async, 202) ---
