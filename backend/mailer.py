@@ -220,10 +220,26 @@ Arc Codex — arc-codex.com
 def check_pipeline_stall(r: redis.Redis):
     """Alert if no new articles have been published in the last 2 hours."""
     try:
+        newest = None
         newest_str = r.get('arc:last_publish')
-        if not newest_str:
-            return
-        newest = datetime.fromisoformat(newest_str.replace("Z", "+00:00"))
+        if newest_str:
+            try:
+                newest = datetime.fromisoformat(newest_str.replace("Z", "+00:00"))
+            except ValueError:
+                logger.warning("Pipeline stall check: arc:last_publish is malformed (%r) — falling back to feed head", newest_str)
+        if newest is None:
+            head = r.zrevrange("feed", 0, 0)
+            if not head:
+                logger.warning("Pipeline stall check skipped: no last_publish key and no feed head available")
+                return
+            article_id = head[0]
+            data = r.hgetall(f"article:{article_id}")
+            newest_str = data.get("timestamp", "")
+            if not newest_str:
+                logger.warning("Pipeline stall check skipped: feed head %s has no timestamp", article_id)
+                return
+            newest = datetime.fromisoformat(newest_str.replace("Z", "+00:00"))
+            logger.info("Pipeline stall check using feed head %s because arc:last_publish is unavailable", article_id)
         age_hours = (datetime.now(timezone.utc) - newest).total_seconds() / 3600
         if age_hours > 2:
             if should_alert(r, "pipeline_stall"):
