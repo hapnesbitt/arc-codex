@@ -4,9 +4,16 @@ Arc Codex — mailer.py
 Alert and digest daemon for Arc Codex stack monitoring.
 
 Responsibilities:
-  1. Alert emails — monitors logs and Redis for error conditions,
-     sends immediate notifications with deduplication (1/hour per issue)
-  2. Daily digest — 7am summary of top 10 articles by objectivity
+  1. Log-pattern alerts — scans stack logs for regexes in ALERT_PATTERNS,
+     level-triggered dedup via should_alert() (ALERT_COOLDOWN)
+  2. Condition alerts — edge-triggered fires with matched all-clears:
+       check_scribe_liveness  — <site>:scribe:last_cycle age > 3× cycle_minutes
+       check_publish_volume   — <site>:last_publish age > stall_threshold_hours
+     Both use should_fire()/should_clear() and include a diagnosis snapshot.
+  3. Daily digest — 7am summary of top 10 articles by objectivity
+
+Every alert / all-clear email carries a diagnosis body from build_diagnosis()
+so recovery notices show the same snapshot the mailer used to decide.
 
 Mail is sent via local Postfix (already configured with DKIM/SPF/DMARC).
 
@@ -31,6 +38,8 @@ import redis
 import yaml
 from dotenv import load_dotenv
 
+from site_config import load_site_config
+
 load_dotenv()
 
 # ---------------------------------------------------------------------------
@@ -45,13 +54,37 @@ def _load_mailer_cfg() -> dict:
     except Exception:
         return {}
 
-_CFG = _load_mailer_cfg()
+_CFG  = _load_mailer_cfg()
+SITE  = load_site_config()
 
 ALERT_FROM    = "ross@arc-codex.com"
 ALERT_TO      = "rossnesbitt@gmail.com"
 DIGEST_HOUR   = 7       # 7am local time
 CHECK_INTERVAL = 60     # seconds between alert checks
-ALERT_COOLDOWN = int(_CFG.get('alert_cooldown_seconds', 14400))   # seconds; yaml overrides default 4h
+
+# All of these have yaml overrides in <stack>_config.yaml [mailer].
+ALERT_COOLDOWN         = int(_CFG.get('alert_cooldown_seconds', 14400))   # anti-flap window on edge-triggered alerts (4h)
+LOG_LOOKBACK_MINUTES   = int(_CFG.get('log_lookback_minutes', 2))         # was hardcoded 2 in get_recent_log_lines
+LOG_TAIL_BYTES         = int(_CFG.get('log_tail_bytes', 131072))          # 128 KiB — bytes-anchored beats line-anchored on multi-MB logs
+LOG_READ_TIMEOUT_S     = int(_CFG.get('log_read_timeout_seconds', 10))    # was hardcoded 5; 5.7MB watchdog.log timed out 106× Aug 11-14
+STALL_THRESHOLD_HOURS  = float(_CFG.get('stall_threshold_hours', 2))      # was hardcoded 2 in check_pipeline_stall
+LIVENESS_MULTIPLIER    = int(_CFG.get('scribe_liveness_multiplier', 3))   # "3x cycle_minutes with no sweep" → liveness alert
+
+# cycle_minutes is operator-owned in <site>.cfg [ingestion]; site_config.py
+# reads it fresh on module import so a mailer restart is required to pick up
+# changes — which is already the arc.sh workflow.
+CYCLE_MINUTES               = int(SITE.get('ingestion', 'cycle_minutes', 30))
+SCRIBE_LIVENESS_THRESHOLD_S = LIVENESS_MULTIPLIER * CYCLE_MINUTES * 60
+
+# Site-scoped Redis keys — same shape on both stacks via SITE.redis_key().
+LAST_PUBLISH_KEY   = SITE.redis_key("last_publish")
+LAST_CYCLE_KEY     = SITE.redis_key("scribe:last_cycle")
+PRIORITY_QUEUE_KEY = SITE.redis_key("priority_uploads")
+ANALYZER_QUEUE_KEY = "analyzer:queue"
+# Counters hash from operational_state.py — hardcoded there as "arc:ops:scribe:counters"
+# on BOTH stacks (byte-identical file); may be absent on stacks whose scribe.py
+# doesn't call operational_state (e.g. Hunt scribe uses its own refresh_heartbeat).
+SCRIBE_COUNTERS_KEY = "arc:ops:scribe:counters"
 
 LOG_FILES = {
     "scribe":    "/home/www/arc_stack/logs/scribe.log",
@@ -126,32 +159,85 @@ def send_email(subject: str, body_text: str, body_html: str = None) -> bool:
 # ---------------------------------------------------------------------------
 
 def should_alert(r: redis.Redis, alert_key: str) -> bool:
-    """Return True if we haven't alerted on this key within ALERT_COOLDOWN."""
+    """Level-triggered dedup for LOG-PATTERN alerts (a matching line either
+    appears in a scan window or it doesn't — there is no "cleared" transition
+    to detect, so edge semantics don't apply). Returns True at most once per
+    ALERT_COOLDOWN per key."""
     redis_key = f"mailer:alerted:{alert_key}"
     if r.exists(redis_key):
         return False
     r.setex(redis_key, ALERT_COOLDOWN, "1")
     return True
 
+
+def should_fire(r: redis.Redis, alert_key: str) -> bool:
+    """Edge-triggered fire for CONDITION alerts (stall, liveness).
+
+    Returns True only on the transition from clear-to-alerted. While the
+    active flag is set, repeat calls return False no matter how long the
+    condition persists — this is what stops the "every 4h forever" re-alert
+    pattern we saw on 2026-07-25 (8 emails over 22h for one stall event).
+
+    The active flag has NO TTL — it is cleared explicitly by should_clear().
+    That makes recovery detection possible; without it, "alert active" was
+    just the same fact as "cooldown key present."
+
+    ALERT_COOLDOWN is retained as an anti-flap guard on the transition
+    itself, so a condition that oscillates faster than the cooldown does not
+    generate a stream of fire/clear pairs.
+    """
+    active_key   = f"mailer:alert_active:{alert_key}"
+    cooldown_key = f"mailer:alerted:{alert_key}"
+    if r.exists(active_key) or r.exists(cooldown_key):
+        return False
+    r.set(active_key, "1")
+    r.setex(cooldown_key, ALERT_COOLDOWN, "1")
+    return True
+
+
+def should_clear(r: redis.Redis, alert_key: str) -> bool:
+    """Return True on the transition from alerted back to clear.
+    Deletes the active flag so the next fire can be emitted after any
+    subsequent breach (subject to anti-flap cooldown)."""
+    active_key = f"mailer:alert_active:{alert_key}"
+    if not r.exists(active_key):
+        return False
+    r.delete(active_key)
+    return True
+
 # ---------------------------------------------------------------------------
 # Log monitoring
 # ---------------------------------------------------------------------------
 
-def get_recent_log_lines(filepath: str, minutes: int = 2) -> list[str]:
-    """Return log lines from the last N minutes."""
+def get_recent_log_lines(filepath: str, minutes: int | None = None,
+                         service: str | None = None,
+                         r: redis.Redis | None = None) -> list[str]:
+    """Return log lines from the last N minutes.
+
+    Bytes-anchored tail: `tail -c LOG_TAIL_BYTES` completes in constant
+    time regardless of file size. Line-anchored (`-n 200`) scanned backwards
+    until it found 200 newlines, which on the 5.7MB watchdog.log timed out
+    106 times across 2026-08-11..14 — those windows were silent to alerting.
+    The first (possibly partial) line is discarded when its timestamp
+    doesn't parse; the existing timestamp regex already handled that shape.
+
+    On timeout / read error, the caller still gets [] (so the scan loop
+    doesn't crash), but we now increment mailer:log_read_failures:<service>
+    so the diagnosis email body can surface silent scanner failures.
+    """
+    if minutes is None:
+        minutes = LOG_LOOKBACK_MINUTES
     if not os.path.exists(filepath):
         return []
     try:
-        # Use tail for efficiency on large log files
         result = subprocess.run(
-            ["tail", "-n", "200", filepath],
-            capture_output=True, text=True, timeout=5
+            ["tail", "-c", str(LOG_TAIL_BYTES), filepath],
+            capture_output=True, text=True, timeout=LOG_READ_TIMEOUT_S,
         )
         lines = result.stdout.splitlines()
         cutoff = datetime.now() - timedelta(minutes=minutes)
         recent = []
         for line in lines:
-            # Try to parse timestamp from log line
             match = re.match(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})", line)
             if match:
                 try:
@@ -163,30 +249,45 @@ def get_recent_log_lines(filepath: str, minutes: int = 2) -> list[str]:
             else:
                 recent.append(line)  # include lines without timestamps
         return recent
+    except subprocess.TimeoutExpired:
+        logger.warning("Log read timed out: %s (tail -c %d, timeout %ds)",
+                       filepath, LOG_TAIL_BYTES, LOG_READ_TIMEOUT_S)
+        if r is not None and service:
+            try:
+                r.incr(f"mailer:log_read_failures:{service}")
+            except Exception:
+                pass
+        return []
     except Exception as e:
         logger.warning("Failed to read log %s: %s", filepath, e)
+        if r is not None and service:
+            try:
+                r.incr(f"mailer:log_read_failures:{service}")
+            except Exception:
+                pass
         return []
 
 
 def check_logs(r: redis.Redis):
     """Scan recent log lines for alert patterns."""
     for service, logfile in LOG_FILES.items():
-        lines = get_recent_log_lines(logfile, minutes=2)
+        lines = get_recent_log_lines(logfile, service=service, r=r)
         for line in lines:
             for pattern, alert_key, description in ALERT_PATTERNS:
                 if re.search(pattern, line, re.IGNORECASE):
                     full_key = f"{service}_{alert_key}"
                     if should_alert(r, full_key):
                         logger.warning("🚨 Alert triggered: %s in %s", description, service)
-                        send_alert_email(service, description, line)
+                        send_alert_email(r, service, description, line)
                     break  # one alert per line
 
 
-def send_alert_email(service: str, description: str, log_line: str):
+def send_alert_email(r: redis.Redis, service: str, description: str, log_line: str):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    subject = f"⚠️ Arc Codex Alert — {description}"
+    subject = f"⚠️ {SITE.name} Alert — {description}"
+    diagnosis = build_diagnosis(r)
 
-    text = f"""Arc Codex Stack Alert
+    text = f"""{SITE.name} Stack Alert
 {'=' * 50}
 Time:        {now}
 Service:     {service}
@@ -195,61 +296,220 @@ Issue:       {description}
 Log line:
 {log_line}
 
+{diagnosis}
+
 {'=' * 50}
-Arc Codex — arc-codex.com
+{SITE.name} — {SITE.domain}
 """
 
     html = f"""<html><body style="font-family:monospace;background:#0f172a;color:#e2e8f0;padding:24px;">
-<h2 style="color:#f59e0b;">⚠️ Arc Codex Alert</h2>
+<h2 style="color:#f59e0b;">⚠️ {SITE.name} Alert</h2>
 <table style="border-collapse:collapse;width:100%;">
   <tr><td style="color:#94a3b8;padding:4px 12px 4px 0">Time</td><td>{now}</td></tr>
   <tr><td style="color:#94a3b8;padding:4px 12px 4px 0">Service</td><td style="color:#f59e0b;">{service}</td></tr>
   <tr><td style="color:#94a3b8;padding:4px 12px 4px 0">Issue</td><td style="color:#fca5a5;">{description}</td></tr>
 </table>
 <pre style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:12px;margin-top:16px;color:#94a3b8;font-size:12px;overflow-x:auto;">{log_line}</pre>
+<pre style="background:#0b1220;border:1px solid #334155;border-radius:6px;padding:12px;margin-top:12px;color:#94a3b8;font-size:11px;overflow-x:auto;">{diagnosis}</pre>
 <hr style="border-color:#334155;margin-top:24px;">
-<p style="color:#475569;font-size:12px;">Arc Codex — <a href="https://arc-codex.com" style="color:#f59e0b;">arc-codex.com</a></p>
+<p style="color:#475569;font-size:12px;">{SITE.name} — <a href="{SITE.base_url}" style="color:#f59e0b;">{SITE.domain}</a></p>
 </body></html>"""
 
     send_email(subject, text, html)
 
 # ---------------------------------------------------------------------------
-# Pipeline stall detection
+# Diagnosis body — shared by all alert/recovery emails
 # ---------------------------------------------------------------------------
 
-def check_pipeline_stall(r: redis.Redis):
-    """Alert if no new articles have been published in the last 2 hours."""
+def _fmt_age(seconds: float) -> str:
+    seconds = int(seconds)
+    if seconds < 60:  return f"{seconds}s"
+    if seconds < 3600: return f"{seconds // 60}m{seconds % 60}s"
+    hours = seconds / 3600
+    return f"{hours:.1f}h"
+
+
+def _read_epoch_age(r: redis.Redis, key: str, now: float) -> tuple[str, float | None]:
+    """Return (raw_value_str, age_seconds_or_None) for a Redis key that
+    stores a Unix epoch seconds integer (as scribe.last_cycle does)."""
+    v = r.get(key)
+    if v is None:
+        return "(missing)", None
     try:
-        newest = None
-        newest_str = r.get('arc:last_publish')
-        if newest_str:
+        return v, now - int(v)
+    except (TypeError, ValueError):
+        return f"{v!r}", None
+
+
+def _read_iso_age(r: redis.Redis, key: str, now_dt: datetime) -> tuple[str, float | None]:
+    """Same shape as _read_epoch_age, for an ISO-8601 timestamp string."""
+    v = r.get(key)
+    if v is None:
+        return "(missing)", None
+    try:
+        ts = datetime.fromisoformat(v.replace("Z", "+00:00"))
+        return v, (now_dt - ts).total_seconds()
+    except (TypeError, ValueError):
+        return f"{v!r}", None
+
+
+def build_diagnosis(r: redis.Redis) -> str:
+    """KV block appended to every alert / all-clear email so the operator
+    has the same snapshot the mailer used when it decided to fire.
+
+    Cumulative scribe counters are shown as-is (they're since-forever, not
+    per-window) — the operator can eyeball the errors_* vs poll_success
+    ratio. Snapshot-based deltas are a follow-up."""
+    now_s  = time.time()
+    now_dt = datetime.now(timezone.utc)
+    lines = [f"--- diagnosis ({SITE.name}, checked {now_dt.isoformat()}) ---"]
+
+    v, age = _read_iso_age(r, LAST_PUBLISH_KEY, now_dt)
+    lines.append(f"  {LAST_PUBLISH_KEY:32s} = {v}"
+                 + (f"   (age: {_fmt_age(age)})" if age is not None else ""))
+    v, age = _read_epoch_age(r, LAST_CYCLE_KEY, now_s)
+    lines.append(f"  {LAST_CYCLE_KEY:32s} = {v}"
+                 + (f"   (age: {_fmt_age(age)})" if age is not None else ""))
+    lines.append(f"  liveness threshold               = {SCRIBE_LIVENESS_THRESHOLD_S}s "
+                 f"({LIVENESS_MULTIPLIER}x cycle_minutes={CYCLE_MINUTES})")
+    lines.append(f"  publish stall threshold          = {STALL_THRESHOLD_HOURS:.1f}h")
+
+    for label, key in [("analyzer:queue LLEN", ANALYZER_QUEUE_KEY),
+                       (f"{PRIORITY_QUEUE_KEY} LLEN", PRIORITY_QUEUE_KEY)]:
+        try:
+            lines.append(f"  {label:32s} = {r.llen(key)}")
+        except Exception as e:
+            lines.append(f"  {label:32s} = (error: {e})")
+
+    try:
+        counters = r.hgetall(SCRIBE_COUNTERS_KEY) or {}
+    except Exception as e:
+        counters = {}
+        lines.append(f"  {SCRIBE_COUNTERS_KEY} read error: {e}")
+    if counters:
+        lines.append(f"  {SCRIBE_COUNTERS_KEY} (cumulative since start):")
+        for k in sorted(counters):
+            lines.append(f"    {k:30s} = {counters[k]}")
+    else:
+        lines.append(f"  {SCRIBE_COUNTERS_KEY:32s} = (empty — operational_state.py counters not being written on this stack)")
+
+    try:
+        failures = {}
+        for key in r.scan_iter(match="mailer:log_read_failures:*", count=100):
+            failures[key.split(":")[-1]] = r.get(key)
+        if failures:
+            lines.append("  log-read failures (since key creation): "
+                         + ", ".join(f"{k}={v}" for k, v in sorted(failures.items())))
+    except Exception:
+        pass
+
+    return "\n".join(lines)
+
+# ---------------------------------------------------------------------------
+# Condition alerts — edge-triggered, with all-clear
+# ---------------------------------------------------------------------------
+
+# alert_key -> (subject, body_lead) resolved fresh from Redis for the
+# all-clear email. Kept centralised so the fire and recovery messages read
+# as a matched pair.
+_LIVENESS_KEY = "scribe_liveness"
+_PUBLISH_KEY  = "publish_volume"
+
+
+def _fire(r: redis.Redis, alert_key: str, subject: str, body_lead: str):
+    logger.warning("🚨 %s", subject)
+    send_email(subject, body_lead + "\n\n" + build_diagnosis(r))
+
+
+def _clear(r: redis.Redis, alert_key: str, subject: str, body_lead: str):
+    logger.info("✅ Recovery: %s", subject)
+    send_email(subject, body_lead + "\n\n" + build_diagnosis(r))
+
+
+def check_scribe_liveness(r: redis.Redis):
+    """Fire once when the scribe hasn't completed a sweep in
+    LIVENESS_MULTIPLIER × cycle_minutes; all-clear once when it does.
+
+    Reads <site>:scribe:last_cycle written by scribe.py (~ SETEX with TTL
+    900s). Absent key means no sweep in 15 minutes AND no boot marker —
+    that's a stronger signal than a stale timestamp, so we treat it as
+    the same alert condition.
+    """
+    try:
+        raw = r.get(LAST_CYCLE_KEY)
+        now = time.time()
+        if raw is None:
+            age = None
+            in_breach = True
+        else:
             try:
-                newest = datetime.fromisoformat(newest_str.replace("Z", "+00:00"))
-            except ValueError:
-                logger.warning("Pipeline stall check: arc:last_publish is malformed (%r) — falling back to feed head", newest_str)
-        if newest is None:
+                age = now - int(raw)
+            except (TypeError, ValueError):
+                logger.warning("Scribe liveness: %s value %r is not an integer — skipping",
+                               LAST_CYCLE_KEY, raw)
+                return
+            in_breach = age > SCRIBE_LIVENESS_THRESHOLD_S
+
+        threshold_str = (f"threshold: {_fmt_age(SCRIBE_LIVENESS_THRESHOLD_S)} "
+                         f"= {LIVENESS_MULTIPLIER}× cycle_minutes ({CYCLE_MINUTES}m)")
+        if in_breach:
+            reason = (f"{LAST_CYCLE_KEY} is missing" if age is None
+                      else f"No successful scribe sweep for {_fmt_age(age)}")
+            if should_fire(r, _LIVENESS_KEY):
+                _fire(r, _LIVENESS_KEY,
+                      f"⚠️ {SITE.name} — Scribe liveness lost",
+                      f"{reason}. {threshold_str}.")
+        else:
+            if should_clear(r, _LIVENESS_KEY):
+                _clear(r, _LIVENESS_KEY,
+                       f"✅ {SITE.name} — Scribe liveness restored",
+                       f"Scribe last swept {_fmt_age(age)} ago. {threshold_str}.")
+    except Exception as e:
+        logger.warning("Scribe liveness check failed: %s", e)
+
+
+def check_publish_volume(r: redis.Redis):
+    """Slower, separate signal: no new article for STALL_THRESHOLD_HOURS.
+    Publish volume depends on scribe alive AND analyzer keeping up AND
+    sources returning content — a liveness alert may already have fired
+    (in which case this one adds no signal until it clears).
+
+    TODO: weekday/weekend-aware thresholds. Deferred from this batch.
+    """
+    try:
+        raw = r.get(LAST_PUBLISH_KEY)
+        if raw is None:
+            # Fall back to feed head, mirroring the pre-existing shape.
             head = r.zrevrange("feed", 0, 0)
             if not head:
-                logger.warning("Pipeline stall check skipped: no last_publish key and no feed head available")
+                # Nothing to compare against — silence rather than false-clear.
                 return
-            article_id = head[0]
-            data = r.hgetall(f"article:{article_id}")
-            newest_str = data.get("timestamp", "")
-            if not newest_str:
-                logger.warning("Pipeline stall check skipped: feed head %s has no timestamp", article_id)
+            data = r.hgetall(f"article:{head[0]}")
+            raw = data.get("timestamp", "")
+            if not raw:
                 return
-            newest = datetime.fromisoformat(newest_str.replace("Z", "+00:00"))
-            logger.info("Pipeline stall check using feed head %s because arc:last_publish is unavailable", article_id)
+        try:
+            newest = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            logger.warning("Publish-volume check: last_publish %r is not ISO — skipping", raw)
+            return
         age_hours = (datetime.now(timezone.utc) - newest).total_seconds() / 3600
-        if age_hours > 2:
-            if should_alert(r, "pipeline_stall"):
-                logger.warning("🚨 Pipeline stall detected — no new articles in %.1fh", age_hours)
-                send_email(
-                    f"⚠️ Arc Codex — Pipeline Stall ({age_hours:.1f}h)",
-                    f"No new articles have been published in {age_hours:.1f} hours.\n\nLast article: {newest_str}\n\nCheck scribe and analyzer logs.",
-                )
+        in_breach = age_hours > STALL_THRESHOLD_HOURS
+        threshold_str = f"threshold: {STALL_THRESHOLD_HOURS:.1f}h"
+        if in_breach:
+            if should_fire(r, _PUBLISH_KEY):
+                _fire(r, _PUBLISH_KEY,
+                      f"⚠️ {SITE.name} — Publish volume stalled ({age_hours:.1f}h)",
+                      f"No new article published in {age_hours:.1f}h ({threshold_str}). "
+                      f"Last: {raw}.")
+        else:
+            if should_clear(r, _PUBLISH_KEY):
+                _clear(r, _PUBLISH_KEY,
+                       f"✅ {SITE.name} — Publish volume recovered",
+                       f"Latest article is {age_hours:.1f}h old ({threshold_str}). "
+                       f"Latest: {raw}.")
     except Exception as e:
-        logger.warning("Pipeline stall check failed: %s", e)
+        logger.warning("Publish-volume check failed: %s", e)
 
 # ---------------------------------------------------------------------------
 # Daily digest
@@ -407,7 +667,8 @@ def main():
     while True:
         try:
             check_logs(r)
-            check_pipeline_stall(r)
+            check_scribe_liveness(r)
+            check_publish_volume(r)
             if should_send_digest(r):
                 send_digest(r)
         except Exception as e:
