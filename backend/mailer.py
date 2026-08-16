@@ -6,7 +6,7 @@ Alert and digest daemon for Arc Codex stack monitoring.
 Responsibilities:
   1. Alert emails — monitors logs and Redis for error conditions,
      sends immediate notifications with deduplication (1/hour per issue)
-  2. Daily digest — 7am summary of top 10 articles by chimera score
+  2. Daily digest — 7am summary of top 10 articles by objectivity
 
 Mail is sent via local Postfix (already configured with DKIM/SPF/DMARC).
 
@@ -268,7 +268,7 @@ def should_send_digest(r: redis.Redis) -> bool:
 
 
 def get_top_articles(r: redis.Redis, n: int = 10) -> list[dict]:
-    """Fetch top N articles by chimera score from the last 24h."""
+    """Fetch top N articles by objectivity (0-1) from the last 24h."""
     try:
         article_ids = r.zrevrange("feed", 0, 199)  # scan last 200
         cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
@@ -286,13 +286,26 @@ def get_top_articles(r: redis.Redis, n: int = 10) -> list[dict]:
                 except ValueError:
                     pass
             try:
-                # chimera_score lives inside the dossier JSON blob
-                score = float(data.get("chimera_score", 0))
-                if score == 0:
-                    import json as _json
-                    dossier_raw = data.get("dossier", "{}")
-                    dossier = _json.loads(dossier_raw) if dossier_raw else {}
-                    score = float(dossier.get("chimera_score", 0))
+                # Rank by objectivity, on a 0-1 scale so the int(score*100)
+                # formatter below yields a real percentage.
+                #
+                # Why not chimera_score, the way Hunt does? Because
+                # chimera_score means different things on the two stacks:
+                # on Arc it is a 0-100 readability composite (compute_chimera
+                # in main.py — FK/Coleman-Liau/SMOG/Dale-Chall averaged),
+                # on Hunt it is a 0-1 objectivity ratio. Reading it here
+                # gave last week's Arc digest "8000% tone" values and
+                # ranked short/simple text (title fragments, WHO press
+                # releases, untranslated headlines) to the top. Mirrors
+                # the note in corpus_exporter.py that also refuses to read
+                # chimera_score across the fork for the same reason.
+                import json as _json
+                dossier_raw = data.get("dossier", "{}")
+                dossier = _json.loads(dossier_raw) if dossier_raw else {}
+                obj = dossier.get("objectivity_score")
+                if obj is None and dossier.get("subjectivity") is not None:
+                    obj = (1.0 - float(dossier["subjectivity"])) * 100.0
+                score = float(obj) / 100.0 if obj is not None else 0.0
             except (ValueError, Exception):
                 score = 0
             articles.append({
@@ -323,7 +336,7 @@ def send_digest(r: redis.Redis):
     lines = [f"Arc Codex Daily Digest — {date_str}", "=" * 50, ""]
     for i, a in enumerate(articles, 1):
         score_pct = int(a["score"] * 100)
-        lines.append(f"{i:2}. [{score_pct:3d}% tone] {a['title']}")
+        lines.append(f"{i:2}. [{score_pct:3d}% obj] {a['title']}")
         lines.append(f"     {a['source']}  —  https://arc-codex.com/article/{a['id']}")
         lines.append("")
     lines += ["=" * 50, "Arc Codex — arc-codex.com", "Unsubscribe: reply with 'unsubscribe'"]
@@ -349,7 +362,7 @@ def send_digest(r: redis.Redis):
           </td>
           <td style="padding:12px 8px;border-bottom:1px solid #1e293b;text-align:center;">
             <span style="color:{score_color};font-weight:bold;font-size:13px;">{score_pct}%</span>
-            <div style="color:#475569;font-size:10px;text-transform:uppercase;letter-spacing:1px;">tone</div>
+            <div style="color:#475569;font-size:10px;text-transform:uppercase;letter-spacing:1px;">objectivity</div>
           </td>
         </tr>"""
 
@@ -364,7 +377,7 @@ def send_digest(r: redis.Redis):
       <tr style="background:#0f172a;">
         <th style="padding:10px 8px;text-align:left;color:#475569;font-size:11px;text-transform:uppercase;letter-spacing:1px;">#</th>
         <th style="padding:10px 8px;text-align:left;color:#475569;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Article</th>
-        <th style="padding:10px 8px;text-align:center;color:#475569;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Tone</th>
+        <th style="padding:10px 8px;text-align:center;color:#475569;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Objectivity</th>
       </tr>
     </thead>
     <tbody>{rows}</tbody>
