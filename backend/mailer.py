@@ -72,9 +72,15 @@ LIVENESS_MULTIPLIER    = int(_CFG.get('scribe_liveness_multiplier', 3))   # "3x 
 
 # cycle_minutes is operator-owned in <site>.cfg [ingestion]; site_config.py
 # reads it fresh on module import so a mailer restart is required to pick up
-# changes — which is already the arc.sh workflow.
-CYCLE_MINUTES               = int(SITE.get('ingestion', 'cycle_minutes', 30))
-SCRIBE_LIVENESS_THRESHOLD_S = LIVENESS_MULTIPLIER * CYCLE_MINUTES * 60
+# changes — which is already the arc.sh workflow. The raw derivation
+# (multiplier × cycle_minutes) is clamped so a slack cycle can't quietly
+# disable liveness alerting and a stress-test 0 can't make it fire nonstop.
+CYCLE_MINUTES                = int(SITE.get('ingestion', 'cycle_minutes', 30))
+LIVENESS_THRESHOLD_FLOOR_S   = 1800   # 30 min — never quieter than this, even at cycle_minutes=0
+LIVENESS_THRESHOLD_CEILING_S = 5400   # 90 min — never slacker than this, no matter how large cycle_minutes grows
+SCRIBE_LIVENESS_THRESHOLD_S  = max(LIVENESS_THRESHOLD_FLOOR_S,
+                                   min(LIVENESS_THRESHOLD_CEILING_S,
+                                       LIVENESS_MULTIPLIER * CYCLE_MINUTES * 60))
 
 # Site-scoped Redis keys — same shape on both stacks via SITE.redis_key().
 LAST_PUBLISH_KEY   = SITE.redis_key("last_publish")
