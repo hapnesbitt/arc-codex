@@ -375,18 +375,26 @@ def test_run_scan_once_records_success(monkeypatch):
     state.mark_fast_state_success()
     monkeypatch.setattr(exporter, "exporter_health", state)
     monkeypatch.setattr(exporter, "scrape", lambda _redis: None)
-    before = exporter.c_intel_scans.labels(result="success")._value.get()
+    # Site label + intelligence_exporter_* naming from 8797dc3 (2026-07-23):
+    # the exporter's self-health metrics are byte-identical across stacks now,
+    # so read exporter.SITE rather than hardcoding 'arc' — same test file runs
+    # on Hunt with SITE='huntaegis'.
+    before = exporter.c_intel_scans.labels(site=exporter.SITE, result="success")._value.get()
+    # A labeled Histogram emits no samples until its child is first observed;
+    # prime it so _sample_value's before-read has a series to find regardless
+    # of which test runs first in the file.
+    exporter.h_intel_scan_duration.labels(site=exporter.SITE).observe(0)
     histogram_before = _sample_value(
         exporter.h_intel_scan_duration,
-        "arc_intelligence_exporter_scan_duration_seconds_count",
+        "intelligence_exporter_scan_duration_seconds_count",
     )
 
     assert exporter.run_scan_once(object()) is True
 
-    assert exporter.c_intel_scans.labels(result="success")._value.get() == before + 1
+    assert exporter.c_intel_scans.labels(site=exporter.SITE, result="success")._value.get() == before + 1
     assert _sample_value(
         exporter.h_intel_scan_duration,
-        "arc_intelligence_exporter_scan_duration_seconds_count",
+        "intelligence_exporter_scan_duration_seconds_count",
     ) == histogram_before + 1
     assert state.snapshot().ready is True
 
@@ -402,13 +410,13 @@ def test_run_scan_once_records_bounded_stage_failure_without_secret(monkeypatch)
         raise exporter.ScanStageError([("pipeline_stats", RuntimeError(secret))])
 
     monkeypatch.setattr(exporter, "scrape", fail)
-    scans_before = exporter.c_intel_scans.labels(result="failure")._value.get()
-    errors_before = exporter.c_intel_scan_errors.labels(stage="pipeline_stats")._value.get()
+    scans_before = exporter.c_intel_scans.labels(site=exporter.SITE, result="failure")._value.get()
+    errors_before = exporter.c_intel_scan_errors.labels(site=exporter.SITE, stage="pipeline_stats")._value.get()
 
     assert exporter.run_scan_once(object()) is False
 
-    assert exporter.c_intel_scans.labels(result="failure")._value.get() == scans_before + 1
-    assert exporter.c_intel_scan_errors.labels(stage="pipeline_stats")._value.get() == errors_before + 1
+    assert exporter.c_intel_scans.labels(site=exporter.SITE, result="failure")._value.get() == scans_before + 1
+    assert exporter.c_intel_scan_errors.labels(site=exporter.SITE, stage="pipeline_stats")._value.get() == errors_before + 1
     assert state.snapshot().ready is False
     assert secret.encode() not in generate_latest()
 
@@ -421,23 +429,29 @@ def test_unclassified_redis_failure_uses_fixed_redis_scan_stage(monkeypatch):
         "scrape",
         lambda _redis: (_ for _ in ()).throw(ConnectionError("redis unavailable")),
     )
-    before = exporter.c_intel_scan_errors.labels(stage="redis_scan")._value.get()
+    before = exporter.c_intel_scan_errors.labels(site=exporter.SITE, stage="redis_scan")._value.get()
     assert exporter.run_scan_once(object()) is False
-    assert exporter.c_intel_scan_errors.labels(stage="redis_scan")._value.get() == before + 1
+    assert exporter.c_intel_scan_errors.labels(site=exporter.SITE, stage="redis_scan")._value.get() == before + 1
 
 
 def test_metrics_expose_distinct_scrapeability_readiness_and_scan_state():
+    # Force at least one histogram observation so the *_bucket family exists
+    # in the payload regardless of which order pytest runs this test in
+    # (parent Histograms with labels emit no samples until first observed).
+    exporter.h_intel_scan_duration.labels(site=exporter.SITE).observe(0)
     payload = generate_latest().decode()
+    # Names lost the arc_ prefix in 8797dc3 (2026-07-23) so the file is
+    # byte-identical across stacks; the site label carries what arc_ used to.
     required = (
-        "arc_intelligence_exporter_ready",
-        "arc_intelligence_exporter_stale",
-        "arc_intelligence_exporter_scan_in_progress",
-        "arc_intelligence_exporter_last_scan_success",
-        "arc_intelligence_exporter_last_scan_timestamp_seconds",
-        "arc_intelligence_exporter_last_scan_attempt_timestamp_seconds",
-        "arc_intelligence_exporter_scans_total",
-        "arc_intelligence_exporter_scan_duration_seconds_bucket",
-        "arc_intelligence_exporter_scan_errors_total",
+        "intelligence_exporter_ready",
+        "intelligence_exporter_stale",
+        "intelligence_exporter_scan_in_progress",
+        "intelligence_exporter_last_scan_success",
+        "intelligence_exporter_last_scan_timestamp_seconds",
+        "intelligence_exporter_last_scan_attempt_timestamp_seconds",
+        "intelligence_exporter_scans_total",
+        "intelligence_exporter_scan_duration_seconds_bucket",
+        "intelligence_exporter_scan_errors_total",
     )
     for metric in required:
         assert metric in payload
