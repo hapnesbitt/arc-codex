@@ -522,15 +522,40 @@ def check_publish_volume(r: redis.Redis):
 # ---------------------------------------------------------------------------
 
 def should_send_digest(r: redis.Redis) -> bool:
-    """Return True once per day at DIGEST_HOUR."""
+    """Return True at most once per day at DIGEST_HOUR, only when we can
+    grab the send-lock and the day's digest hasn't already succeeded.
+
+    Two Redis keys, deliberately distinct — PD-01 (SDET audit 2026-08):
+
+      mailer:digest:{YYYY-MM-DD}:sent   long-TTL success marker. Written by
+                                        main()'s caller ONLY after send_digest
+                                        returns True; NEVER at decision time.
+                                        25h TTL covers DST edge cases.
+
+      mailer:digest:{YYYY-MM-DD}:lock   short-TTL SETNX guard against a second
+                                        mailer process (or a duplicate loop
+                                        tick) attempting SMTP concurrently.
+                                        Released by the caller on failure so
+                                        the next 60s tick can retry.
+
+    A bare move of the anti-duplicate key to send-success would allow
+    duplicate sends — this mailer gets restarted several times a day and
+    duplicate processes have been observed, so the lock is required on top
+    of the success key. Retries are bounded to the DIGEST_HOUR window: once
+    the hour rolls over, the hour check short-circuits and the day is done.
+    The lock TTL is a crash net for a caller that never gets to release it,
+    not the retry cadence."""
     now = datetime.now()
     if now.hour != DIGEST_HOUR:
         return False
-    date_key = f"mailer:digest:{now.strftime('%Y-%m-%d')}"
-    if r.exists(date_key):
+    date = now.strftime('%Y-%m-%d')
+    sent_key = f"mailer:digest:{date}:sent"
+    lock_key = f"mailer:digest:{date}:lock"
+    if r.exists(sent_key):
         return False
-    r.setex(date_key, 90000, "1")  # 25h TTL — covers DST edge cases
-    return True
+    # SETNX with 600s TTL — nx guarantees only one caller wins per window;
+    # ex guarantees a crashed caller doesn't strand the lock past the hour.
+    return bool(r.set(lock_key, "1", ex=600, nx=True))
 
 
 def get_top_articles(r: redis.Redis, n: int = 10) -> list[dict]:
@@ -589,11 +614,15 @@ def get_top_articles(r: redis.Redis, n: int = 10) -> list[dict]:
         return []
 
 
-def send_digest(r: redis.Redis):
+def send_digest(r: redis.Redis) -> bool:
+    """Return True only when send_email actually succeeded — the caller in
+    main() uses the return value to decide whether to write the :sent key
+    (success) or release the :lock (failure → retry next tick). See
+    should_send_digest for the two-key contract."""
     articles = get_top_articles(r, 10)
     if not articles:
         logger.info("No articles for digest — skipping")
-        return
+        return False
 
     date_str = datetime.now().strftime("%B %d, %Y")
     subject = f"Arc Codex Daily Digest — {date_str}"
@@ -656,8 +685,17 @@ def send_digest(r: redis.Redis):
 </div>
 </body></html>"""
 
-    send_email(subject, text, html)
-    logger.info("✅ Daily digest sent (%d articles)", len(articles))
+    # PD-07 (SDET audit 2026-08): the success/failure log line must match
+    # what actually happened — send_email already logs the exception detail
+    # in its except block, so this WARNING is the mailer-level marker.
+    ok = send_email(subject, text, html)
+    if ok:
+        logger.info("✅ Daily digest sent (%d articles)", len(articles))
+    else:
+        logger.warning("❌ Daily digest send failed (%d articles) — "
+                       "lock will be released so the next 60s tick retries "
+                       "within the DIGEST_HOUR window", len(articles))
+    return ok
 
 # ---------------------------------------------------------------------------
 # Main loop
@@ -676,7 +714,13 @@ def main():
             check_scribe_liveness(r)
             check_publish_volume(r)
             if should_send_digest(r):
-                send_digest(r)
+                # PD-01: write :sent only on success; release :lock on failure
+                # so the next 60s tick retries within the DIGEST_HOUR window.
+                date = datetime.now().strftime('%Y-%m-%d')
+                if send_digest(r):
+                    r.setex(f"mailer:digest:{date}:sent", 90000, "1")
+                else:
+                    r.delete(f"mailer:digest:{date}:lock")
         except Exception as e:
             logger.error("Main loop error: %s", e)
 
