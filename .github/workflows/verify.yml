@@ -38,6 +38,13 @@ jobs:
           AUTH_SECRET: ci-build-placeholder
         run: npm run build
       - run: npx tsc --noEmit
+      # Node-test integration suite. Spawns `next start` against the .next/
+      # tree the build step just produced (test file symlinks it into a
+      # tmpdir), then hits /api/internal/revalidate-library twice to pin the
+      # missing-secret 503 and the bearer-check 401 -- both properties the
+      # HTTP-only test above (tsc) cannot see. Sets its own
+      # LIBRARY_REVALIDATE_SECRET; no repo secrets required.
+      - run: npm run test:library-route
 
   backend:
     name: backend (py_compile + pytest smoke)
