@@ -1,0 +1,36 @@
+# Pytest configuration for the backend suite.
+#
+# Purpose: turn new warnings into errors so a Flask/redis-py/prometheus_client
+# deprecation lands as a red build the next push, instead of scrolling past in
+# a "2 warnings" summary line no one reads (Phase 1 P1-14).
+#
+# This is deliberately not a packaging file. No [project] table, no build
+# backend — the backend/ tree is a serving directory, not a distributable
+# package. Only pytest reads from here.
+
+[tool.pytest.ini_options]
+# Restrict collection to the sanctioned tests directory so pytest doesn't
+# stumble into venv/ or __pycache__ if invoked from an unexpected cwd.
+testpaths = ["tests"]
+
+# All warnings become errors; the ignore list below is the narrow escape
+# hatch for known-benign warnings that fire outside our code path. Add here
+# ONLY with a comment explaining why the warning is benign and when the
+# entry should be revisited — every ignore is a place a real regression
+# could hide.
+filterwarnings = [
+    "error",
+
+    # spacy → thinc → torch.cuda.device_count() runs at import time in
+    # main.py:271 (NLP_PROCESSOR = spacy.load(...)). On this box's CPU-only
+    # deployment NVML init fails and torch warns; the shape is transitive
+    # and outside our code. Narrow to torch.cuda so a UserWarning from
+    # anywhere else in the tree still errors. Revisit when torch stops
+    # warning on CPU-only hosts or when we drop the spacy dep.
+    "ignore:Can't initialize NVML:UserWarning:torch.cuda",
+
+    # torch.jit.script deprecation, also fired transitively at spacy/thinc
+    # import time. `grep -rn 'torch.jit' backend/*.py` is empty — nothing
+    # in arc_stack calls it directly. Revisit when torch removes it.
+    "ignore::DeprecationWarning:torch.jit._script",
+]
