@@ -66,7 +66,22 @@ RTL_LANGUAGES = {
 # ---------------------------------------------------------------------------
 # Redis
 # ---------------------------------------------------------------------------
-_redis = redis_lib.Redis.from_url(os.environ['REDIS_URL'], decode_responses=True)
+# getenv + explicit guard, matching main.py's REDIS_URL pattern (:238-267)
+# rather than the bare os.environ[] subscript this used before. Translation
+# cannot function without Redis (the cache and langs-set are essential), so
+# fail loud with a message that names the missing variable — the raw
+# KeyError this used to raise gave no hint about what to set. Deliberately
+# NOT falling back to a default like ollama_utils.py's "redis://localhost:6379/0":
+# translation is imported by main.py inside the r.ping()-succeeded block, so
+# by the time we reach this line REDIS_URL is expected to be set. If it
+# isn't, that's a config error, not a case to paper over with a wrong host.
+_REDIS_URL = os.getenv("REDIS_URL")
+if not _REDIS_URL:
+    raise RuntimeError(
+        "translation.py requires REDIS_URL in the environment — "
+        "unset means the translate blueprint cannot boot."
+    )
+_redis = redis_lib.Redis.from_url(_REDIS_URL, decode_responses=True)
 TRANSLATION_TTL         = 86_400    # 24 hours (default)
 TRANSLATION_TTL_ENGLISH = 604_800   # 7 days — English translations are high-value
 TRANSLATION_LANGS_TTL   = 604_800   # 7 days — langs set TTL matches longest translation
