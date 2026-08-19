@@ -238,9 +238,18 @@ def get_recent_log_lines(filepath: str, minutes: int | None = None,
     try:
         result = subprocess.run(
             ["tail", "-c", str(LOG_TAIL_BYTES), filepath],
-            capture_output=True, text=True, timeout=LOG_READ_TIMEOUT_S,
+            capture_output=True, timeout=LOG_READ_TIMEOUT_S,
         )
-        lines = result.stdout.splitlines()
+        # Decode bytes ourselves with errors='replace' — passing text=True
+        # here (as this call did until 2026-08-19) decodes with strict UTF-8,
+        # and a `tail -c` cut landing mid-multibyte raises UnicodeDecodeError
+        # that swallows the entire read as "Failed to read log". With this
+        # stack's emoji-heavy log format (🚀 🛑 ✅ ⚠️ 🚨) 14-16% of scans on
+        # hot logs were silently blind. `replace` inserts � per bad byte;
+        # the leading partial line's timestamp then won't parse and is
+        # dropped by the existing timestamp filter, while every full line
+        # after the cut comes through unharmed.
+        lines = result.stdout.decode("utf-8", errors="replace").splitlines()
         cutoff = datetime.now() - timedelta(minutes=minutes)
         recent = []
         for line in lines:
