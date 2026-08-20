@@ -482,10 +482,16 @@ def kokoro_preflight() -> tuple[str, int] | None:
     if "VENV ok" not in out:
         return f"no kokoro venv at {AUDIO_HOST}:{AUDIO_VENV}", logging.INFO
 
-    # A resident model outranks us unconditionally. Note this is the HTTP
-    # API, not `ollama ps`: ollama is not on the non-interactive ssh PATH,
-    # so the CLI exits 127 and a naive check would read "no ollama" as
-    # "nothing resident" — exactly backwards on a busy host.
+    # Ollama's /api/ps is still probed — we still want to log what is
+    # resident when we make a decision — but "any model resident" is no
+    # longer a deferral gate. Under `OLLAMA_KEEP_ALIVE=-1` on the M1
+    # LaunchDaemon (2026-08-19), gemma4:e2b is pinned resident by design;
+    # treating that as a refusal kept scribe at 4% coverage on 2026-08-20
+    # (67 resident-defers vs 3 narrations). Bench on the M1 with the model
+    # resident and ~1.4 GB "available" completed a 1988-char article in
+    # 41 s wall, peak RSS 2.6 GB, zero swap — macOS's compressor absorbs
+    # the transient. The free-memory threshold below is the real defense
+    # against thrashing.
     _, _, ollama = out.partition("--OLLAMA--")
     ollama = ollama.strip()
     if not ollama or ollama == "UNREACHABLE":
@@ -497,7 +503,7 @@ def kokoro_preflight() -> tuple[str, int] | None:
     if models:
         names = ", ".join(m.get("name", "?") for m in models)
         held = sum(m.get("size", 0) for m in models) / (1024 ** 3)
-        return f"{AUDIO_HOST} has {names} resident ({held:.1f} GB)", logging.INFO
+        logger.debug(f"🔊 preflight: {AUDIO_HOST} has {names} resident ({held:.1f} GB) — allowed (post-2026-08-20)")
 
     page = re.search(r"PAGESIZE (\d+)", out)
     vmstat, _, _ = out.partition("--OLLAMA--")
@@ -984,9 +990,15 @@ AUDIO_SCAN_WINDOW = 50                  # how far back down the feed a pass look
 # Preflight budget. The 3584 MB floor introduced by 93de9c9 exceeded the M1's
 # observed maximum free memory of 3448 MB: 1,141 consecutive checks deferred,
 # and none came within 136 MB of passing. Before that change, a 2048 MB floor
-# produced 31 successful narrations in 70 minutes. Restore the measured working
-# threshold; revisit only with a new free-memory distribution and success run.
-AUDIO_MIN_FREE_MB = 2048
+# produced 31 successful narrations in 70 minutes. Post-2026-08-19 the M1
+# LaunchDaemon pins gemma4:e2b resident (KEEP_ALIVE=-1), so steady-state
+# "available" memory sits at ~1.4 GB and 2048 MB is unreachable — coverage
+# collapsed to 4% on 2026-08-20. Bench (2026-08-20) synthesized a 1988-char
+# article on the M1 alongside the resident model in 41 s wall, peak RSS
+# 2.6 GB, zero swap, starting from ~1.4 GB "available". 1024 MB is the
+# recalibrated floor: enough headroom for Kokoro's ~500 MB import and torch
+# load without immediate paging; the ~2.6 GB peak spills into the compressor.
+AUDIO_MIN_FREE_MB = 1024
 
 REHOST_W, REHOST_H = 1200, 675          # 16:9 — matches the aspect-video card container
 REHOST_ORIG_MAX = 1920                  # longest-side cap for the preserved source; matches main.py:_upload_image_inner
