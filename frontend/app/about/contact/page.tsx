@@ -1,8 +1,6 @@
 // Filename: /frontend/app/about/contact/page.tsx
 // Stewardship — Hap Nesbitt.
-// Librarian aesthetic. Reconstructed from page.tsx.Apr20 (full bio, expertise
-// descriptions, employer history, contact methods) plus the Gemini stewardship
-// epigraph. Server component.
+// Librarian aesthetic. Reconstructed with PRIME integration. Server component.
 
 import React from 'react';
 import type { Metadata } from 'next';
@@ -10,8 +8,8 @@ import Link from 'next/link';
 import { ChevronRight, ExternalLink } from 'lucide-react';
 
 export const metadata: Metadata = {
-  title: 'Stewardship — Hap Nesbitt',
-  description: 'Independent AI infrastructure engineer and systems architect. Builder of Arc Codex and the A.R.C. cognitive security framework.',
+  title: 'Stewardship & PRIME — Hap Nesbitt',
+  description: 'Independent AI infrastructure engineer and systems architect. Builder of Arc Codex, Huntaegis, School of Chat, and Book Radio. Available for contract engagements.',
 };
 
 const EXPERTISE = [
@@ -31,6 +29,13 @@ const EXPERTISE = [
     label: 'Systems Architecture',
     body: '30+ years Linux / UNIX. IAM, entitlement automation, OpenShift CI/CD. Former Proofpoint (employee #10), Wells Fargo, Morgan Stanley, J.P. Morgan Chase.',
   },
+];
+
+const LIVE_PLATFORMS = [
+  { label: 'Arc Codex', body: 'News intelligence with adversarial AI analysis.' },
+  { label: 'Huntaegis', body: 'The cybersecurity fork — the same platform, retargeted at threat intelligence.' },
+  { label: 'School of Chat', body: 'Quiz and badge integrity, graded by AI.' },
+  { label: 'Book Radio', body: 'A continuous narrated-audio stream of public-domain texts.' },
 ];
 
 const CONTACTS: Array<{ label: string; value: string; href: string; external: boolean; aria: string }> = [
@@ -64,12 +69,27 @@ export default function ContactPage() {
             Hap Nesbitt
           </h1>
           <p className="font-serif text-lg text-slate-400 italic leading-relaxed max-w-2xl mx-auto">
-            Independent AI infrastructure engineer and systems architect — builder of Arc Codex and the A.R.C. cognitive security framework. Available for contract engagements.
+            Independent AI infrastructure engineer and systems architect. Builder of Arc Codex, Huntaegis, School of Chat, and Book Radio. Available for contract engagements.
           </p>
           <blockquote className="border-l border-slate-700 pl-4 max-w-xl mx-auto text-left font-serif text-base italic text-slate-300 leading-relaxed mt-6">
             Responsibility is the final layer of the stack. We do not just build systems; we steward the information that flows through them.
           </blockquote>
         </header>
+
+        {/* What runs today */}
+        <section className="py-10 border-b border-slate-800/60 space-y-6">
+          <h2 className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-slate-300">
+            What Runs Today
+          </h2>
+          <ul className="border-t border-slate-800/40">
+            {LIVE_PLATFORMS.map((item) => (
+              <li key={item.label} className="py-4 border-b border-slate-800/40 space-y-1">
+                <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-400">{item.label}</div>
+                <p className="font-serif text-base text-slate-200 leading-relaxed">{item.body}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
 
         {/* Fields of Engagement */}
         <section className="py-10 border-b border-slate-800/60 space-y-6">
@@ -84,6 +104,19 @@ export default function ContactPage() {
               </li>
             ))}
           </ul>
+        </section>
+
+        {/* PRIME */}
+        <section className="py-10 border-b border-slate-800/60 space-y-4">
+          <h2 className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-slate-300">
+            PRIME
+          </h2>
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            PRIME is the direction this work points: a zero-UI generative education fabric joining
+            continuous audio streams to automated oral examination. The components run today as
+            separate systems — Book Radio for the audio, School of Chat for the examination. PRIME
+            is the argument that they belong together. A prospectus, not yet a product.
+          </p>
         </section>
 
         {/* Contact methods */}
@@ -132,7 +165,7 @@ export default function ContactPage() {
         <footer className="text-center pt-12 pb-6 space-y-1 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-600">
           <p>Harold Edwin Ross Nesbitt III</p>
           <p>Fort Collins, CO · 40.5853° N, 105.0844° W</p>
-          <p>A.R.C. Framework v7.14 · Connection Secure</p>
+          <p>A.R.C. Framework v7.38 · Connection Secure</p>
         </footer>
       </main>
     </div>
