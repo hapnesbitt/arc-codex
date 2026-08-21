@@ -75,6 +75,7 @@ Newest first. Deep detail in the dated entry of the same date.
 
 | Date | Change | Note |
 |------|--------|------|
+| 2026-08-20 | Kokoro synthesis relocated: M1 (ssh) → resolute (local) | `scribe.py` — removes `_audio_ssh`/`AUDIO_HOST`/`AUDIO_VENV`; preflight now `psutil.virtual_memory().available`. Spectre benched ~20% faster but ruled out (ssh/scp coupling + Python 3.14 + OOM'd Hunt's ollama mid-bench). Live verification caught a real [[council-ollama-host-misrouted]] collision. Full detail in the incident journal entry below. |
 | 2026-07-18 | Hero-image subject cropping — **diagnosed, deferred** | Pipeline center-crop to 16:9; CSS can't fix. See known-issue entry. |
 | 2026-07-18 | `analysis:pending` stream capped `MAXLEN ~10000` | Was unbounded (85k). Commit `f777470`. |
 | 2026-07-18 | Pin model → news-only; unpinned 76 reference plants | `arc:pinned_articles` 80→4; reference still type-protected. |
@@ -2042,3 +2043,117 @@ non-127.0.0.1; `X-User-Id` injected by the Next.js proxy.
 - Feed-card 16:9 crop is *intended* (uniform grid); the harm is the subject being
   amputated on tall/infographic sources. Full read-only diagnosis: session
   2026-07-18.
+
+---
+
+## 2026-08-20 — Kokoro relocation: off the M1, resolute chosen over Spectre
+
+**Goal:** remove Kokoro's synthesis peak (~2.6 GB, per the 2026-08-19/20 M1
+bench) from the M1, an 8 GB fanless box that cannot be upgraded. Deliberately not conflated with the M1's separate, larger baseline
+problem — the pinned `gemma4:e2b` model's ~14.9 GB/hr paging (same entry).
+
+### Bench: resolute vs Spectre
+
+Same real article (2019 chars, pulled live from Arc's own feed), same voice
+(`af_heart`) and speed (`0.95x`), measured with `/usr/bin/time -v` around the
+actual Kokoro synthesis subprocess on each box:
+
+| | resolute (i7-4790 @ 3.6GHz, 4c/8t) | Spectre (i7-10510U @ 1.8GHz, 4c/8t) |
+|---|---|---|
+| Wall time | 75.0 s | **60.3 s** |
+| Synthesis-only RTF | 1.78x | **2.21x** |
+| Peak RSS | 1940 MB | 1960 MB |
+| CPU utilization | 324% | 362% |
+
+Spectre is genuinely ~20% faster despite **lacking AVX-512** (checked
+`lscpu` flags directly — the 10510U is Comet Lake-U, which never got it; that
+was an incorrect premise going in). The win is newer-microarchitecture
+IPC/turbo, not a vector-instruction gap.
+
+**What benching Spectre cost:** its system Python is 3.14 only (no
+3.10-3.12 anywhere — confirmed via `compgen -c python` and `apt-cache
+search`), and kokoro 0.9.4 needs `<3.13`. First attempt let pip build numpy
+from source for cp314; that, stacked on gemma4:e2b's resident **~12.2 GB
+RSS** (32768 ctx, CPU-only — most of the box's 14 GB), **kernel-OOM-killed
+Hunt's own `ollama.service`**:
+
+```
+Aug 20 19:59:53 spectre systemd[1]: ollama.service: The kernel OOM killer killed some processes in this unit.
+Aug 20 19:59:54 spectre systemd[1]: ollama.service: Failed with result 'oom-kill'.
+```
+
+SSH banner exchange timed out for ~4 minutes (ICMP kept answering — kernel
+alive, userspace starved) before systemd's auto-restart recovered it with no
+manual intervention. Second attempt used `uv` (astral.sh) to install a
+standalone prebuilt CPython 3.12.14 — no sudo, no system-Python change, no
+compilation — which is what produced the bench numbers above. Both venvs
+were removed from Spectre afterward; nothing was left running there.
+Ansible drift noted separately: Spectre's live Python doesn't match what
+`spectre-rebuild` assumes, recorded not fixed (see the [[spectre-reimage]]
+memory — this runbook doesn't track Spectre itself, it isn't part of this
+stack).
+
+### Decision: resolute
+
+A ~20% wall-time edge doesn't clear "speed has to win by a lot" against
+reintroducing the ssh/scp coupling this move exists to remove — resolute
+already had a working venv and keeps the wav off the network entirely
+(ffmpeg already encodes here, so there's exactly one process boundary
+between article text and finished mp3 now, not three: stage, synth,
+retrieve).
+
+### Implementation (`arc_stack/backend/scribe.py`)
+
+`_audio_ssh`, `AUDIO_HOST`, `AUDIO_VENV`, `AUDIO_SSH_TIMEOUT`,
+`_KOKORO_PROBE` removed. Synthesis is a direct local `subprocess.run` to
+`/home/www/lecture_pipeline/.kokoro-venv/bin/python` (Python 3.12.13, torch
+2.13.0+cpu, kokoro 0.9.4, weights already cached). Preflight is
+`psutil.virtual_memory().available >= AUDIO_MIN_FREE_MB` (2600 MB — peak
+1940 MB + ~660 MB/~34% headroom); no more Ollama-residency check, since that
+existed only for the M1 sharing a host with Arc's own inference calls.
+`_audio_executor` mutex (`max_workers=1`) unchanged. `~/kokoro-venv` left in
+place on the M1 — rollback is reverting this file, nothing else.
+
+### Live verification (2026-08-20, restart 20:18:52)
+
+Scribe restarted clean, no import errors. First live narration since
+restart: article `72548662602e4cc63166363b37766081`, 4511 chars, 2 chunks,
+completed in **181.2s**, mp3 landed at
+`frontend/public/uploads/audio/72548662602e4cc63166363b37766081.mp3`
+(2.46 MB, 24kHz mono 64kbps, duration 307.5s — consistent with the bench
+article's ratio), `ffmpeg -f null -` decodes clean with zero errors.
+`audio_url` stored on the article hash. **Zero SSH to the M1** throughout: a
+1-second-resolution watch for `ssh` processes matching `192.168.1.185` or
+the `mac` alias, for the full 181s window, found none; the only live
+connection to `.185` afterward was the pre-existing Prometheus scrape of the
+M1's node_exporter on :9100, unrelated to audio.
+
+**Memory — and a real collision caught in the act.** resolute's available
+memory sits at 10-12 GB normally. During this exact narration,
+[[council-ollama-host-misrouted]] (a known, separate, already-tracked,
+still-unfixed bug — `COUNCIL_OLLAMA_HOST=http://localhost:11434` in both
+`arc_stack/backend/.env:73` and `huntaegis_stack/backend/.env:42`)
+independently fired: resolute's own Ollama loaded `gemma4:e2b` locally
+(~7.8 GB RSS, confirmed via `ps`/`api/ps`, PID started 20:27:58, mid-run)
+while Kokoro was already synthesizing. Available memory fell as low as
+**~2.2 GB** before the model's keep-alive expired — well below the 10-12 GB
+this box normally runs with, and only ~400 MB above the 2600 MB
+`AUDIO_MIN_FREE_MB` floor. Narration still finished clean, because the
+preflight check runs once before the subprocess starts, not during it — the
+two events happened to overlap without colliding on the check itself. Had
+the order been reversed, 2600 MB is what would have made the second one
+defer instead of stack on the first. This is direct, live evidence that the
+floor is doing real work against a specific known risk, not padding against
+generic "shared box" noise — see the code comment on `AUDIO_MIN_FREE_MB` for
+the full account.
+
+**Coverage, same day, before vs after** (from `scribe.log`, all times
+2026-08-20):
+
+| | Narrating (started) | Audio written (ok) | Deferred | Timed out | Failed |
+|---|---|---|---|---|---|
+| Pre-restart (M1/ssh, post c52bdfe preflight fix, ~12:5X-20:18) | 27 | 25 | 72 | 2 | 0 |
+| Post-restart (resolute/local, this change, 20:18 onward) | 1 | 1 | 0 | 0 | 0 |
+
+One cycle of data post-relocation isn't a trend, but 1/1 with zero deferrals
+despite a real concurrent 7.8 GB collision is a clean first result.

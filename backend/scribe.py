@@ -37,8 +37,9 @@ import gc
 import shutil
 import subprocess
 import tempfile
+import psutil
 from stream_utils import publish_analysis, ensure_stream_group
-from ollama_utils import call_ollama_local_only, OLLAMA_LOCAL_FALLBACK, OLLAMA_URL
+from ollama_utils import call_ollama_local_only, OLLAMA_LOCAL_FALLBACK
 from retention import run_retention_pass
 from operational_state import ScribeOperationalState, run_heartbeat_loop
 from fetch_utils import sanitize_active_content
@@ -385,15 +386,19 @@ def _run_analysis_background(article_id: str, text_for_analysis: str) -> None:
 # text with an en-US voice produces gibberish, and translating first is a
 # separate piece of work that does not exist yet.
 #
-# Synthesis runs on the M1 under Kokoro. See the AUDIO_* block near
-# SCRAPED_IMAGE_DIR for why that host makes narration opportunistic work.
+# Synthesis runs locally on resolute under Kokoro, in the dedicated venv at
+# AUDIO_KOKORO_PYTHON ([[kokoro-relocation]], 2026-08-20 — moved off the M1;
+# see the AUDIO_* block near SCRAPED_IMAGE_DIR for the host decision, the
+# bench numbers behind it, and where the memory floor comes from).
 
-# Runs on the M1 inside the dedicated venv. One process for the whole
-# article: importing torch and loading the pipeline costs ~5s, and that is
-# per-process, not per-chunk. Unlike cc.py, which keeps its chunks as
-# separate files to report progress against, this joins them into one WAV
-# remotely — a single file comes back and a single ffmpeg pass encodes it.
-_KOKORO_REMOTE = '''\
+# One process for the whole article: importing torch and loading the
+# pipeline costs ~5s, and that is per-process, not per-chunk. Unlike cc.py,
+# which keeps its chunks as separate files to report progress against, this
+# joins them into one WAV — a single file comes back and a single ffmpeg
+# pass encodes it. Runs as a local subprocess now rather than over ssh, but
+# the program itself is unchanged: it only ever looked at argv and its own
+# staging directory, never at what host it was on.
+_KOKORO_SYNTH = '''\
 import json, os, sys
 
 staging, voice, speed, rate = sys.argv[1], sys.argv[2], float(sys.argv[3]), int(sys.argv[4])
@@ -416,102 +421,30 @@ for idx, text in enumerate(chunks, start=1):
 sf.write(os.path.join(staging, "article.wav"), np.concatenate(parts), rate)
 '''
 
-# Emits labelled sections rather than a single verdict: the reason has to
-# come back to us so it can be logged, not just a boolean.
-# {ollama_url} is filled in from OLLAMA_URL — the same base URL Arc itself
-# uses for local inference. Hardcoding 127.0.0.1:11434 here was wrong even
-# before the M1's supervised daemon stopped listening on loopback (Fix 1,
-# 2026-08-15 plist bind): it probed a different daemon than the one Arc's
-# analysis actually loads models into, so residency readings were fiction.
-_KOKORO_PROBE = '''\
-test -x {venv}/bin/python && echo "VENV ok" || echo "VENV missing"
-echo "PAGESIZE $(sysctl -n hw.pagesize)"
-echo "--VMSTAT--"
-vm_stat
-echo "--OLLAMA--"
-curl -s --max-time 3 {ollama_url}/api/ps || echo UNREACHABLE
-'''
-
-
-def _audio_ssh(args: list, **kw):
-    """Run ssh with a bounded connect timeout and no interactive prompts."""
-    return subprocess.run(
-        ["ssh", "-o", f"ConnectTimeout={AUDIO_SSH_TIMEOUT}",
-         "-o", "BatchMode=yes", AUDIO_HOST, *args],
-        capture_output=True, text=True, **kw)
-
-
-def _free_mb(vmstat: str, page_size: int) -> float:
-    """Reclaimable memory in MB, from vm_stat's page counts.
-
-    free + inactive + speculative + purgeable is the usual macOS
-    approximation of 'available': inactive and speculative pages are
-    file-backed and can be evicted without swapping.
-    """
-    pages = 0
-    for label in ("free", "inactive", "speculative", "purgeable"):
-        m = re.search(rf"Pages {label}:\s+(\d+)", vmstat)
-        if m:
-            pages += int(m.group(1))
-    return pages * page_size / (1024 * 1024)
-
-
 def kokoro_preflight() -> tuple[str, int] | None:
     """Return None if Kokoro may run, else (reason, log_level) for the caller.
 
-    Ported unchanged in substance from lecture_pipeline/cc.py. Every branch
-    yields a sentence, because a silent skip is not diagnosable. The bar is
-    deliberately high in the conservative direction: anything we cannot
-    positively verify counts as a refusal, since the cost of a wrong 'yes' is
-    thrashing Arc's inference host and the cost of a wrong 'no' is a story
-    that stays silent until the next pass looks at it.
-
-    Log level: WARNING for the two "assuming Arc is live" branches — an
-    unreadable inference host being handled by a fallback is silent-failure
-    class and worth surfacing (that class of miss cost six hours today,
-    2026-08-15). INFO for the honestly-diagnosed refusals (unreachable,
-    no venv, resident model, low memory). Behavior on refusal is unchanged
-    in either case: the caller still defers.
+    Local as of 2026-08-20 ([[kokoro-relocation]]): no ssh, no vm_stat probe,
+    no Ollama-residency check against a remote host. That check existed
+    because Kokoro used to share a host (the M1) with Arc's own inference
+    calls, so a resident model there was a real collision to detect. Arc and
+    Hunt are supposed to reach Ollama over HTTP on other boxes, not this one
+    — but resolute does have its own Ollama install, and a known, separate,
+    still-unfixed bug ([[council-ollama-host-misrouted]]) points council
+    calls at localhost:11434 here instead of the fleet. When that fires it
+    pulls ~7.8 GB RSS on this box with no warning, which is exactly the kind
+    of collision AUDIO_MIN_FREE_MB has to survive — confirmed live during
+    the 2026-08-20 verification narration, see the AUDIO_* block. Fixing the
+    misroute is out of scope here; the psutil check below is what actually
+    protects Kokoro from it either way. Every branch still yields a
+    sentence: a silent skip is not diagnosable.
     """
-    probe = _audio_ssh(["sh"], input=_KOKORO_PROBE.format(venv=AUDIO_VENV, ollama_url=OLLAMA_URL))
-    if probe.returncode != 0:
-        detail = probe.stderr.strip().splitlines()
-        return f"{AUDIO_HOST} unreachable ({detail[-1] if detail else 'ssh failed'})", logging.INFO
+    if not os.access(AUDIO_KOKORO_PYTHON, os.X_OK):
+        return f"no kokoro venv at {AUDIO_KOKORO_PYTHON}", logging.WARNING
 
-    out = probe.stdout
-    if "VENV ok" not in out:
-        return f"no kokoro venv at {AUDIO_HOST}:{AUDIO_VENV}", logging.INFO
-
-    # Ollama's /api/ps is still probed — we still want to log what is
-    # resident when we make a decision — but "any model resident" is no
-    # longer a deferral gate. Under `OLLAMA_KEEP_ALIVE=-1` on the M1
-    # LaunchDaemon (2026-08-19), gemma4:e2b is pinned resident by design;
-    # treating that as a refusal kept scribe at 4% coverage on 2026-08-20
-    # (67 resident-defers vs 3 narrations). Bench on the M1 with the model
-    # resident and ~1.4 GB "available" completed a 1988-char article in
-    # 41 s wall, peak RSS 2.6 GB, zero swap — macOS's compressor absorbs
-    # the transient. The free-memory threshold below is the real defense
-    # against thrashing.
-    _, _, ollama = out.partition("--OLLAMA--")
-    ollama = ollama.strip()
-    if not ollama or ollama == "UNREACHABLE":
-        return f"cannot read {AUDIO_HOST} ollama state at {OLLAMA_URL}; assuming Arc is live", logging.WARNING
-    try:
-        models = json.loads(ollama).get("models", [])
-    except json.JSONDecodeError:
-        return f"unparseable ollama state from {AUDIO_HOST}; assuming Arc is live", logging.WARNING
-    if models:
-        names = ", ".join(m.get("name", "?") for m in models)
-        held = sum(m.get("size", 0) for m in models) / (1024 ** 3)
-        logger.debug(f"🔊 preflight: {AUDIO_HOST} has {names} resident ({held:.1f} GB) — allowed (post-2026-08-20)")
-
-    page = re.search(r"PAGESIZE (\d+)", out)
-    vmstat, _, _ = out.partition("--OLLAMA--")
-    if not page:
-        return f"could not read {AUDIO_HOST} memory state", logging.INFO
-    free = _free_mb(vmstat, int(page.group(1)))
-    if free < AUDIO_MIN_FREE_MB:
-        return f"{AUDIO_HOST} has {free:.0f} MB free, needs {AUDIO_MIN_FREE_MB}", logging.INFO
+    available_mb = psutil.virtual_memory().available / (1024 * 1024)
+    if available_mb < AUDIO_MIN_FREE_MB:
+        return f"resolute has {available_mb:.0f} MB available, needs {AUDIO_MIN_FREE_MB}", logging.INFO
     return None
 
 
@@ -558,9 +491,9 @@ def synthesize_article_audio(article_id: str, text: str) -> str | None:
 
     Assumes kokoro_preflight() has already passed; the caller runs it, so
     that a refusal reads as a deferral in the log while a failure here reads
-    as a failure. The preflight cannot cover everything even so — the host
-    can go away mid-run, or Arc can load a model a second after we looked —
-    and every one of those lands here as None and a silent story.
+    as a failure. The preflight cannot cover everything even so — a second
+    process can eat the headroom between the check and the run — and every
+    one of those lands here as None and a silent story.
 
     Encodes to a temp file and renames into place, so a crashed or timed-out
     run cannot leave a truncated mp3 at the path the field will point at.
@@ -581,58 +514,33 @@ def synthesize_article_audio(article_id: str, text: str) -> str | None:
     chunks = _chunk_text(text)
     started = time.perf_counter()
 
-    staging = None
     workdir = None
     try:
         os.makedirs(AUDIO_DIR, exist_ok=True)
         workdir = tempfile.mkdtemp(prefix=f"arc-audio-{article_id[:12]}-")
-
-        staged = _audio_ssh(["mktemp", "-d", "-t", "arc-audio"])
-        if staged.returncode != 0:
-            logger.warning(f"🔊 Audio failed — could not stage on {AUDIO_HOST}: "
-                           f"{staged.stderr.strip()}")
-            return None
-        staging = staged.stdout.strip()
 
         manifest = os.path.join(workdir, "chunks.json")
         program = os.path.join(workdir, "synth.py")
         with open(manifest, "w", encoding="utf-8") as f:
             json.dump(chunks, f)
         with open(program, "w", encoding="utf-8") as f:
-            f.write(_KOKORO_REMOTE)
-
-        push = subprocess.run(
-            ["scp", "-q", "-o", f"ConnectTimeout={AUDIO_SSH_TIMEOUT}",
-             "-o", "BatchMode=yes", manifest, program, f"{AUDIO_HOST}:{staging}/"],
-            capture_output=True, text=True)
-        if push.returncode != 0:
-            logger.warning(f"🔊 Audio failed — staging upload: {push.stderr.strip()}")
-            return None
+            f.write(_KOKORO_SYNTH)
 
         logger.info(f"🔊 Narrating {article_id}: {len(text)} chars in {len(chunks)} chunk(s), "
-                    f"kokoro voice {AUDIO_VOICE} at {AUDIO_SPEED}x on {AUDIO_HOST}")
+                    f"kokoro voice {AUDIO_VOICE} at {AUDIO_SPEED}x")
         synth = subprocess.run(
-            ["ssh", "-o", f"ConnectTimeout={AUDIO_SSH_TIMEOUT}", "-o", "BatchMode=yes",
-             AUDIO_HOST,
-             f"{AUDIO_VENV}/bin/python {staging}/synth.py {staging} "
-             f"{AUDIO_VOICE} {AUDIO_SPEED} {AUDIO_SAMPLE_RATE}"],
+            [AUDIO_KOKORO_PYTHON, program, workdir,
+             AUDIO_VOICE, str(AUDIO_SPEED), str(AUDIO_SAMPLE_RATE)],
             capture_output=True, text=True, timeout=AUDIO_TIMEOUT_SECONDS)
         if synth.returncode != 0:
             noise = [line for line in synth.stderr.strip().splitlines()
                      if line and not line.startswith("PROGRESS ")
                      and "Warning" not in line and "warn" not in line]
-            logger.warning(f"🔊 Audio failed — remote synthesis for {article_id}: "
+            logger.warning(f"🔊 Audio failed — synthesis for {article_id}: "
                            f"{noise[-1] if noise else 'no detail'}")
             return None
 
         wav_path = os.path.join(workdir, "article.wav")
-        pull = subprocess.run(
-            ["scp", "-q", "-o", f"ConnectTimeout={AUDIO_SSH_TIMEOUT}",
-             "-o", "BatchMode=yes", f"{AUDIO_HOST}:{staging}/article.wav", wav_path],
-            capture_output=True, text=True)
-        if pull.returncode != 0:
-            logger.warning(f"🔊 Audio failed — could not retrieve WAV: {pull.stderr.strip()}")
-            return None
         if not os.path.exists(wav_path) or os.path.getsize(wav_path) == 0:
             logger.warning(f"🔊 Audio came back empty for {article_id}")
             return None
@@ -661,25 +569,16 @@ def synthesize_article_audio(article_id: str, text: str) -> str | None:
         return f"/uploads/audio/{article_id}.mp3"
 
     except subprocess.TimeoutExpired:
-        # Killing our ssh leaves the remote python running, and an orphaned
-        # Kokoro holding 3 GB on Arc's inference host is exactly the
-        # contention this whole design avoids. The staging path is unique to
-        # this run, so matching on it cannot hit anything else.
+        # subprocess.run kills its child directly on timeout, so there is no
+        # orphan to chase here the way there was over ssh — killing the
+        # local end used to leave the remote python running on someone
+        # else's box, which needed a separate pkill to clean up.
         logger.warning(f"🔊 Audio timed out after {AUDIO_TIMEOUT_SECONDS}s for {article_id}")
-        if staging:
-            _audio_ssh(["pkill", "-f", staging])
         return None
     except Exception as e:
         logger.warning(f"🔊 Audio failed ({type(e).__name__}) for {article_id}: {e}")
         return None
     finally:
-        # Staging is scratch on someone else's production box; clear it
-        # whether or not we succeeded.
-        if staging:
-            try:
-                _audio_ssh(["rm", "-rf", staging])
-            except Exception:
-                pass
         if workdir:
             shutil.rmtree(workdir, ignore_errors=True)
         if os.path.exists(temp_path):
@@ -689,10 +588,11 @@ def synthesize_article_audio(article_id: str, text: str) -> str | None:
                 pass
 
 
-# One narration at a time, on a thread of its own: a run can hold the M1 for
-# minutes, and _analysis_executor's two workers belong to sentinel and
-# counter-analyst. The lock is what keeps the queue at zero — a pass that
-# finds one already running does nothing rather than stacking up behind it.
+# One narration at a time, on a thread of its own: a run can hold resolute's
+# CPU for a minute or more, and _analysis_executor's two workers belong to
+# sentinel and counter-analyst. The lock is what keeps the queue at zero — a
+# pass that finds one already running does nothing rather than stacking up
+# behind it.
 _audio_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"{site.slug}-audio")
 _audio_lock = threading.Lock()
 
@@ -963,42 +863,74 @@ SCRAPED_IMAGE_DIR = os.path.join(os.path.dirname(BASE_DIR), 'frontend', 'public'
 # under the same /uploads/* file_server Caddy already serves (so scribe must
 # run on the host, same constraint as the rehosted images above).
 #
-# Synthesis is Kokoro on the M1, driven over ssh exactly as
-# /home/www/lecture_pipeline/cc.py drives it. That host is Arc's ollama box,
-# which makes narration a guest there and nothing more: the preflight refuses
-# whenever a model is resident or memory is tight, and a refusal is a skip
-# rather than a failure. Nothing falls back, nothing retries, nothing queues.
-# The audio pass simply looks at the feed again next cycle and narrates
-# whatever is still silent, so a busy M1 costs a story its audio for a cycle
-# or two and never costs it anything permanent.
+# Synthesis is Kokoro, run locally in a dedicated venv ([[kokoro-relocation]],
+# 2026-08-20). It used to run on the M1 over ssh, exactly as
+# /home/www/lecture_pipeline/cc.py still drives its own M1 fallback — that
+# host was Arc's ollama box, which made narration a guest there and nothing
+# more, and the preflight existed mainly to detect a resident model on the
+# host it shared with Arc's own inference calls. resolute is not *meant* to
+# be an inference host — Arc and Hunt are supposed to reach Ollama over HTTP
+# on other boxes — but it does run its own Ollama install, and
+# [[council-ollama-host-misrouted]] (known, separate, unfixed) can land
+# council calls on localhost:11434 here instead. So there's no ssh round
+# trip, but there is still a real memory collision to guard against — see
+# AUDIO_MIN_FREE_MB below for what that looked like live, during the
+# 2026-08-20 verification narration. A refusal is still a skip rather than
+# a failure: nothing falls back, nothing retries, nothing queues. The audio
+# pass simply looks at the feed again next cycle and narrates whatever is
+# still silent.
+#
+# Two hosts were weighed for where synthesis should live: resolute (local,
+# working Python 3.12 venv already) and Spectre (Hunt's other inference
+# box). Spectre benched ~20% faster on raw synthesis wall time — 60.3s vs
+# 75.0s for the same 2019-char article at af_heart/0.95x — but it would have
+# reintroduced the exact ssh/scp coupling this move removes, on a box with
+# effectively no memory slack while a model is resident (it OOM-killed
+# Hunt's own ollama.service mid-bench-setup, see [[spectre-reimage]]) and
+# needing a bespoke non-system Python 3.12 (deadsnakes-equivalent via `uv`,
+# since Spectre's system Python is 3.14 and kokoro 0.9.4 requires <3.13).
+# A 20% wall-time edge doesn't clear "speed has to win by a lot" against
+# that. resolute keeps the wav off the network entirely — ffmpeg already
+# encodes on this box, so there is now exactly one process boundary between
+# article text and finished mp3, not three (stage, synth, retrieve).
 #
 # One field carries the result: audio_url on the article hash. Its presence is
 # the whole contract — if it is set there is audio, if it is absent there is
 # none. Nothing here writes original_text, title, or source_lang.
 AUDIO_DIR = os.path.join(os.path.dirname(BASE_DIR), 'frontend', 'public', 'uploads', 'audio')
-AUDIO_HOST = "mac"                      # ssh alias — scribe runs on the host as ross
-AUDIO_VENV = "~/kokoro-venv"            # provisioned by lecture_pipeline/scripts
+AUDIO_KOKORO_PYTHON = "/home/www/lecture_pipeline/.kokoro-venv/bin/python"  # provisioned by lecture_pipeline/scripts
 AUDIO_VOICE = "af_heart"
 AUDIO_SPEED = 0.95
 AUDIO_SAMPLE_RATE = 24000               # Kokoro's native output rate
 AUDIO_MIN_CHARS = 100                   # matches the sentinel/counter-analyst skip threshold
 AUDIO_MAX_CHARS = 3500                  # per-request bound; chunks split on sentence boundaries
 AUDIO_TIMEOUT_SECONDS = 600             # a long feature piece still finishes well inside this
-AUDIO_SSH_TIMEOUT = 5                   # short: an unreachable M1 must skip, not stall the pass
 AUDIO_SCAN_WINDOW = 50                  # how far back down the feed a pass looks for silence
 
-# Preflight budget. The 3584 MB floor introduced by 93de9c9 exceeded the M1's
-# observed maximum free memory of 3448 MB: 1,141 consecutive checks deferred,
-# and none came within 136 MB of passing. Before that change, a 2048 MB floor
-# produced 31 successful narrations in 70 minutes. Post-2026-08-19 the M1
-# LaunchDaemon pins gemma4:e2b resident (KEEP_ALIVE=-1), so steady-state
-# "available" memory sits at ~1.4 GB and 2048 MB is unreachable — coverage
-# collapsed to 4% on 2026-08-20. Bench (2026-08-20) synthesized a 1988-char
-# article on the M1 alongside the resident model in 41 s wall, peak RSS
-# 2.6 GB, zero swap, starting from ~1.4 GB "available". 1024 MB is the
-# recalibrated floor: enough headroom for Kokoro's ~500 MB import and torch
-# load without immediate paging; the ~2.6 GB peak spills into the compressor.
-AUDIO_MIN_FREE_MB = 1024
+# Preflight budget. Superseded history: this floor used to gate the M1's
+# free memory over ssh (3584 MB, then 1024 MB post-KEEP_ALIVE=-1 — see git
+# blame on this line from before 2026-08-20 for that saga). None of it
+# applies to a local check.
+#
+# Bench (2026-08-20, this box, real 2019-char article from the live feed):
+# 75.0 s wall, peak RSS 1940 MB, 324% CPU, synthesis-only realtime factor
+# 1.78x. 2600 MB is peak plus ~660 MB (~34%) headroom, sized to absorb
+# variance across article lengths and whatever else resolute is doing.
+#
+# That headroom got a real test sooner than expected: during the first live
+# narration after this change went in (2026-08-20, article 72548662,
+# 4511 chars), [[council-ollama-host-misrouted]] independently fired mid-run
+# — resolute's own Ollama loaded gemma4:e2b locally (~7.8 GB RSS) while
+# Kokoro was already synthesizing. Available memory, normally 10-12 GB on
+# this box, fell to ~2.2 GB at the lowest sample before the model's
+# keep-alive expired. Narration still finished clean (181s, correct
+# duration, decodes with zero errors) because the preflight check happens
+# once before the subprocess starts, not during it — but had the two events
+# swapped order, 2600 MB is what would have made the second one defer
+# instead of stack on the first. Do not read this as "several GB free is
+# typical and this rarely gates" — it means this floor is doing real work
+# against a specific, known, still-unfixed collision, not just noise.
+AUDIO_MIN_FREE_MB = 2600
 
 REHOST_W, REHOST_H = 1200, 675          # 16:9 — matches the aspect-video card container
 REHOST_ORIG_MAX = 1920                  # longest-side cap for the preserved source; matches main.py:_upload_image_inner
@@ -2514,11 +2446,11 @@ def main():
 
             # --- ARTICLE AUDIO PASS ---
             # Narrates one still-silent story per cycle, in the background and
-            # only when the M1 has room for it. Anything it skips — a busy
-            # host, a story published a moment ago — is simply still silent
+            # only when resolute has room for it. Anything it skips — a busy
+            # box, a story published a moment ago — is simply still silent
             # when the next cycle looks, which is the whole retry mechanism.
             # Deliberately not run on the priority-queue path above: that path
-            # exists to keep the M1 free for the user's own submission.
+            # exists to keep resolute free for the user's own submission.
             run_audio_pass()
 
             logger.info(f"💤 Cycle complete. Sleeping {CYCLE_MINUTES} minutes ...")
