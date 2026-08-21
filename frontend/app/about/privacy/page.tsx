@@ -5,6 +5,7 @@
 
 import React from 'react';
 import type { Metadata } from 'next';
+import { ARC_FRAMEWORK_VERSION } from '@/lib/version';
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 
@@ -199,7 +200,7 @@ export default function PrivacyPage() {
         <footer className="text-center pt-12 pb-6 space-y-1 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-600">
           <p>Harold Edwin Ross Nesbitt III</p>
           <p>Fort Collins, CO · 40.5853° N, 105.0844° W</p>
-          <p>A.R.C. Framework v7.14 · Connection Secure</p>
+          <p>A.R.C. Framework {ARC_FRAMEWORK_VERSION} · Connection Secure</p>
         </footer>
       </main>
     </div>

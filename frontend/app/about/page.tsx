@@ -5,6 +5,7 @@
 
 import React from 'react';
 import type { Metadata } from 'next';
+import { ARC_FRAMEWORK_VERSION } from '@/lib/version';
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 
@@ -149,7 +150,7 @@ export default function AboutGateway() {
           <div className="space-y-1 pt-4 text-slate-600">
             <p>Harold Edwin Ross Nesbitt III</p>
             <p>Fort Collins, CO · 40.5853° N, 105.0844° W</p>
-            <p>A.R.C. Framework v7.14 · Connection Secure</p>
+            <p>A.R.C. Framework {ARC_FRAMEWORK_VERSION} · Connection Secure</p>
           </div>
         </footer>
       </main>

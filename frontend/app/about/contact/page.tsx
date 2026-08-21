@@ -6,9 +6,10 @@ import React from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ChevronRight, ExternalLink } from 'lucide-react';
+import { ARC_FRAMEWORK_VERSION } from '@/lib/version';
 
 export const metadata: Metadata = {
-  title: 'Stewardship & PRIME — Hap Nesbitt',
+  title: 'Stewardship — Hap Nesbitt',
   description: 'Independent AI infrastructure engineer and systems architect. Builder of Arc Codex, Huntaegis, School of Chat, and Book Radio. Available for contract engagements.',
 };
 
@@ -165,7 +166,7 @@ export default function ContactPage() {
         <footer className="text-center pt-12 pb-6 space-y-1 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-600">
           <p>Harold Edwin Ross Nesbitt III</p>
           <p>Fort Collins, CO · 40.5853° N, 105.0844° W</p>
-          <p>A.R.C. Framework v7.38 · Connection Secure</p>
+          <p>A.R.C. Framework {ARC_FRAMEWORK_VERSION} · Connection Secure</p>
         </footer>
       </main>
     </div>
