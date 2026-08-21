@@ -69,13 +69,13 @@ export default function DeveloperPage() {
             The architecture and design choices behind Arc Codex.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 pt-2 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
-            <span>Flask + Next.js 16.1.6</span>
+            <span>Flask + Next.js</span>
             <span aria-hidden="true">·</span>
             <span>Redis + Solr</span>
             <span aria-hidden="true">·</span>
             <span>Local + cloud inference</span>
             <span aria-hidden="true">·</span>
-            <span>Auth.js v5 Beta</span>
+            <span>Local speech synthesis</span>
           </div>
         </header>
 
@@ -84,11 +84,13 @@ export default function DeveloperPage() {
           <dl className="grid sm:grid-cols-2 gap-x-6">
             {[
               { label: 'Backend', value: 'Python / Flask / gunicorn' },
-              { label: 'Frontend', value: 'Next.js 16.1.6 / React 19 / TypeScript' },
-              { label: 'Database', value: 'Redis (in-memory)' },
+              { label: 'Frontend', value: 'Next.js 16.2.12 / React 19 / TypeScript' },
+              { label: 'Database', value: 'Redis (in-memory store + work streams)' },
               { label: 'Library DB', value: 'SQLite (public-domain book corpus)' },
               { label: 'Search', value: 'Apache Solr (full-text)' },
               { label: 'AI Inference', value: 'Ollama — local model + cloud escalation' },
+              { label: 'Speech', value: 'Kokoro neural TTS — local synthesis, MP3 output' },
+              { label: 'Metrics', value: 'Prometheus + Grafana (corpus and pipeline telemetry)' },
               { label: 'Auth', value: 'Auth.js v5 beta — Google + GitHub OAuth, JWT sessions' },
               { label: 'Proxy', value: "Caddy (automatic TLS via Let's Encrypt)" },
               { label: 'Process Mgr', value: 'arc.sh + systemd (auto-starts on boot)' },
@@ -167,6 +169,13 @@ export default function DeveloperPage() {
             <Panel label="Translations">
               Per-article, per-language translations are cached for a day so a repeat request is instant.
             </Panel>
+            <Panel label="Work queues">
+              Analysis is handed between processes on a length-capped stream rather than an
+              unbounded list. A burst of ingest cannot grow the backlog without limit, and a
+              consumer that restarts resumes from where it stopped instead of replaying the
+              corpus. The cap is deliberate: dropping the oldest pending work is preferable to
+              exhausting memory on a machine that is also serving readers.
+            </Panel>
             <Panel label="Accounts">
               A minimal profile per signed-in user — identity from the OAuth provider plus a preferred
               language. Authentication is stateless (JWT); no server-side session store is required.
@@ -206,8 +215,58 @@ export default function DeveloperPage() {
           </Warn>
         </SectionShell>
 
+        {/* Audio & Narration */}
+        <SectionShell id="audio" eyebrow="VIII" heading="Audio &amp; Narration">
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            Every published article is also spoken. A neural text-to-speech model
+            (<Code>Kokoro</Code>) renders the article body to audio on the same hardware that
+            runs the rest of the pipeline — there is no cloud speech service, no per-character
+            billing, and no third party receives the text. Long pieces are split into chunks,
+            synthesised in sequence, then concatenated and encoded to a compact mono MP3 sized
+            for slow connections rather than for fidelity.
+          </p>
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            Narration is opportunistic rather than blocking. Publishing never waits on audio:
+            a pass runs each cycle, picks the newest article still lacking a recording, and
+            defers if the machine is busy. A deferred article is simply retried next time
+            round. Recent narrations are also concatenated into a rolling bulletin — a single
+            continuous audio stream of the day&rsquo;s reporting, intended for listeners who want
+            the news without a screen.
+          </p>
+          <Warn>
+            <span><strong className="not-italic">Synthesis yields to analysis.</strong> Speech
+            generation is memory-hungry, so a pre-flight check confirms there is genuine headroom
+            before a run starts. If there is not, narration steps aside rather than competing with
+            the analysis pipeline for the same machine. Audio is the part of the system that can
+            afford to be late.</span>
+          </Warn>
+        </SectionShell>
+
+        {/* Observability */}
+        <SectionShell id="observability" eyebrow="IX" heading="Observability">
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            The pipeline is instrumented rather than trusted. Metrics are scraped continuously
+            and rendered as dashboards covering ingest rate, analysis latency, inference tiering,
+            and corpus-level qualities — the average reading difficulty and objectivity of what
+            has actually been published, not merely how much of it there is.
+          </p>
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            Alerting distinguishes <em>liveness</em> from <em>output</em>. A worker publishes a
+            heartbeat on a short expiry, so its silence is itself the signal; that is a separate
+            question from whether the day produced many articles or few. Conflating the two
+            produces an alarm that fires on every quiet afternoon and is therefore ignored when
+            it matters.
+          </p>
+          <Warn>
+            <span><strong className="not-italic">An alert that cannot clear is not an alert.</strong>
+            Conditions are edge-triggered and paired with an explicit all-clear, so a fault that
+            resolves itself says so. Without that, a recovered incident and an ongoing one look
+            identical from the outside.</span>
+          </Warn>
+        </SectionShell>
+
         {/* Frontend Gotchas */}
-        <SectionShell id="gotchas" eyebrow="VIII" heading="Frontend Notes">
+        <SectionShell id="gotchas" eyebrow="X" heading="Frontend Notes">
           <ul className="border-t border-slate-800/40">
             {[
               { title: 'Feed rendering',   warn: true,  text: 'The lazy-loading feed structure is load-bearing — changes are surgical, never structural.' },
@@ -231,7 +290,7 @@ export default function DeveloperPage() {
         </SectionShell>
 
         {/* Search */}
-        <SectionShell id="solr" eyebrow="IX" heading="Search">
+        <SectionShell id="solr" eyebrow="XI" heading="Search">
           <p className="font-serif text-base text-slate-200 leading-relaxed">
             Full-text search is served by Apache Solr, indexed over the article corpus (title, content,
             source, directive, and the reading-difficulty score). Search reconnects lazily so a
@@ -241,15 +300,16 @@ export default function DeveloperPage() {
         </SectionShell>
 
         {/* Planned Features */}
-        <SectionShell id="roadmap" eyebrow="X" heading="Planned Features">
+        <SectionShell id="roadmap" eyebrow="XII" heading="Planned Features">
           <div className="space-y-3">
             <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">Future roadmap</div>
             <ul className="font-serif text-base text-slate-300 leading-relaxed space-y-2 list-disc ml-6">
+              <li>A dedicated listening interface for the rolling audio bulletin.</li>
+              <li>Backfill narration for articles published before the audio pipeline existed.</li>
               <li>Auto-translate on the single-article page (safe — one article at a time).</li>
               <li>Topic / category preferences per user.</li>
               <li>Article deduplication (SimHash / MinHash).</li>
               <li>Model auto-switching on cloud-credit exhaustion.</li>
-              <li>Custom pipeline metrics dashboards.</li>
             </ul>
           </div>
         </SectionShell>
@@ -273,7 +333,7 @@ export default function DeveloperPage() {
         <footer className="text-center pt-12 pb-6 space-y-1 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-600">
           <p>Harold Edwin Ross Nesbitt III</p>
           <p>Fort Collins, CO · 40.5853° N, 105.0844° W</p>
-          <p>A.R.C. Framework v7.14 · Connection Secure</p>
+          <p>A.R.C. Framework v7.38 · Connection Secure</p>
         </footer>
       </main>
     </div>
