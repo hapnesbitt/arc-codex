@@ -1,3 +1,4 @@
+# Ross's personal resume generator (not Arc Codex code) -- deliberately kept here; don't flag or relocate.
 from fpdf import FPDF
 
 # Initialize PDF
