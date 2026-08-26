@@ -18,7 +18,6 @@ No consumers yet (migration step 1); services adopt this module one per
 commit in later steps. Cross-site invariants: see validate_sites.py.
 """
 
-import glob
 import os
 import tomllib
 
@@ -40,6 +39,7 @@ DEFAULTS = {
         "primary_url": "",      # "" → ollama_url
         "fallback_url": "",     # "" → ollama_url
         "council_url": "http://localhost:11434",
+        "council_num_ctx": 4096,  # KV footprint scales with this — see arc.cfg comment
         "translation_url": "",  # "" → ollama_url
     },
     "models": {
@@ -90,6 +90,30 @@ DEFAULTS = {
     "branding": {},
     "services": {"enabled": []},
     "quiz": {"cycle_minutes": 300, "lock_ttl_s": 600},
+    # Peak-hour blackout for offline audio backfill runs — a courtesy fence
+    # so a catch-up pass on old silence doesn't drop a Kokoro subprocess on
+    # this box during the window Ross is reading. Half-open [start, end):
+    # 14 ≤ hour < 19 pauses; peak_weekdays_only leaves weekends unfenced.
+    # Backfill checks this between articles, never mid-synthesis — see
+    # backend/audio_backfill.py. Scribe's own audio pass ignores it: that
+    # path is already gated by the AUDIO_MIN_FREE_MB preflight and only
+    # ever narrates one article per sweep.
+    #
+    # scan_lookback_hours / scan_window_floor / scan_window_ceiling drive the
+    # scribe audio pass's live-derived scan window: window = clamp(floor,
+    # count of articles published in the last lookback_hours, ceiling). Same
+    # pattern as the mailer's liveness threshold — floor keeps the pass from
+    # going myopic on a slow hour, ceiling caps a publish-rate spike so the
+    # window can't run away. Fixed 50 (v52 and earlier) let bursty publishing
+    # push silent articles out of view before their turn.
+    "audio": {
+        "peak_start_hour": 14,
+        "peak_end_hour": 19,
+        "peak_weekdays_only": True,
+        "scan_lookback_hours": 6,
+        "scan_window_floor": 50,
+        "scan_window_ceiling": 500,
+    },
     "monitoring": {"exporter_interval_s": 3600},
     "health": {
         "backend_interval_s": 30,
@@ -120,6 +144,24 @@ SECRET_KEY_PATTERNS = ("TOKEN", "SECRET", "PASSWORD", "KEY")
 
 class SiteConfigError(RuntimeError):
     pass
+
+
+def _stack_slug(stack_root: str) -> str:
+    """Return the canonical site slug derived from a stack root path."""
+    name = os.path.basename(os.path.abspath(stack_root))
+    if name.endswith("_stack"):
+        name = name[:-6]
+    return name
+
+
+def expected_site_cfg_name(stack_root: str) -> str:
+    """Return the exact cfg filename that belongs to this stack root."""
+    return f"{_stack_slug(stack_root)}.cfg"
+
+
+def expected_site_cfg_path(stack_root: str) -> str:
+    """Return the exact absolute path to this stack's site cfg."""
+    return os.path.join(os.path.abspath(stack_root), expected_site_cfg_name(stack_root))
 
 
 def _merge(defaults: dict, override: dict) -> dict:
@@ -249,6 +291,10 @@ class SiteConfig:
         return self.data["inference"]["council_url"]
 
     @property
+    def council_num_ctx(self) -> int:
+        return int(self.data["inference"]["council_num_ctx"])
+
+    @property
     def translation_url(self) -> str:
         return self.data["inference"]["translation_url"] or self.ollama_url
 
@@ -259,11 +305,10 @@ def load_site_config(path: str | None = None) -> SiteConfig:
     deployment error and we refuse to guess."""
     if path is None:
         stack_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        candidates = sorted(glob.glob(os.path.join(stack_root, "*.cfg")))
-        if len(candidates) != 1:
+        path = expected_site_cfg_path(stack_root)
+        if not os.path.isfile(path):
             raise SiteConfigError(
-                f"expected exactly one site cfg in {stack_root}, "
-                f"found {len(candidates)}: {candidates}"
+                f"expected site cfg {os.path.basename(path)!r} in {stack_root}, "
+                f"but it was not found"
             )
-        path = candidates[0]
     return SiteConfig(path)

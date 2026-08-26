@@ -604,6 +604,25 @@ _audio_lock = threading.Lock()
 _audio_failed = set()
 
 
+def _audio_scan_window(r_conn) -> int:
+    """How many top-of-feed articles this pass should consider.
+
+    Derived from actual publish rate — ZCOUNT of stories added in the last
+    AUDIO_SCAN_LOOKBACK_HOURS — then clamped between floor and ceiling. The
+    fixed 50 that lived here in v52 was fine on the steady-state cadence but
+    let bursty publishing push silent stories out of view before their turn.
+    See the AUDIO_SCAN_* block above (and arc.cfg [audio]) for why the clamp
+    is shaped the way it is.
+    """
+    try:
+        cutoff = time.time() - (AUDIO_SCAN_LOOKBACK_HOURS * 3600)
+        recent = int(r_conn.zcount('feed', cutoff, '+inf'))
+    except Exception as e:
+        logger.warning(f"🔊 Audio scan-window ZCOUNT failed, using floor: {e}")
+        return AUDIO_SCAN_WINDOW_FLOOR
+    return max(AUDIO_SCAN_WINDOW_FLOOR, min(AUDIO_SCAN_WINDOW_CEILING, recent))
+
+
 def _find_silent_article(r_conn):
     """Newest story in the scan window with no audio yet. (id, text) or None.
 
@@ -612,8 +631,9 @@ def _find_silent_article(r_conn):
     Redis. A story published while the M1 was busy is simply still silent
     when the next pass looks.
     """
+    window = _audio_scan_window(r_conn)
     try:
-        ids = r_conn.zrevrange('feed', 0, AUDIO_SCAN_WINDOW - 1)
+        ids = r_conn.zrevrange('feed', 0, window - 1)
     except Exception as e:
         logger.warning(f"🔊 Audio pass could not read the feed: {e}")
         return None
@@ -905,7 +925,22 @@ AUDIO_SAMPLE_RATE = 24000               # Kokoro's native output rate
 AUDIO_MIN_CHARS = 100                   # matches the sentinel/counter-analyst skip threshold
 AUDIO_MAX_CHARS = 3500                  # per-request bound; chunks split on sentence boundaries
 AUDIO_TIMEOUT_SECONDS = 600             # a long feature piece still finishes well inside this
-AUDIO_SCAN_WINDOW = 50                  # how far back down the feed a pass looks for silence
+
+# Scan-window derivation (see arc.cfg [audio] for the full rationale). The
+# window used to be a fixed 50 — that's fine on the current 20-articles/day
+# cadence, but during a publish burst it lets silent articles fall out of
+# view before their turn: three quick sweeps push the oldest silent story
+# past position 50 while narration is still busy with the top of the feed,
+# and the audio pass never sees it again. Live-deriving from ZCOUNT of the
+# lookback window matches the window to the actual publish rate; clamping
+# between floor and ceiling stops a slow hour from making the pass myopic
+# and a runaway ingest bug from making the window unbounded (same reason
+# the mailer clamps the liveness threshold). Values read once here; a bounce
+# picks up cfg edits, matching how CYCLE_MINUTES already works.
+_audio_cfg = site["audio"]
+AUDIO_SCAN_LOOKBACK_HOURS = float(_audio_cfg["scan_lookback_hours"])
+AUDIO_SCAN_WINDOW_FLOOR   = int(_audio_cfg["scan_window_floor"])
+AUDIO_SCAN_WINDOW_CEILING = int(_audio_cfg["scan_window_ceiling"])
 
 # Preflight budget. Superseded history: this floor used to gate the M1's
 # free memory over ssh (3584 MB, then 1024 MB post-KEEP_ALIVE=-1 — see git
