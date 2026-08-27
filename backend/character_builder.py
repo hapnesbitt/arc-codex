@@ -68,6 +68,7 @@ ARTICLE_BASE_URL = site.base_url
 COUNCIL_OLLAMA_HOST    = site.council_url
 COUNCIL_OLLAMA_TIMEOUT = int(os.getenv("COUNCIL_OLLAMA_TIMEOUT", "120"))  # 24s typical + serialized-queue margin
 COUNCIL_MAX_LOAD       = _pipeline["council_load_gate"]  # 1-min loadavg gate — spare-cycles host
+COUNCIL_NUM_CTX        = site.council_num_ctx            # KV cache is the biggest RSS lever on this host
 
 POLL_INTERVAL        = _pipeline["character_feed_poll_s"]
 ANALYSIS_WAIT        = _pipeline["character_analysis_wait_s"]
@@ -204,7 +205,7 @@ def _council_payload(model: str, system_prompt: str, prompt: str) -> dict:
         "options": {
             "temperature": 0.7,
             "num_predict": 1024,
-            "num_ctx":     8192,
+            "num_ctx":     COUNCIL_NUM_CTX,  # cfg [inference].council_num_ctx
         },
     }
 
@@ -513,6 +514,34 @@ def process_article(handle: str, character: dict, article_id: str) -> None:
                   handle, article_id)
         mark_skipped(handle, article_id)
 
+class HostBusyMidCycle(Exception):
+    """Raised to abandon the rest of a poll cycle when the load gate trips
+    partway through — see _check_load_gate."""
+
+
+def _check_load_gate(processed: int, total: int, handle: str) -> None:
+    """Re-check the spare-cycles load gate before each generation, not just
+    once at the top of the poll cycle.
+
+    The top-of-cycle check (in main()) only guards *starting* a cycle — once
+    inside, the old code ran every queued article for every character with
+    no further check, so a cycle that started under COUNCIL_MAX_LOAD could
+    keep hammering Ollama for the box's entire backlog even after load spiked
+    well past the gate (observed 2026-08-26: gate=3.0, sustained 1m load 14+,
+    character_builder ran uninterrupted for 16+ minutes regardless — the gate
+    was never actually re-read after cycle start). WARNING, not DEBUG: a
+    mid-backlog bailout is a materially different event from the normal
+    empty-queue yield and should be visible without grepping for it.
+    """
+    load1 = os.getloadavg()[0]
+    if load1 >= COUNCIL_MAX_LOAD:
+        log.warning(
+            "host busy (1m load %.2f >= %.2f) mid-cycle — stopping after "
+            "%d/%d articles for %s; remainder retried next cycle",
+            load1, COUNCIL_MAX_LOAD, processed, total, handle)
+        raise HostBusyMidCycle()
+
+
 # ── Retry sweep ────────────────────────────────────────────────────────────────
 def sweep_skipped(cfg: dict):
     """Second chance for skipped articles. Each cycle, take the oldest few per
@@ -525,7 +554,7 @@ def sweep_skipped(cfg: dict):
         skipped_key = f"characters:skipped:{handle}"
         due = r.zrangebyscore(skipped_key, 0, now - RETRY_BACKOFF,
                               start=0, num=SWEEP_BATCH, withscores=True)
-        for article_id, ts in due:
+        for i, (article_id, ts) in enumerate(due):
             if now - ts > RETRY_MAX_AGE:
                 log.warning("Giving up on %s for %s after %d days in skipped",
                             article_id, handle, RETRY_MAX_AGE // 86400)
@@ -533,6 +562,7 @@ def sweep_skipped(cfg: dict):
                 continue
             if not is_analysis_complete(article_id):
                 continue  # keeps its original score; ages out at RETRY_MAX_AGE
+            _check_load_gate(i, len(due), handle)
             log.info("Retry sweep: %s retrying %s", handle, article_id)
             process_article(handle, character, article_id)
 
@@ -603,7 +633,8 @@ def main():
 
                 character = characters[handle]
 
-                for article_id in new_ids:
+                for i, article_id in enumerate(new_ids):
+                    _check_load_gate(i, len(new_ids), handle)
                     # Pending until process_article reaches a terminal state —
                     # a crash here is recovered into skipped at next startup
                     r.sadd(pending_key, article_id)
@@ -612,6 +643,9 @@ def main():
 
             # Second chance for parked articles whose analysis has since landed
             sweep_skipped(cfg)
+
+        except HostBusyMidCycle:
+            pass  # already logged in _check_load_gate; fall through to sleep
 
         except Exception as e:
             log.exception("Outer loop error: %s", e)
