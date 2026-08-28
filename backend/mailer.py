@@ -67,7 +67,6 @@ ALERT_COOLDOWN         = int(_CFG.get('alert_cooldown_seconds', 14400))   # anti
 LOG_LOOKBACK_MINUTES   = int(_CFG.get('log_lookback_minutes', 2))         # was hardcoded 2 in get_recent_log_lines
 LOG_TAIL_BYTES         = int(_CFG.get('log_tail_bytes', 131072))          # 128 KiB — bytes-anchored beats line-anchored on multi-MB logs
 LOG_READ_TIMEOUT_S     = int(_CFG.get('log_read_timeout_seconds', 10))    # was hardcoded 5; 5.7MB watchdog.log timed out 106× Aug 11-14
-STALL_THRESHOLD_HOURS  = float(_CFG.get('stall_threshold_hours', 2))      # was hardcoded 2 in check_pipeline_stall
 LIVENESS_MULTIPLIER    = int(_CFG.get('scribe_liveness_multiplier', 3))   # "3x cycle_minutes with no sweep" → liveness alert
 
 # cycle_minutes is operator-owned in <site>.cfg [ingestion]; site_config.py
@@ -78,9 +77,28 @@ LIVENESS_MULTIPLIER    = int(_CFG.get('scribe_liveness_multiplier', 3))   # "3x 
 CYCLE_MINUTES                = int(SITE.get('ingestion', 'cycle_minutes', 30))
 LIVENESS_THRESHOLD_FLOOR_S   = 1800   # 30 min — never quieter than this, even at cycle_minutes=0
 LIVENESS_THRESHOLD_CEILING_S = 5400   # 90 min — never slacker than this, no matter how large cycle_minutes grows
+_LIVENESS_RAW_S              = LIVENESS_MULTIPLIER * CYCLE_MINUTES * 60
 SCRIBE_LIVENESS_THRESHOLD_S  = max(LIVENESS_THRESHOLD_FLOOR_S,
                                    min(LIVENESS_THRESHOLD_CEILING_S,
-                                       LIVENESS_MULTIPLIER * CYCLE_MINUTES * 60))
+                                       _LIVENESS_RAW_S))
+# Exposed as helpers to build_diagnosis() and check_scribe_liveness() so the
+# alert body can say "clamped" instead of unconditionally printing the raw
+# formula. Any of {>, ==, <} against the raw is a clamp — floor and ceiling
+# both count — so downstream code only needs to compare.
+SCRIBE_LIVENESS_CLAMPED      = SCRIBE_LIVENESS_THRESHOLD_S != _LIVENESS_RAW_S
+
+# Publish-stall threshold. Derived from cycle_minutes with the same formula and
+# clamp as liveness so both scale together when Ross tunes the cadence; the
+# yaml key stall_threshold_hours still wins when set. A stack that hardcodes
+# 2h in yaml (both stacks did as of 2026-08-28) reads the yaml value here —
+# removing that override activates the derivation.
+_yaml_stall_hours = _CFG.get('stall_threshold_hours')
+if _yaml_stall_hours is not None:
+    STALL_THRESHOLD_HOURS   = float(_yaml_stall_hours)
+    STALL_THRESHOLD_SOURCE  = "yaml"
+else:
+    STALL_THRESHOLD_HOURS   = SCRIBE_LIVENESS_THRESHOLD_S / 3600.0
+    STALL_THRESHOLD_SOURCE  = "derived"
 
 # Site-scoped Redis keys — same shape on both stacks via SITE.redis_key().
 LAST_PUBLISH_KEY   = SITE.redis_key("last_publish")
@@ -392,9 +410,12 @@ def build_diagnosis(r: redis.Redis) -> str:
     v, age = _read_epoch_age(r, LAST_CYCLE_KEY, now_s)
     lines.append(f"  {LAST_CYCLE_KEY:32s} = {v}"
                  + (f"   (age: {_fmt_age(age)})" if age is not None else ""))
-    lines.append(f"  liveness threshold               = {SCRIBE_LIVENESS_THRESHOLD_S}s "
-                 f"({LIVENESS_MULTIPLIER}x cycle_minutes={CYCLE_MINUTES})")
-    lines.append(f"  publish stall threshold          = {STALL_THRESHOLD_HOURS:.1f}h")
+    clamp_note = " [clamped]" if SCRIBE_LIVENESS_CLAMPED else ""
+    lines.append(f"  liveness threshold               = {SCRIBE_LIVENESS_THRESHOLD_S}s"
+                 f"{clamp_note} (raw: {LIVENESS_MULTIPLIER}× cycle_minutes={CYCLE_MINUTES}m"
+                 f" = {_LIVENESS_RAW_S}s)")
+    lines.append(f"  publish stall threshold          = {STALL_THRESHOLD_HOURS:.2f}h"
+                 f" ({STALL_THRESHOLD_SOURCE})")
 
     for label, key in [("analyzer:queue LLEN", ANALYZER_QUEUE_KEY),
                        (f"{PRIORITY_QUEUE_KEY} LLEN", PRIORITY_QUEUE_KEY)]:
@@ -472,8 +493,18 @@ def check_scribe_liveness(r: redis.Redis):
                 return
             in_breach = age > SCRIBE_LIVENESS_THRESHOLD_S
 
-        threshold_str = (f"threshold: {_fmt_age(SCRIBE_LIVENESS_THRESHOLD_S)} "
-                         f"= {LIVENESS_MULTIPLIER}× cycle_minutes ({CYCLE_MINUTES}m)")
+        # Report the ACTUAL resolved threshold, not the raw formula. Ross saw
+        # alerts saying "threshold: 1.5h = 3× cycle_minutes (97m)" — 3×97 is
+        # 4.85h; the 1.5h was the ceiling clamp biting. Say so.
+        if SCRIBE_LIVENESS_CLAMPED:
+            threshold_str = (f"threshold: {_fmt_age(SCRIBE_LIVENESS_THRESHOLD_S)} "
+                             f"[clamped from raw {LIVENESS_MULTIPLIER}× "
+                             f"cycle_minutes ({CYCLE_MINUTES}m) = "
+                             f"{_fmt_age(_LIVENESS_RAW_S)}]")
+        else:
+            threshold_str = (f"threshold: {_fmt_age(SCRIBE_LIVENESS_THRESHOLD_S)} "
+                             f"= {LIVENESS_MULTIPLIER}× cycle_minutes "
+                             f"({CYCLE_MINUTES}m)")
         if in_breach:
             reason = (f"{LAST_CYCLE_KEY} is missing" if age is None
                       else f"No successful scribe sweep for {_fmt_age(age)}")
@@ -719,6 +750,16 @@ def send_digest(r: redis.Redis) -> bool:
 
 def main():
     logger.info("🚀 Arc Codex Mailer starting... (ALERT_COOLDOWN=%ds)", ALERT_COOLDOWN)
+    # Print resolved thresholds at boot so the operator can see what the mailer
+    # actually decided from CYCLE_MINUTES + yaml — the formulas above already
+    # applied. Formatting mirrors build_diagnosis() so alert emails and boot
+    # logs read the same.
+    clamp_note = " [clamped]" if SCRIBE_LIVENESS_CLAMPED else ""
+    logger.info("   liveness threshold        = %ds%s (raw: %d× cycle_minutes=%dm = %ds)",
+                SCRIBE_LIVENESS_THRESHOLD_S, clamp_note,
+                LIVENESS_MULTIPLIER, CYCLE_MINUTES, _LIVENESS_RAW_S)
+    logger.info("   publish stall threshold   = %.2fh (%s)",
+                STALL_THRESHOLD_HOURS, STALL_THRESHOLD_SOURCE)
     r = get_redis()
 
     # No startup email — boot notices were noise (watchdog restarts, reboots).

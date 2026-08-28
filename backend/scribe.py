@@ -92,6 +92,22 @@ REDIS_PRIORITY_QUEUE_KEY = site.redis_key("priority_uploads")
 # collision is not a concern. See ops/RUNBOOK.md → "scribe cloud-budget knobs".
 CYCLE_MINUTES = _ingestion["cycle_minutes"]
 
+
+def _liveness_ttl_seconds(cycle_minutes: int) -> int:
+    """TTL for the <site>:scribe:last_cycle heartbeat key.
+
+    Derived from the current cadence so the key never expires between two
+    cycles. 2× cycle gives a full cycle of grace; the 900s floor covers
+    stress-test settings of cycle_minutes=0 (SETEX with TTL 0 raises).
+
+    The old hardcoded 900s (15 min) fit only cycle_minutes in [1..12]; once
+    Arc moved to 97m and Hunt to 103m the key was expiring ~82 min / ~88 min
+    before the next sweep could refresh it, making 'missing' the steady
+    state and firing false scribe-liveness alerts every cycle.
+    """
+    return max(900, cycle_minutes * 60 * 2)
+
+
 # Deterministic startup offset so Arc and Hunt don't sweep together at boot.
 # NOTE: the cycle loop sleeps AFTER work (period = sweep_duration + CYCLE_MINUTES),
 # so phase drifts and this is an anti-collision-at-boot measure, NOT true clock
@@ -2320,10 +2336,14 @@ def main():
 
         try:
             scribe_ops.set_status('active')
-            # Heartbeat: liveness signal for corpus_exporter/Grafana. TTL is
-            # 15 min so a wedged scribe reads as key-absent, not just stale.
+            # Heartbeat: liveness signal for corpus_exporter/Grafana + mailer.
+            # TTL derives from CYCLE_MINUTES so a wedged scribe reads as
+            # key-absent instead of eventually staying absent because the TTL
+            # is shorter than the cadence (see _liveness_ttl_seconds docstring).
             try:
-                r.setex(site.redis_key('scribe:last_cycle'), 900, str(int(time.time())))
+                r.setex(site.redis_key('scribe:last_cycle'),
+                        _liveness_ttl_seconds(CYCLE_MINUTES),
+                        str(int(time.time())))
             except Exception:
                 pass
 
