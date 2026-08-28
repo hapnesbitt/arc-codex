@@ -80,16 +80,31 @@ retention:
 # escalation.py's three triggers fires. Cloud characters (council) fire on
 # cloud only when the article's escalation_score meets council_escalation_score.
 #
-# weekly_cap is a HARD backstop against the ~82% projected burn — when hit
-# mid-week, everything falls to local (labelled local_full or local_partial)
-# instead of failing loudly. Counter: arc:cloud_calls:weekly:<isoweek>.
+# weekly_cap is a LOCAL soft backstop that shuts escalation off before we can
+# exhaust Ollama Cloud's own weekly allowance — when hit, everything falls to
+# local (labelled local_full or local_partial) instead of failing loudly.
+# Counter: arc:cloud_calls:weekly:<isoweek>. As of 2026-08-28 the counter
+# increments only on CONFIRMED SUCCESS (see escalation.record_cloud_call);
+# earlier it counted every attempt including M1-relay errors that never
+# reached Ollama, and it tripped this cap at 402 while ollama.com's own
+# dashboard read 30.6% used.
+#
+# THE NUMBER 400 IS A LOCAL GUESS, NOT ANTHROPIC'S ACTUAL LIMIT. Anthropic's
+# real weekly allowance lives at https://ollama.com/settings and is not
+# programmatically queryable — there is no /quota endpoint on ollama.com as
+# of 2026-08-28. When adjusting, cross-check against that dashboard: pick a
+# number that lets ~85% of the dashboard's shown weekly ceiling through, so
+# this local gate closes before Anthropic's own 429 (which trips a 24h
+# breaker in ollama_utils.CLOUD_UNAVAILABLE_KEY). Same failure shape as a
+# widget labelled 8 GB enforcing against a 24 GB real budget — set the label
+# from the real budget, don't drift.
 #
 # advertorial-prone sources are MEASURED (auto-promoted from rolling stats),
 # never hand-curated — no pre-emptive editorial judgment on sources.
 escalation:
   heuristic_threshold: 4          # vendor-signal score in article to trigger T2
   new_source_cold_start_n: 10     # articles before source_stats stabilize
-  weekly_cap: 400                 # cloud calls per ISO week (hard backstop)
+  weekly_cap: 400                 # LOCAL soft backstop — reconcile to ollama.com/settings, see above
   council_escalation_score: 2     # article escalation_score gate for cloud council
 
 services:

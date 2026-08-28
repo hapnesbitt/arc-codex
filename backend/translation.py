@@ -27,7 +27,14 @@ import redis as redis_lib
 from dotenv import load_dotenv
 
 load_dotenv()
-from ollama_utils import call_ollama_with_fallback, OLLAMA_LOCAL_FALLBACK
+from ollama_utils import (
+    call_ollama_with_fallback,
+    OLLAMA_CLOUD_MODEL,
+    OLLAMA_LOCAL_FALLBACK,
+    is_cloud_available,
+    is_cloud_reachable,
+)
+from escalation import record_cloud_call
 import os
 
 logger = logging.getLogger(__name__)
@@ -102,27 +109,145 @@ TRANSLATABLE_FIELDS_PRO = [
 TRANSLATABLE_FIELDS = TRANSLATABLE_FIELDS_PRO  # translate all 5 fields
 
 # ---------------------------------------------------------------------------
-# Translation caller — LOCAL ONLY by tiering rule (2026-07-12 shed-and-yield):
-# analyzers may escalate to cloud; translations never do. Before this,
-# translations rode the default cloud-first chain WITHOUT record_cloud_call —
-# uncounted spend against the weekly cap. Translations get the graceful
-# English-degrade path in main.py instead. Ollama's per-model queue still
-# serializes translation with analysis on e2b; no separate lock required.
+# Translation callers.
+#
+# Two tiers, distinguished by caller:
+#
+#   _call_translation_model         — article translation (/api/translate/<id>).
+#     LOCAL ONLY by tiering rule (2026-07-12 shed-and-yield): analyzers may
+#     escalate to cloud; article translations never do. Before that rule,
+#     article translations rode the default cloud-first chain WITHOUT
+#     record_cloud_call — uncounted spend against the weekly cap. Article
+#     translations get the graceful English-degrade path in main.py instead.
+#     Ollama's per-model queue still serializes translation with analysis on
+#     e2b; no separate lock required.
+#
+#   _call_translation_model_library — library reader translation (/api/library/<id>?lang=…).
+#     CLOUD-FIRST via LOCALHOST-RELAYED Ollama, opted in 2026-08-28. Reader
+#     translations are user-facing and latency-critical (a visitor is staring
+#     at the screen). They also need a MODEL different from the analyzer's
+#     pin on the M1, so serving on the M1 means evicting the analysis model,
+#     loading translation, then reloading analysis — two model loads to serve
+#     one page. Aug-2026 access logs show the local path timed out (120s hard
+#     cap) on ~1,402/7,591 (18.5%) of library requests, with only ~3% of
+#     non-cached requests finishing under 60s. Cloud is exactly the workload
+#     this belongs on.
+#
+#     Path: resolute's own Ollama on 127.0.0.1:11434 is authenticated for
+#     Ollama Cloud (`ollama list` shows gemma4:31b-cloud registered), so
+#     switching OLLAMA_CLOUD_HOST from the M1 to localhost puts the M1
+#     entirely out of the path with a one-line .env edit. No new HTTP client,
+#     no API-key plumbing: the same call_ollama_with_fallback path the
+#     analyzer uses, just aimed at an idle box. Scoped to library translation
+#     this push via the shared cloud host; analyzer/character escalation
+#     inherit the same .env change and get the M1 out of their cloud path
+#     too, which is the intended fleet-wide behavior (measured separately).
+#
+#     Model choice: gemma4:31b-cloud. Shares the gemma lineage with the
+#     local fallback so translation style stays consistent when we degrade.
+#     record_cloud_call is on so this workload lands in the same accounting
+#     bucket as analyzer escalation, not off-books; that counter is now
+#     consumption-based (2026-08-28 fix) so failed attempts don't inflate it.
+#
+#     Local fallback stays wired for cloud-quota-exhausted / cloud-unreachable,
+#     but with a FAST-FAIL budget (10s). Local library translation median is
+#     >60s per the same logs; a 10s budget will almost always miss. That is
+#     the point — the caller returns the original English text rather than
+#     making a visitor wait through 120s of hang. Better degrade than freeze.
 # ---------------------------------------------------------------------------
 
-def _call_translation_model(text: str, language: str, source_lang: str = "English", timeout: int = 300) -> str:
-    """Translate ``text`` from ``source_lang`` to ``language``. Returns the
-    translation as a plain string."""
-    prompt = (
+def _build_translation_prompt(text: str, language: str, source_lang: str) -> str:
+    return (
         f"Translate the following {source_lang} text to {language}. "
         f"Output ONLY the complete {language} translation. "
         f"Do not summarize. Do not respond in {source_lang}. Do not add any commentary.\n\n{text}"
     )
+
+
+def _call_translation_model(text: str, language: str, source_lang: str = "English", timeout: int = 300) -> str:
+    """Translate ``text`` from ``source_lang`` to ``language``. Returns the
+    translation as a plain string.
+
+    Local-only path — the article-translation caller. See module comment.
+    """
+    prompt = _build_translation_prompt(text, language, source_lang)
     return call_ollama_with_fallback(
         prompt,
         timeout=timeout,
         models=[(OLLAMA_LOCAL_FALLBACK, "local")],
     )[0]
+
+
+# Library translation timeouts. Cloud mean 2.3s under normal load; 25s is 10x
+# mean, headroom for a spiky call or a long book preview (~8K chars).  Local
+# budget is 10s — see module comment for why we deliberately choose a budget
+# that will almost always miss on library-length inputs.
+LIBRARY_TRANSLATION_CLOUD_TIMEOUT = 25
+LIBRARY_TRANSLATION_LOCAL_TIMEOUT = 10
+
+
+def _call_translation_model_library(text: str, language: str, source_lang: str = "English") -> str:
+    """Library-reader translation: cloud-first with fast-fail local fallback.
+
+    Never hangs a visitor for more than ~35s (cloud budget + local budget).
+    Raises on total failure so the /api/library route can render the
+    English text with a translation_error rather than a spinner.
+
+    See module comment for the design rationale (data, model choice, budgets)
+    and why OLLAMA_CLOUD_HOST is now resolute (localhost) rather than the M1.
+    """
+    prompt = _build_translation_prompt(text, language, source_lang)
+
+    # Cloud attempt — breaker → reachability → HTTP → record. Reachability
+    # precedes the HTTP attempt so we don't waste time on a dead host; the
+    # 24h breaker check catches recent Anthropic 429s. record_cloud_call
+    # fires ONLY on confirmed non-empty success (see escalation.py's function
+    # comment) — the pre-2026-08-28 record-before-HTTP order over-counted
+    # every relay error as consumed quota. Deliberately NOT gated by
+    # cloud_capacity_available: for a user-facing, latency-critical, low-
+    # volume workload, Anthropic's own HTTP 429 (via the breaker) is the
+    # ground truth for "quota is exhausted" — better than a local estimator.
+    if is_cloud_available() and is_cloud_reachable():
+        try:
+            resp_text, dur_ms, model_used = call_ollama_with_fallback(
+                prompt,
+                timeout=LIBRARY_TRANSLATION_CLOUD_TIMEOUT,
+                models=[(OLLAMA_CLOUD_MODEL, "cloud")],
+            )
+            if resp_text and resp_text.strip():
+                if _redis is not None:
+                    record_cloud_call(_redis)
+                logger.info(
+                    "🌩️  Library translation via %s in %.0fms (lang=%s, %d chars in)",
+                    model_used, dur_ms, language, len(text),
+                )
+                return resp_text
+        except Exception as exc:
+            logger.info(
+                "Library translation cloud path failed (%s) — trying local fast-fail",
+                exc,
+            )
+    else:
+        logger.info(
+            "Library translation skipping cloud (breaker/reachability) — trying local fast-fail"
+        )
+
+    # Local fast-fail. Budget is deliberately short; the caller should return
+    # the original English text on the exception this raises rather than let
+    # a visitor wait. call_ollama_with_fallback still walks the local health
+    # check and the per-host circuit breaker, so a repeatedly-dead local host
+    # short-circuits inside 2s (LOCAL_HEALTHCHECK_TIMEOUT), not 10s.
+    resp_text, dur_ms, model_used = call_ollama_with_fallback(
+        prompt,
+        timeout=LIBRARY_TRANSLATION_LOCAL_TIMEOUT,
+        models=[(OLLAMA_LOCAL_FALLBACK, "local")],
+    )
+    if resp_text and resp_text.strip():
+        logger.info(
+            "🖥️  Library translation via %s in %.0fms (lang=%s, %d chars in) — fast-fail budget used",
+            model_used, dur_ms, language, len(text),
+        )
+    return resp_text
 
 
 # ---------------------------------------------------------------------------

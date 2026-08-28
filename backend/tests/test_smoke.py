@@ -120,13 +120,16 @@ def test_library_gate_scraper_no_sec_fetch_gets_bot_path(client, monkeypatch):
 
 def test_library_gate_browser_shaped_passes_to_commission(client, monkeypatch):
     _patch_library(monkeypatch)
-    # Intercept the commission call so we prove the gate LET THROUGH
+    # Intercept the commission call so we prove the gate LET THROUGH.
+    # Library route switched to cloud-first via _call_translation_model_library
+    # (2026-08-28); signature is (text, language, source_lang) — timeout is
+    # owned inside the callee (25s cloud + 10s local fast-fail), not passed in.
     called = {"n": 0}
-    def spy(snippet, lang_name, src, timeout=120):
+    def spy(snippet, lang_name, src):
         called["n"] += 1
         return "translated body"
     import translation
-    monkeypatch.setattr(translation, "_call_translation_model", spy)
+    monkeypatch.setattr(translation, "_call_translation_model_library", spy)
     monkeypatch.setattr(main.library_db, "set_translation",
                         lambda *a, **kw: None)
 

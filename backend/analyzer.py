@@ -349,20 +349,21 @@ def analyze_article(article_id: str) -> bool:
             escalation_score = decision.score
             escalation_reason = decision.reason
 
-            # Order matters: capacity → breaker → REACHABILITY → record → HTTP.
-            # Reachability must precede record_cloud_call so an unreachable
-            # cloud host never increments the cap (2026-07-07: 2,755 doomed
-            # escalations recorded against a dead M1).
+            # Order matters: capacity → breaker → REACHABILITY → HTTP → record.
+            # Reachability precedes the HTTP attempt so we don't waste time on
+            # a dead host (2026-07-07: 2,755 doomed escalations wasted the M1's
+            # queue). record_cloud_call now fires AFTER a confirmed successful
+            # response — see escalation.py's function comment: counting
+            # attempts (not consumption) caused the counter to trip the cap
+            # gate at 402 while Ollama's own dashboard read 30.6% used
+            # (2026-08-28), because every M1-relay error still bumped the
+            # counter without ever reaching real quota.
             if (decision.escalate and cloud_capacity_available(r)
                     and is_cloud_available() and is_cloud_reachable()):
                 logger.info(
                     f"⬆️  Escalating {article_id} to cloud "
                     f"(score={decision.score}, reason={decision.reason})"
                 )
-                # Record BEFORE the call so a mid-flight crash can't under-count.
-                # Over-counting a failed call is safer than under-counting a
-                # successful one when the counter is the cap-enforcing signal.
-                record_cloud_call(r)
                 try:
                     raw_cloud, dur_cloud, model_cloud = call_ollama_with_fallback(
                         final_prompt,
@@ -371,6 +372,11 @@ def analyze_article(article_id: str) -> bool:
                     )
                     cloud_analyses = parse_unified_response(raw_cloud)
                     if any(cloud_analyses.values()):
+                        # Only count real consumption — a non-empty parsed
+                        # response is the ground truth that Ollama Cloud
+                        # served this. HTTP-200-with-empty-body is treated as
+                        # a failure and does NOT count.
+                        record_cloud_call(r)
                         analyses = cloud_analyses
                         analysis_source = 'cloud'
                         logger.info(f"☁️  Cloud analysis {article_id} via {model_cloud} in {dur_cloud:.0f}ms")

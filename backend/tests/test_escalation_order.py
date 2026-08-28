@@ -32,9 +32,11 @@ Two things make this safe to auto-collect where the original wasn't:
   1. UNREACHABLE cloud host -> record_cloud_call is never invoked (the weekly
      cap counter must not consume cap on a dead host -- the 2026-07-07
      incident recorded 2,755 doomed escalations)
-  2. REACHABLE cloud host -> record_cloud_call runs BEFORE the HTTP attempt
-     (record-before-HTTP is deliberate: a mid-flight crash over-counts a
-     failed call rather than under-counting a successful one)
+  2. REACHABLE cloud host -> record_cloud_call runs AFTER a confirmed HTTP
+     success (changed 2026-08-28: previously record ran BEFORE the HTTP
+     attempt, which over-counted every M1-relay error as consumed quota and
+     tripped the local cap at 402 while ollama.com's dashboard read 30.6%
+     used). The gate counter now tracks consumption, not attempts.
   3. record_cloud_call itself: increments + TTL, and WARNs exactly once at
      90% of WEEKLY_CAP (verified against a scratch key, never the production
      counter)
@@ -120,10 +122,13 @@ def test_unreachable_cloud_skips_record_and_http_but_still_publishes(monkeypatch
     assert "publish:blue" in ev, f"unreachable case failed to degrade to local: {ev}"
 
 
-def test_reachable_cloud_records_before_http(monkeypatch):
+def test_reachable_cloud_records_after_http_success(monkeypatch):
+    # 2026-08-28: invariant flipped — record now runs AFTER a confirmed HTTP
+    # success, so the weekly counter tracks consumption rather than attempts.
+    # See module docstring for the incident that motivated the change.
     ev = _run_case(monkeypatch, reachable=True)
     assert "record" in ev and "http" in ev, f"reachable case missing record/http: {ev}"
-    assert ev.index("record") < ev.index("http"), f"record did not precede HTTP: {ev}"
+    assert ev.index("http") < ev.index("record"), f"record did not follow HTTP success: {ev}"
 
 
 def test_record_cloud_call_increments_ttls_and_warns_once_at_90_percent(monkeypatch):

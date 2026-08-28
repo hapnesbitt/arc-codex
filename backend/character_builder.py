@@ -473,11 +473,13 @@ def process_article(handle: str, character: dict, article_id: str) -> None:
         r,
     )
     if resolved_model.endswith('-cloud'):
-        # Reachability BEFORE record — an unreachable cloud
-        # host must never increment the weekly cap counter.
-        if is_cloud_reachable():
-            record_cloud_call(r)
-        else:
+        # Reachability precedes the HTTP attempt so we don't
+        # waste time on a dead host. record_cloud_call now fires
+        # AFTER a confirmed successful generation (see the block
+        # below and escalation.py's function comment) — counting
+        # attempts inflated the counter with M1-relay errors that
+        # never reached real quota.
+        if not is_cloud_reachable():
             # INFO, not WARNING: a closed cloud valve is a
             # normal degraded state (council lands on the Z230
             # local tier), not an actionable failure.
@@ -492,6 +494,12 @@ def process_article(handle: str, character: dict, article_id: str) -> None:
         dossier,
         model=resolved_model,
     )
+    if comment_text and resolved_model.endswith('-cloud'):
+        # Only count real cloud consumption — a non-empty
+        # generation is the ground truth that Ollama Cloud
+        # served this. Infra-blocked and empty results below
+        # do NOT count.
+        record_cloud_call(r)
     if not comment_text:
         if infra_failed:
             # Park without consuming an attempt — Ollama infra failures (quota,

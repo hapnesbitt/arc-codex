@@ -2392,11 +2392,15 @@ def get_library_work(gutenberg_id):
                         translation_error = "Translation in progress — reload in a moment."
                     else:
                         try:
-                            from translation import _call_translation_model
+                            # Cloud-first with fast-fail local fallback (see
+                            # translation.py module comment). Budget is capped
+                            # at ~35s worst case so a visitor never waits
+                            # through the old 120s local-only hang.
+                            from translation import _call_translation_model_library
                             cut = _slice_for_translation(body)
                             snippet = body[:cut]
                             lang_name = LIBRARY_LANG_CODE_TO_NAME.get(lang, lang)
-                            translated = _call_translation_model(snippet, lang_name, "English", timeout=120)
+                            translated = _call_translation_model_library(snippet, lang_name, "English")
                             if translated and translated.strip():
                                 text_out = translated
                                 is_translated = True
@@ -2409,15 +2413,33 @@ def get_library_work(gutenberg_id):
                                             is_preview=True, preview_chars=cut,
                                             created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                                         )
+                                    try:
+                                        if r:
+                                            r.incr("arc:stats:library_translation_cached")
+                                    except Exception:
+                                        pass
                                 except Exception as ex:
                                     app.logger.warning(f"Failed to cache library translation {gutenberg_id}/{lang}: {ex}")
                             else:
-                                translation_error = "Translation model returned empty result"
+                                translation_error = "Translation temporarily unavailable — serving English."
+                                try:
+                                    if r:
+                                        r.incr("arc:stats:library_translation_fastfailed")
+                                except Exception:
+                                    pass
                         except Exception as ex:
                             app.logger.warning(
                                 f"Library translation failed for {gutenberg_id}/{lang}: {ex}"
                             )
-                            translation_error = str(ex)
+                            # Fast-fail preserves the visitor: return the
+                            # original English body with a translation_error
+                            # they can see, rather than a 500 or a 120s spinner.
+                            translation_error = "Translation temporarily unavailable — serving English."
+                            try:
+                                if r:
+                                    r.incr("arc:stats:library_translation_fastfailed")
+                            except Exception:
+                                pass
                         finally:
                             try:
                                 if r:

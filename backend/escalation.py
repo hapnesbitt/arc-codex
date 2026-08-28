@@ -280,9 +280,27 @@ def record_cloud_call(r: redis.Redis) -> int:
     """Increment the weekly counter. Returns the new count. Sets a TTL slightly
     past 7 days so the counter self-rolls over.
 
-    Callers must verify the cloud host is reachable BEFORE calling this
-    (ollama_utils.is_cloud_reachable) — record-before-HTTP is deliberate for
-    the reachable case, but a dead host must never consume cap (2026-07-07).
+    CALL THIS AFTER A CONFIRMED SUCCESS — a non-empty, parsed response from
+    Ollama Cloud. The counter's job is to approximate consumed quota so
+    ``cloud_capacity_available`` can gate escalation before we exhaust
+    Anthropic's weekly allowance; only successful generations consume that
+    quota. This is a semantics change from the pre-2026-08-28 record-before-
+    HTTP order: the old order over-counted every failed M1-relay attempt as
+    consumed quota, and the counter tripped the local cap at 402 while
+    Ollama's own dashboard read 30.6% used — the gate was blocking on a tally
+    of failures. Only the callsites moved; the counter mechanism itself and
+    the weekly-key shape are unchanged, so counters in-flight when this ships
+    keep incrementing under the same key. Callers still verify reachability
+    before the HTTP attempt so a dead host doesn't waste time; that check no
+    longer needs to precede this one because we no longer record until the
+    response is in hand.
+
+    Trade-off vs the old order: a mid-flight crash between HTTP-200 and
+    Redis-INCR under-counts by one. That's acceptable for a soft cap where
+    Ollama's own 429 is the hard authority; the old order's over-count of
+    failed attempts caused a real production incident (falsely-tripped gate),
+    the theoretical under-count of a crash between two adjacent syscalls has
+    not.
     """
     try:
         key = _weekly_key()
