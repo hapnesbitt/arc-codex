@@ -27,9 +27,22 @@ OLLAMA_LOCAL_FALLBACK  = os.environ.get("OLLAMA_LOCAL_FALLBACK", "gemma4:e2b")
 TRANSLATION_LOCK_KEY      = "translation:active"
 TRANSLATION_LOCK_MAX_WAIT = 60  # seconds to wait before proceeding anyway
 
-# Cloud circuit breaker — set on HTTP 429, cleared automatically after 24 h
+# Cloud circuit breaker — set on any TERMINAL cloud response (see the
+# _CLOUD_BREAKER_STATUSES set below), cleared automatically after 24 h or by
+# `redis-cli DEL ollama:cloud_unavailable` once the underlying cause is fixed.
 CLOUD_UNAVAILABLE_KEY = "ollama:cloud_unavailable"
 CLOUD_UNAVAILABLE_TTL = 86_400  # 24 hours
+
+# HTTP statuses that should stop us from hammering the cloud endpoint. 429 is
+# transient (retry after the window closes) — a 24h reprieve is conservative
+# but bounded. 401/403 is PERMANENT until a human fixes credentials; without
+# tripping the breaker, every subsequent call keeps paying the auth roundtrip
+# and silently degrades to local. Hunt logged 3,717 "status 401" lines in
+# analyzer.log alone before this was added (2026-08-28) — same failure class
+# as the AuthenticationError-subclassing-ConnectionError bug in wait_for_redis
+# fixed the day before: a permanent error being retried as a transient one.
+# Clearing the breaker after fixing auth: `redis-cli DEL ollama:cloud_unavailable`.
+_CLOUD_BREAKER_STATUSES = frozenset({401, 403, 429})
 
 # Lightweight Redis connection for lock checks only
 try:
@@ -92,11 +105,34 @@ def is_cloud_reachable(timeout: float = 5.0) -> bool:
         return False
 
 
-def _trip_cloud_breaker() -> None:
-    """Set 24 h Redis key to bypass cloud after a 429 rate-limit response."""
+def _trip_cloud_breaker(status: int | None = None) -> None:
+    """Set the 24 h Redis key that bypasses cloud in call_ollama_with_fallback.
+
+    ``status`` — the HTTP status that tripped the breaker, if any. Used only to
+    color the log line: 401/403 is auth (permanent, human action required),
+    429 is rate-limit (transient, will heal). Callers that trip the breaker
+    without a specific status (e.g. an assertion path) pass None.
+    """
     if _redis is not None:
         _redis.setex(CLOUD_UNAVAILABLE_KEY, CLOUD_UNAVAILABLE_TTL, "1")
-        logger.warning("☁️  Cloud circuit breaker OPEN (429 received) — skipping cloud for 24 h")
+        if status in (401, 403):
+            # ERROR: silent degrade to local is exactly what happens next;
+            # someone needs to see this in the logs and fix credentials.
+            logger.error(
+                "🚨 Cloud circuit breaker OPEN (HTTP %s auth failure) — "
+                "check OLLAMA_API_KEY / OLLAMA_CLOUD_HOST auth. Skipping cloud "
+                "for 24 h; after fixing auth clear with "
+                "`redis-cli DEL %s`.", status, CLOUD_UNAVAILABLE_KEY,
+            )
+        elif status == 429:
+            logger.warning(
+                "☁️  Cloud circuit breaker OPEN (HTTP 429 rate-limited) — "
+                "skipping cloud for 24 h"
+            )
+        else:
+            logger.warning(
+                "☁️  Cloud circuit breaker OPEN — skipping cloud for 24 h"
+            )
 
 
 def _wait_for_translation(max_wait: int = TRANSLATION_LOCK_MAX_WAIT) -> None:
@@ -198,8 +234,8 @@ def call_ollama_with_fallback(
                 if done_reason == "length":
                     logger.warning(f"🔥 {label.capitalize()} model EMPTY (done_reason=length) — thinking-phase token exhaustion; check think=false + num_predict for {model}")
 
-            if resp.status_code == 429 and label == "cloud":
-                _trip_cloud_breaker()
+            if resp.status_code in _CLOUD_BREAKER_STATUSES and label == "cloud":
+                _trip_cloud_breaker(resp.status_code)
 
             logger.warning(f"{label.capitalize()} model failed (status {resp.status_code}), trying next")
 
