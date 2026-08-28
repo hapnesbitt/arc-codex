@@ -584,8 +584,59 @@ cmd_checkup() {
     echo -n "🌐 Frontend Response: "
     curl -o /dev/null -s -w '%{time_total}s\n' http://127.0.0.1:3000 || echo "FAILED"
     echo "📁 Recent Log Errors (last 24h):"
-    grep -riE "error|failed|exception" "$LOG_DIR"/*.log 2>/dev/null | tail -n 5 \
-        || echo "   ✅ No critical errors found."
+    # See ops/RUNBOOK.md. Two prior bugs stacked in this block:
+    #
+    # 1) `tail -n 5` with no time gate took the last 5 grep MATCHES in glob
+    #    order, so a mostly-quiet file (e.g. watchdog.log, tens of thousands
+    #    of lines) could surface week-old resolved errors as if current.
+    #    Confirmed doing exactly that 2026-08-27 morning: showed 6-day-old
+    #    corpus_exporter/caddy_exporter failures that had recovered on their
+    #    own via a host reboot hours earlier.
+    #
+    # 2) The time gate then exposed a second bug: `-riE
+    #    "error|failed|exception"` also matched INFO-level lines whose BODY
+    #    contained one of those words — normal retry paths ("🔄 Simple fetch
+    #    failed, trying stealth headers"), INFO successes whose URL/title
+    #    happened to contain the string ("✅ simple request succeeded for
+    #    .../error-analyses-of-auto/..."), thumb rehost fallbacks. Sampled
+    #    2026-08-27: 367 of the trailing-24h matches were INFO. Fix: match
+    #    on the LOG LEVEL TOKEN, case-sensitive. Python's logging module
+    #    always emits ERROR/WARNING/CRITICAL uppercase; word-boundaries
+    #    prevent "AttributeError" in a stack trace or an article title
+    #    containing "Error" from firing (a proper logger.exception() emits
+    #    the ERROR line ABOVE the traceback, and that line still matches on
+    #    its own level token). Every log in the stack passes through Python
+    #    logging with LEVEL in an uppercased delimited slot, across all
+    #    four formatter variants: " - LEVEL - ", " LEVEL ", "] LEVEL in ",
+    #    "[LEVEL]".
+    #
+    # String comparison, not date -d per line: ISO-ish "YYYY-MM-DD HH:MM:SS"
+    # timestamps sort lexicographically the same as chronologically, so one
+    # `date` call for the cutoff is enough — spawning date per line would
+    # make checkup noticeably slow for no benefit.
+    #
+    # Logs using a bare HH:MM:SS format with no date (audio_backfill.log)
+    # can't be verified this way and are silently excluded — under-
+    # reporting one log beats resurrecting the stale-line bug replaced in
+    # (1). The main other historical source of undated lines was
+    # sync_intel.log's Redis-loading messages from a boot-adjacent hourly
+    # cron; those got timestamps in the same commit as this fix, so the
+    # "silently excluded" set is now near-empty rather than open-ended.
+    local _checkup_cutoff
+    _checkup_cutoff=$(date -d '24 hours ago' '+%Y-%m-%d %H:%M:%S')
+    local _checkup_errors
+    _checkup_errors=$(grep -rE '\b(ERROR|WARNING|CRITICAL)\b' "$LOG_DIR"/*.log 2>/dev/null | awk -v cutoff="$_checkup_cutoff" '
+        match($0, /[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}/) {
+            ts = substr($0, RSTART, RLENGTH)
+            gsub(/T/, " ", ts)
+            if (ts >= cutoff) print
+        }
+    ' | tail -n 5)
+    if [ -n "$_checkup_errors" ]; then
+        echo "$_checkup_errors"
+    else
+        echo "   ✅ No critical errors found in the last 24h."
+    fi
     echo "🧠 Resource Usage (stack processes):"
     ps -u $USER -o %cpu,%mem,cmd | grep -E "gunicorn|node|scribe|analyzer|mailer" | grep -v grep \
         | awk '{cpu+=$1; mem+=$2} END {printf "   CPU: %.1f%% | RAM: %.1f%%\n", cpu, mem}'

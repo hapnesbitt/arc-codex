@@ -53,9 +53,14 @@ log = logging.getLogger("threads_poster")
 
 # ── Redis ──────────────────────────────────────────────────────────────────────
 import redis as redis_lib
+from redis_readiness import wait_for_redis
 
 def make_redis():
-    return redis_lib.from_url(REDIS_URL, decode_responses=True)
+    # Every caller inherits the boot-adjacent readiness retry via this
+    # factory. See redis_readiness for the "started != ready" race.
+    r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+    wait_for_redis(r, log=log)
+    return r
 
 r = make_redis()
 

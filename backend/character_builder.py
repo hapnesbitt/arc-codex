@@ -98,6 +98,13 @@ log = logging.getLogger("character_builder")
 
 # ── Redis ──────────────────────────────────────────────────────────────────────
 r = redis.from_url(REDIS_URL, decode_responses=True)
+# Boot-adjacent readiness gate before the first command below — see
+# redis_readiness. The DB-mismatch check that follows accesses connection
+# kwargs (no round-trip), but the council-load calls that run at startup
+# and every generation cycle do issue commands, so the gate stops the
+# first one from hitting BusyLoadingError.
+from redis_readiness import wait_for_redis
+wait_for_redis(r, log=log)
 # Fail loud if the .env Redis URL disagrees with the cfg's DB — pointing one
 # site's council at a sibling's DB is the failure the cfg exists to prevent.
 _env_db = r.connection_pool.connection_kwargs.get("db", 0)

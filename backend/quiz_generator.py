@@ -148,7 +148,9 @@ def canonical_value_form(s: str) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 try:
     r = redis.from_url(REDIS_URL, decode_responses=True)
-    r.ping()
+    # Boot-adjacent readiness gate — see redis_readiness.
+    from redis_readiness import wait_for_redis
+    wait_for_redis(r, log=logger)
     logger.info("✅ Redis connected")
 except Exception as e:
     logger.critical(f"🔥 Redis connection failed: {e}")

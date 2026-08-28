@@ -1223,7 +1223,9 @@ def main():
     r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD,
                     db=REDIS_DB, decode_responses=True)
     try:
-        r.ping()
+        # Boot-adjacent readiness gate — see redis_readiness.
+        from redis_readiness import wait_for_redis
+        wait_for_redis(r, log=log)
         log.info("✅ Redis connected.")
     except Exception as e:
         log.error(f"❌ Redis connection failed: {e}")

@@ -305,7 +305,17 @@ except Exception as e:
 try:
     logger.info("Connecting to Redis...")
     r = redis.Redis(decode_responses=True, password=REDIS_PASSWORD, db=site.redis_db)
-    r.ping()
+    # Boot-adjacent readiness gate: scribe starts as part of arc-stack at
+    # boot, and although the unit orders After=redis-server.service,
+    # systemd flips "started" the moment redis-server forks — before the
+    # dataset finishes loading. Without this the first PING here would
+    # raise BusyLoadingError and the CRITICAL branch below would kill
+    # scribe; the process would then rely on the arc.sh restart loop to
+    # eventually catch a ready Redis. Replace that with an in-process
+    # retry — same 60s/2s shape used by sync_intel.sh. See
+    # redis_readiness for the full argument.
+    from redis_readiness import wait_for_redis
+    wait_for_redis(r, log=logger)
     logger.info("Redis connection successful.")
     ensure_stream_group(r)
 except redis.exceptions.ConnectionError as e:

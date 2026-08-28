@@ -130,10 +130,17 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def get_redis():
-    return redis.Redis.from_url(
+    # Boot-adjacent readiness retry: mailer is one of the boot-startup
+    # daemons and its Redis-Streams reader would otherwise hit
+    # BusyLoadingError while the dataset is still loading. See
+    # redis_readiness for the full "started != ready" argument.
+    from redis_readiness import wait_for_redis
+    r = redis.Redis.from_url(
         os.environ['REDIS_URL'],
         decode_responses=True,
     )
+    wait_for_redis(r, log=logger)
+    return r
 
 # ---------------------------------------------------------------------------
 # Mail sending

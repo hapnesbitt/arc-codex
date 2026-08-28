@@ -13,18 +13,31 @@ import redis
 import os
 import logging
 
+from redis_readiness import wait_for_redis
+
 logger = logging.getLogger(__name__)
 
 STREAM_NAME = "analysis:pending"
 CONSUMER_GROUP = "analysis_workers"
 
 def get_redis_connection():
-    """Get a Redis connection using environment variables."""
+    """Get a Redis connection using environment variables.
+
+    Blocks up to 60s during a boot-adjacent start until Redis has finished
+    loading its dataset — every caller of this factory (manual_publisher,
+    stream_consumer, quiz_generator, scribe's stream side, and any new
+    daemon that follows the pattern) inherits the readiness gate for free.
+    On a Redis that has already finished loading the extra PING is
+    sub-millisecond. See redis_readiness for the "started != ready" race
+    this closes.
+    """
     password = os.environ['REDIS_PASSWORD']
     host = os.getenv('REDIS_HOST', 'localhost')
     port = int(os.getenv('REDIS_PORT', 6379))
     db = int(os.getenv('REDIS_DB', 0))
-    return redis.Redis(host=host, port=port, password=password, db=db, decode_responses=True)
+    r = redis.Redis(host=host, port=port, password=password, db=db, decode_responses=True)
+    wait_for_redis(r, log=logger)
+    return r
 
 
 def ensure_stream_group(r):

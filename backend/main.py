@@ -241,7 +241,11 @@ if REDIS_URL:
     try:
         start_redis = time.perf_counter()
         r = redis.from_url(REDIS_URL, decode_responses=True)
-        r.ping()
+        # Boot-adjacent readiness gate — gunicorn is one of the first
+        # services arc.sh brings up, so a boot within seconds of top-of-
+        # hour catches redis-server mid-load. See redis_readiness.
+        from redis_readiness import wait_for_redis
+        wait_for_redis(r, log=app.logger)
         app.register_blueprint(rss_blueprint)
         init_rss(r)
         from translation import translation_bp, apply_rate_limits

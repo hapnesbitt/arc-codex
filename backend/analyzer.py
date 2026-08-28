@@ -94,7 +94,9 @@ logger = logging.getLogger('analyzer')
 logger.setLevel(logging.INFO)
 if logger.hasHandlers():
     logger.handlers.clear()
-fh = logging.FileHandler(LOG_FILE)
+
+# Add errors='replace' so invalid bytes (like 0x96 en-dashes) display as replacement characters instead of crashing
+fh = logging.FileHandler(LOG_FILE, encoding='utf-8', errors='replace')
 fh.setFormatter(log_formatter)
 logger.addHandler(fh)
 
@@ -111,7 +113,11 @@ except Exception as e:
 r = None
 try:
     r = redis.Redis(decode_responses=True, password=os.environ['REDIS_PASSWORD'], db=site.redis_db)
-    r.ping()
+    # Boot-adjacent readiness gate — see redis_readiness. Without this the
+    # first PING here would raise BusyLoadingError during the load window
+    # and the CRITICAL branch below would kill analyzer.
+    from redis_readiness import wait_for_redis
+    wait_for_redis(r, log=logger)
     logger.info("✅ Redis connection successful")
     ensure_stream_group(r)
 except redis.exceptions.ConnectionError as e:
