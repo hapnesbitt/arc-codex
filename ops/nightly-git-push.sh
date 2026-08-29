@@ -34,7 +34,7 @@
 export GIT_TERMINAL_PROMPT=0   # fail instead of prompting for credentials
 
 LOG=/home/www/arc_stack/logs/nightly_push.log
-STACKS="/home/www/arc_stack /home/www/huntaegis_stack /home/www/claude_horst /home/www/claude_stack /home/www/claude_stack_vid"
+STACKS="/home/www/arc_stack /home/www/huntaegis_stack /home/www/claude_horst /home/www/claude_stack /home/www/claude_stack_vid /home/www/newsradio_stack"
 
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
