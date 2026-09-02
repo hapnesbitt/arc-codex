@@ -26,6 +26,8 @@ OLLAMA_LOCAL_FALLBACK  = os.environ.get("OLLAMA_LOCAL_FALLBACK", "gemma4:e2b")
 
 TRANSLATION_LOCK_KEY      = "translation:active"
 TRANSLATION_LOCK_MAX_WAIT = 60  # seconds to wait before proceeding anyway
+LOCAL_HEALTHCHECK_TIMEOUT = 2.0
+LOCAL_BREAKER_TTL         = 60
 
 # Cloud circuit breaker — set on any TERMINAL cloud response (see the
 # _CLOUD_BREAKER_STATUSES set below), cleared automatically after 24 h or by
@@ -54,6 +56,41 @@ try:
     _redis.ping()
 except Exception:
     _redis = None
+
+
+def _local_breaker_key(base_url: str) -> str:
+    normalized = base_url.rstrip("/").replace("://", "__").replace("/", "_")
+    return f"ollama:local_unavailable:{normalized}"
+
+
+def _trip_local_breaker(base_url: str) -> None:
+    if _redis is not None:
+        try:
+            _redis.setex(_local_breaker_key(base_url), LOCAL_BREAKER_TTL, "1")
+        except Exception:
+            pass
+
+
+def is_local_available(base_url: str | None = None, timeout: float = LOCAL_HEALTHCHECK_TIMEOUT) -> bool:
+    """Fast health check for the local Ollama host."""
+    host = (base_url or ollama_client.FALLBACK or OLLAMA_URL).rstrip("/")
+    if _redis is not None:
+        try:
+            if _redis.exists(_local_breaker_key(host)):
+                logger.info("🖥️  Local Ollama circuit breaker is OPEN — skipping %s", host)
+                return False
+        except Exception:
+            pass
+
+    try:
+        resp = requests.get(f"{host}/api/tags", timeout=timeout)
+        if resp.status_code == 200:
+            return True
+        logger.warning("🖥️  Local Ollama health check failed for %s (status %s)", host, resp.status_code)
+    except requests.RequestException as exc:
+        logger.warning("🖥️  Local Ollama health check failed for %s (%s)", host, type(exc).__name__)
+    _trip_local_breaker(host)
+    return False
 
 
 def _apply_spec_following_options(payload: dict) -> None:
@@ -186,6 +223,7 @@ def call_ollama_with_fallback(
         Exception: if every candidate model fails.
     """
     _wait_for_translation()
+    local_host = ollama_client.FALLBACK or OLLAMA_URL
 
     if models is None:
         candidates = [
@@ -210,6 +248,9 @@ def call_ollama_with_fallback(
             if temperature is not None:
                 payload["options"] = {"temperature": temperature}
             if label == "local":
+                if not is_local_available(local_host):
+                    logger.warning("🖥️  Local model skipped for %s — health check unavailable", local_host)
+                    continue
                 if num_ctx is not None:
                     # Seed before spec-following defaults — its .setdefault will honor us.
                     payload.setdefault("options", {})["num_ctx"] = num_ctx
@@ -240,6 +281,8 @@ def call_ollama_with_fallback(
             logger.warning(f"{label.capitalize()} model failed (status {resp.status_code}), trying next")
 
         except Exception as e:
+            if label == "local" and isinstance(e, requests.RequestException):
+                _trip_local_breaker(local_host)
             logger.warning(f"{label.capitalize()} model error: {e}, trying next")
 
     tried = ", ".join(m for m, _ in candidates) or "(none)"
@@ -259,11 +302,14 @@ def call_ollama_local_only(prompt_text: str, timeout: int = 900):
         Exception: if the local model fails.
     """
     _wait_for_translation()
+    local_host = ollama_client.FALLBACK or OLLAMA_URL
 
     for model, label in [(OLLAMA_LOCAL_FALLBACK, "local")]:
         try:
             logger.info(f"🖥️  Trying {label} model: {model}")
             payload = {"model": model, "prompt": prompt_text, "stream": False}
+            if not is_local_available(local_host):
+                raise requests.RequestException(f"Local Ollama health check failed for {local_host}")
             _apply_spec_following_options(payload)
 
             call_start = time.perf_counter()
@@ -287,6 +333,8 @@ def call_ollama_local_only(prompt_text: str, timeout: int = 900):
             logger.warning(f"{label.capitalize()} model failed (status {resp.status_code}), trying next")
 
         except Exception as e:
+            if isinstance(e, requests.RequestException):
+                _trip_local_breaker(local_host)
             logger.warning(f"{label.capitalize()} model error: {e}, trying next")
 
     raise Exception(f"Local Ollama model failed (tried {OLLAMA_LOCAL_FALLBACK})")

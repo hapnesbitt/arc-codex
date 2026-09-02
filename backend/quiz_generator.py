@@ -40,6 +40,7 @@ import redis
 from dotenv import load_dotenv
 
 from ollama_utils import call_ollama_with_fallback
+from site_config import load_site_config
 
 load_dotenv()
 
@@ -51,6 +52,9 @@ logger = logging.getLogger(__name__)
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
+AUTO_GENERATION_ENABLED = bool(
+    load_site_config().get("quiz", "auto_generation_enabled", True)
+)
 CYCLE_MINUTES = 300              # 5 h — roughly the rate at which 7 fresh substantive-Red stories accumulate
 QUESTION_TARGET = 7
 MIN_RED_CHARS = 200              # substantive Red required — placeholders/one-liners excluded
@@ -97,6 +101,11 @@ BANNED_PHRASES = [
     "fascinating", "unprecedented", "incredible",
     "in this article", "the article says",
 ]
+
+_ATTRIBUTION_PREFIX_RE = re.compile(
+    r"(?i)^\s*according to\s+(?:the|this)?\s*"
+    r"(?:article|story|report|piece|source|text)?(?:,|:)?\s*"
+)
 
 # Dangling-reference phrases the model writes because IT can see the article;
 # the reader can't. Each requires an antecedent the reader lacks ("the author"
@@ -318,6 +327,57 @@ def build_single_prompt(article: dict, extra_reminder: str = "") -> str:
     )
 
 
+def strip_simple_attribution_opening(text: str) -> str:
+    """Remove a narrow attribution opener from user-visible quiz text.
+
+    This only targets the common surface form that repeatedly failed:
+    "According to the article, …". It leaves the rest of the sentence intact
+    and is intentionally conservative so it does not rewrite arbitrary prose.
+    """
+    if not isinstance(text, str):
+        return text
+    original = text.strip()
+    stripped = _ATTRIBUTION_PREFIX_RE.sub("", original, count=1).strip()
+    if stripped != original:
+        return stripped[:1].upper() + stripped[1:] if stripped else stripped
+    return original
+
+
+def build_retry_reminder(last_reason: str) -> str:
+    """Return retry guidance that names the exact validation failure.
+
+    The reminder stays compact, but when the failure is a banned-phrase hit
+    it adds a direct instruction to rewrite the surface form instead of
+    simply repeating the same attribution wording.
+    """
+    reminder = (
+        f"Your previous attempt failed validation with this exact error: {last_reason}\n\n"
+        "Re-read the rules and fix exactly that issue. The most common "
+        "failures are: (a) the QUESTION stem contained the correct "
+        "answer's text (self-answering / circular — the user can't be "
+        "asked to identify something the question already names); (b) "
+        "the EXPLANATION did not contain the CORRECT option's text "
+        "verbatim — fix this by repeating the option text in the "
+        "explanation; (c) the answer was a generalization or definition "
+        "not stated in the FACTS block — fix this by picking a specific "
+        "stated fact (a number, date, name, place, or event) instead; "
+        "(d) the question used a bare reference like 'the author' or "
+        "'the company' that the reader cannot resolve — the reader has "
+        "NOT read the article and must be able to answer from the "
+        "question text alone, so NAME the specific person/company/place "
+        "instead of writing 'the author' / 'the company' / 'the study'."
+    )
+    if "banned phrase" in last_reason.lower():
+        reminder += (
+            "\n\n"
+            "This was a banned-phrase failure. Do NOT use attribution "
+            "openings like 'according to the article' or 'according to'. "
+            "Rewrite the question and explanation so they state the fact "
+            "directly."
+        )
+    return reminder
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Parsing + validation
 # ──────────────────────────────────────────────────────────────────────────────
@@ -498,23 +558,7 @@ def generate_question_for(article: dict, max_attempts: int = 4) -> tuple[dict | 
     last_reason = ""
     last_model = None
     for attempt, temp in schedules:
-        reminder = "" if attempt == 1 else (
-            f"Your previous attempt failed validation with this exact error: {last_reason}\n\n"
-            "Re-read the rules and fix exactly that issue. The most common "
-            "failures are: (a) the QUESTION stem contained the correct "
-            "answer's text (self-answering / circular — the user can't be "
-            "asked to identify something the question already names); (b) "
-            "the EXPLANATION did not contain the CORRECT option's text "
-            "verbatim — fix this by repeating the option text in the "
-            "explanation; (c) the answer was a generalization or definition "
-            "not stated in the FACTS block — fix this by picking a specific "
-            "stated fact (a number, date, name, place, or event) instead; "
-            "(d) the question used a bare reference like 'the author' or "
-            "'the company' that the reader cannot resolve — the reader has "
-            "NOT read the article and must be able to answer from the "
-            "question text alone, so NAME the specific person/company/place "
-            "instead of writing 'the author' / 'the company' / 'the study'."
-        )
+        reminder = "" if attempt == 1 else build_retry_reminder(last_reason)
         prompt = build_single_prompt(article, extra_reminder=reminder)
         logger.info(
             f"🧠 Article {article['id'][:8]}… attempt {attempt} (temp={temp}) "
@@ -541,6 +585,9 @@ def generate_question_for(article: dict, max_attempts: int = 4) -> tuple[dict | 
             last_reason = "model output was not valid JSON"
             logger.warning(f"  ⚠️  JSON parse failed")
             continue
+
+        q["question"] = strip_simple_attribution_opening(q.get("question", ""))
+        q["explanation"] = strip_simple_attribution_opening(q.get("explanation", ""))
 
         ok, reason, was_ungrounded = validate_single_question(q, article)
         if not ok:
@@ -743,6 +790,14 @@ def main():
     if args.once:
         ok = maybe_generate_current(force=args.force)
         sys.exit(0 if ok else 1)
+
+    if not AUTO_GENERATION_ENABLED:
+        logger.info(
+            "⏸️  Automatic quiz generation disabled by "
+            "[quiz].auto_generation_enabled=false; manual --once remains available"
+        )
+        while True:
+            time.sleep(3600)
 
     startup_delay = random.randint(30, 120)
     logger.info(f"⏱️  Startup delay: {startup_delay}s")

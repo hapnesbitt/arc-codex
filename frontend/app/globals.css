@@ -1,7 +1,37 @@
 /* File: globals.css */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-nb-50: var(--nb-50);
+  --color-nb-100: var(--nb-100);
+  --color-nb-200: var(--nb-200);
+  --color-nb-300: var(--nb-300);
+  --color-nb-400: var(--nb-400);
+  --color-nb-500: var(--nb-500);
+  --color-nb-600: var(--nb-600);
+  --color-nb-800: var(--nb-800);
+  --color-nb-900: var(--nb-900);
+  --color-nb-950: var(--nb-950);
+  --color-icaccent: var(--ic-accent);
+}
 
 @layer base {
   :root {

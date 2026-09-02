@@ -56,6 +56,8 @@ def _shelf_html(
     next_start=None,
     duplicate_next=False,
     malformed_booklink=False,
+    sort_order="release_date",
+    sort_label="Release Date",
 ) -> str:
     booklinks = []
     for gid in ids:
@@ -69,7 +71,8 @@ def _shelf_html(
     if next_start is not None:
         next_link = (
             '<a accesskey="+" title="Go to the next page of results." '
-            f'href="/ebooks/bookshelf/77?start_index={next_start}">Next</a>'
+            f'href="/ebooks/bookshelf/77?sort_order={sort_order}&amp;'
+            f'start_index={next_start}">Next</a>'
         )
         if duplicate_next:
             next_link += next_link
@@ -78,7 +81,9 @@ def _shelf_html(
         f'<meta name="totalResults" content="{total}">'
         f'<meta name="startIndex" content="{start}">'
         f'<meta name="itemsPerPage" content="{per_page}">'
-        "</head><body><ul class=\"results\">"
+        "</head><body>"
+        f'<button class="sort-dropdown-toggle"><span>{sort_label}</span></button>'
+        '<ul class="results">'
         + "".join(booklinks)
         + next_link
         + "</ul></body></html>"
@@ -316,6 +321,135 @@ def test_normal_multi_page_shelf_completion(monkeypatch):
 
     assert library_fetcher.fetch_shelf_ids(77, limit=10) == [1, 2, 3]
     assert get.call_count == 2
+    requested_urls = [call.args[0] for call in get.call_args_list]
+    assert requested_urls == [
+        "https://www.gutenberg.org/ebooks/bookshelf/77?sort_order=release_date&start_index=1",
+        "https://www.gutenberg.org/ebooks/bookshelf/77?sort_order=release_date&start_index=3",
+    ]
+
+
+def test_shelf_next_link_must_preserve_stable_sort(monkeypatch):
+    page = _response(
+        _shelf_html(
+            [1, 2],
+            total=3,
+            start=1,
+            next_start=3,
+            sort_order="title",
+        )
+    )
+    monkeypatch.setattr(library_fetcher.requests, "get", Mock(return_value=page))
+
+    with pytest.raises(library_fetcher.ShelfFetchError, match="parse failed"):
+        library_fetcher.fetch_shelf_ids(77, limit=10)
+
+
+def test_shelf_response_must_confirm_requested_sort(monkeypatch):
+    page = _response(
+        _shelf_html([1], total=1, start=1, sort_label="Popularity")
+    )
+    monkeypatch.setattr(library_fetcher.requests, "get", Mock(return_value=page))
+
+    with pytest.raises(
+        library_fetcher.ShelfFetchError,
+        match="expected 'Release Date' sorting",
+    ):
+        library_fetcher.fetch_shelf_ids(77, limit=10)
+
+
+def test_duplicate_id_within_one_shelf_page_is_rejected(monkeypatch):
+    page = _response(_shelf_html([1, 1], total=2, start=1))
+    monkeypatch.setattr(library_fetcher.requests, "get", Mock(return_value=page))
+
+    with pytest.raises(library_fetcher.ShelfFetchError, match="duplicate ebook id 1"):
+        library_fetcher.fetch_shelf_ids(77, limit=10)
+
+
+def test_cross_page_overlap_is_deduplicated_and_retried_for_completeness(
+    monkeypatch, caplog
+):
+    caplog.set_level(logging.WARNING, logger="library_fetcher")
+    pages = [
+        _response(_shelf_html([1, 2], total=4, start=1, next_start=3)),
+        _response(_shelf_html([2, 3], total=4, start=3)),
+        _response(_shelf_html([1, 2], total=4, start=1, next_start=3)),
+        _response(_shelf_html([3, 4], total=4, start=3)),
+    ]
+    monkeypatch.setattr(library_fetcher.requests, "get", Mock(side_effect=pages))
+    monkeypatch.setattr(library_fetcher.time, "sleep", lambda _seconds: None)
+
+    assert library_fetcher.fetch_shelf_ids(77, limit=10) == [1, 2, 3, 4]
+    assert "deduplicating pending completeness validation" in caplog.text
+    assert "retrying once from start_index=1" in caplog.text
+
+
+def test_recovered_overlap_does_not_create_duplicate_membership(monkeypatch, tmp_path):
+    pages = [
+        _response(_shelf_html([1, 2], total=4, start=1, next_start=3)),
+        _response(_shelf_html([2, 3], total=4, start=3)),
+        _response(_shelf_html([1, 2], total=4, start=1, next_start=3)),
+        _response(_shelf_html([3, 4], total=4, start=3)),
+    ]
+    monkeypatch.setattr(library_fetcher.requests, "get", Mock(side_effect=pages))
+    monkeypatch.setattr(library_fetcher.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(library_db, "DB_PATH", str(tmp_path / "library.db"))
+
+    ids = library_fetcher.fetch_shelf_ids(77, limit=10)
+    with library_db.db() as conn:
+        library_db.replace_shelf(conn, "test", {"name": "Test"}, ids)
+        membership_count = conn.execute(
+            "SELECT COUNT(*) FROM shelf_members WHERE slug = 'test'"
+        ).fetchone()[0]
+        unique_membership_count = conn.execute(
+            "SELECT COUNT(DISTINCT gutenberg_id) FROM shelf_members WHERE slug = 'test'"
+        ).fetchone()[0]
+
+    assert membership_count == unique_membership_count == 4
+
+
+def test_persistent_overlap_preserves_existing_membership(monkeypatch, tmp_path):
+    overlap_attempt = [
+        _response(_shelf_html([1, 2], total=4, start=1, next_start=3)),
+        _response(_shelf_html([2, 3], total=4, start=3)),
+    ]
+    monkeypatch.setattr(
+        library_fetcher.requests,
+        "get",
+        Mock(side_effect=overlap_attempt + overlap_attempt),
+    )
+    monkeypatch.setattr(library_fetcher.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(library_db, "DB_PATH", str(tmp_path / "library.db"))
+
+    with library_db.db() as conn:
+        library_db.replace_shelf(conn, "test", {"name": "Existing"}, [900, 901])
+        stats = library_fetcher.RunStats()
+        library_fetcher.fetch_all_shelves(
+            conn,
+            {
+                "books_per_shelf": 10,
+                "shelves": {"test": {"gutenberg_bookshelf_id": 77}},
+            },
+            stats,
+        )
+        assert set(library_db.get_shelf_member_ids(conn, "test")) == {900, 901}
+
+    assert stats.shelves_failed == 1
+
+
+def test_repeated_stable_enumeration_returns_same_id_set(monkeypatch):
+    pages = [
+        _response(_shelf_html([1, 2], total=3, start=1, next_start=3)),
+        _response(_shelf_html([3], total=3, start=3)),
+        _response(_shelf_html([1, 2], total=3, start=1, next_start=3)),
+        _response(_shelf_html([3], total=3, start=3)),
+    ]
+    monkeypatch.setattr(library_fetcher.requests, "get", Mock(side_effect=pages))
+    monkeypatch.setattr(library_fetcher.time, "sleep", lambda _seconds: None)
+
+    first = library_fetcher.fetch_shelf_ids(77, limit=10)
+    second = library_fetcher.fetch_shelf_ids(77, limit=10)
+
+    assert set(first) == set(second) == {1, 2, 3}
 
 
 def test_malformed_http_200_on_first_shelf_page_is_rejected(monkeypatch):

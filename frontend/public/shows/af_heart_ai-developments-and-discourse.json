@@ -1,0 +1,347 @@
+{
+  "voice": "af_heart",
+  "topic": "ai-developments-and-discourse",
+  "topic_url": "https://arc-codex.com/wiki/ai-developments-and-discourse",
+  "audio_directory": "/home/www/arc_stack/frontend/public/uploads/audio",
+  "article_count": 50,
+  "playable_count": 16,
+  "missing_count": 34,
+  "coverage_percent": 32.0,
+  "show_file": "/home/www/arc_stack/frontend/public/shows/af_heart_ai-developments-and-discourse.mp3",
+  "stories": [
+    {
+      "position": 3,
+      "id": "aeef5175363c59730acf0adc15d7c59e",
+      "title": "Nvidia in talks to invest in Perplexity AI at valuation above $30 billion: Report",
+      "article_url": "https://arc-codex.com/article/aeef5175363c59730acf0adc15d7c59e",
+      "audio_file": "/home/www/arc_stack/frontend/public/uploads/audio/aeef5175363c59730acf0adc15d7c59e.mp3",
+      "audio_url": "/uploads/audio/aeef5175363c59730acf0adc15d7c59e.mp3"
+    },
+    {
+      "position": 4,
+      "id": "a997e4579d6130c98f05b0a441915d1c",
+      "title": "GDPNow Forecast Is 4 Miles High and Falling fast",
+      "article_url": "https://arc-codex.com/article/a997e4579d6130c98f05b0a441915d1c",
+      "audio_file": "/home/www/arc_stack/frontend/public/uploads/audio/a997e4579d6130c98f05b0a441915d1c.mp3",
+      "audio_url": "/uploads/audio/a997e4579d6130c98f05b0a441915d1c.mp3"
+    },
+    {
+      "position": 6,
+      "id": "4ed3297dd3fd1ca71b0a1a728b80c58f",
+      "title": "Data Centers: The Latest Thing to Destroy Beautiful West Virginia",
+      "article_url": "https://arc-codex.com/article/4ed3297dd3fd1ca71b0a1a728b80c58f",
+      "audio_file": "/home/www/arc_stack/frontend/public/uploads/audio/4ed3297dd3fd1ca71b0a1a728b80c58f.mp3",
+      "audio_url": "/uploads/audio/4ed3297dd3fd1ca71b0a1a728b80c58f.mp3"
+    },
+    {
+      "position": 8,
+      "id": "20f5227475993ff94bbd2c7559af2684",
+      "title": "Silver prices rebound as AI, data centers add to industrial demand",
+      "article_url": "https://arc-codex.com/article/20f5227475993ff94bbd2c7559af2684",
+      "audio_file": "/home/www/arc_stack/frontend/public/uploads/audio/20f5227475993ff94bbd2c7559af2684.mp3",
+      "audio_url": "/uploads/audio/20f5227475993ff94bbd2c7559af2684.mp3"
+    },
+    {
+      "position": 14,
+      "id": "fa34ded2003f7cc04ca466e462e99cdc",
+      "title": "Amodei vs. Altman: How the Race for AI Dominance Is Increasing the Risks",
+      "article_url": "https://arc-codex.com/article/fa34ded2003f7cc04ca466e462e99cdc",
+      "audio_file": "/home/www/arc_stack/frontend/public/uploads/audio/fa34ded2003f7cc04ca466e462e99cdc.mp3",
+      "audio_url": "/uploads/audio/fa34ded2003f7cc04ca466e462e99cdc.mp3"
+    },
+    {
+      "position": 19,
+      "id": "c5a2ca93a4729bba7f688c4b9aceb50c",
+      "title": "Meet Flock, the $8 billion startup backed by a16z and Tiger facing growing backlash against surveillance capitalism",
+      "article_url": "https://arc-codex.com/article/c5a2ca93a4729bba7f688c4b9aceb50c",
+      "audio_file": "/home/www/arc_stack/frontend/public/uploads/audio/c5a2ca93a4729bba7f688c4b9aceb50c.mp3",
+      "audio_url": "/uploads/audio/c5a2ca93a4729bba7f688c4b9aceb50c.mp3"
+    },
+    {
+      "position": 20,
+      "id": "94995cccb0339fc7970ac86659ad4f30",
+      "title": "Xpeng shares sink as weak delivery forecast overshadows $6.3 billion robot unit valuation",
+      "article_url": "https://arc-codex.com/article/94995cccb0339fc7970ac86659ad4f30",
+      "audio_file": "/home/www/arc_stack/frontend/public/uploads/audio/94995cccb0339fc7970ac86659ad4f30.mp3",
+      "audio_url": "/uploads/audio/94995cccb0339fc7970ac86659ad4f30.mp3"
+    },
+    {
+      "position": 23,
+      "id": "c8ec8f165acbbc96f75080c699f7e8ff",
+      "title": "Five monetization trends from global pricing leaders",
+      "article_url": "https://arc-codex.com/article/c8ec8f165acbbc96f75080c699f7e8ff",
+      "audio_file": "/home/www/arc_stack/frontend/public/uploads/audio/c8ec8f165acbbc96f75080c699f7e8ff.mp3",
+      "audio_url": "/uploads/audio/c8ec8f165acbbc96f75080c699f7e8ff.mp3"
+    },
+    {
+      "position": 26,
+      "id": "ab66954048dfb8e97c638759a2d91251",
+      "title": "Some People’s Blood Already Knows How Well a Vaccine Will Work",
+      "article_url": "https://arc-codex.com/article/ab66954048dfb8e97c638759a2d91251",
+      "audio_file": "/home/www/arc_stack/frontend/public/uploads/audio/ab66954048dfb8e97c638759a2d91251.mp3",
+      "audio_url": "/uploads/audio/ab66954048dfb8e97c638759a2d91251.mp3"
+    },
+    {
+      "position": 34,
+      "id": "e12619f7953ab08cc2d9e8072be0f54a",
+      "title": "Pepper centromeres sit within ultra",
+      "article_url": "https://arc-codex.com/article/e12619f7953ab08cc2d9e8072be0f54a",
+      "audio_file": "/home/www/arc_stack/frontend/public/uploads/audio/e12619f7953ab08cc2d9e8072be0f54a.mp3",
+      "audio_url": "/uploads/audio/e12619f7953ab08cc2d9e8072be0f54a.mp3"
+    },
+    {
+      "position": 39,
+      "id": "59832dca6f626653509d757cdd544d2c",
+      "title": "General Intuition Aims to Raise Capital at $6 Billion Valuation to Power AI Robotics",
+      "article_url": "https://arc-codex.com/article/59832dca6f626653509d757cdd544d2c",
+      "audio_file": "/home/www/arc_stack/frontend/public/uploads/audio/59832dca6f626653509d757cdd544d2c.mp3",
+      "audio_url": "/uploads/audio/59832dca6f626653509d757cdd544d2c.mp3"
+    },
+    {
+      "position": 43,
+      "id": "a5c984e34e7de8cee529bf7138827f36",
+      "title": "A Yeast-Brewed Flu Shot That Could Outlast the Season",
+      "article_url": "https://arc-codex.com/article/a5c984e34e7de8cee529bf7138827f36",
+      "audio_file": "/home/www/arc_stack/frontend/public/uploads/audio/a5c984e34e7de8cee529bf7138827f36.mp3",
+      "audio_url": "/uploads/audio/a5c984e34e7de8cee529bf7138827f36.mp3"
+    },
+    {
+      "position": 44,
+      "id": "951bb2cac2903e7b7232ba0385154e34",
+      "title": "Nine indicted over AI server exports",
+      "article_url": "https://arc-codex.com/article/951bb2cac2903e7b7232ba0385154e34",
+      "audio_file": "/home/www/arc_stack/frontend/public/uploads/audio/951bb2cac2903e7b7232ba0385154e34.mp3",
+      "audio_url": "/uploads/audio/951bb2cac2903e7b7232ba0385154e34.mp3"
+    },
+    {
+      "position": 45,
+      "id": "6e581a795a70f089d4d74f2165f5bab3",
+      "title": "Hot Chips: Evolving Memory Architectures for Artificial Intelligence",
+      "article_url": "https://arc-codex.com/article/6e581a795a70f089d4d74f2165f5bab3",
+      "audio_file": "/home/www/arc_stack/frontend/public/uploads/audio/6e581a795a70f089d4d74f2165f5bab3.mp3",
+      "audio_url": "/uploads/audio/6e581a795a70f089d4d74f2165f5bab3.mp3"
+    },
+    {
+      "position": 48,
+      "id": "0e5dcfe3a23e32c18d7fc6ec340bde37",
+      "title": "Exploration on highly dynamic graphs",
+      "article_url": "https://arc-codex.com/article/0e5dcfe3a23e32c18d7fc6ec340bde37",
+      "audio_file": "/home/www/arc_stack/frontend/public/uploads/audio/0e5dcfe3a23e32c18d7fc6ec340bde37.mp3",
+      "audio_url": "/uploads/audio/0e5dcfe3a23e32c18d7fc6ec340bde37.mp3"
+    },
+    {
+      "position": 50,
+      "id": "e21a9266a7b370d7af541b19f5efb4a1",
+      "title": "The UAE is fighting AI hackers with AI of its own",
+      "article_url": "https://arc-codex.com/article/e21a9266a7b370d7af541b19f5efb4a1",
+      "audio_file": "/home/www/arc_stack/frontend/public/uploads/audio/e21a9266a7b370d7af541b19f5efb4a1.mp3",
+      "audio_url": "/uploads/audio/e21a9266a7b370d7af541b19f5efb4a1.mp3"
+    }
+  ],
+  "missing": [
+    {
+      "position": 1,
+      "id": "d75d577cba4d342fd68998bf9c737bef",
+      "title": "Lawmaker pushes for AI containment language in FRONTIER Act",
+      "article_url": "https://arc-codex.com/article/d75d577cba4d342fd68998bf9c737bef"
+    },
+    {
+      "position": 2,
+      "id": "e25d56ef08537b7b29917a86a30b5b4a",
+      "title": "Der Chip-Gigant im Zentrum des KI-Booms: Einmal mehr macht Nvidia die Börsen nervös",
+      "article_url": "https://arc-codex.com/article/e25d56ef08537b7b29917a86a30b5b4a"
+    },
+    {
+      "position": 5,
+      "id": "189134e16fbbe0b0aeb234bb5e356625",
+      "title": "Made, Not Suffered: A Reply to Ballouk and Altinawi on Artificial Externality and Disciplinary Autonomy",
+      "article_url": "https://arc-codex.com/article/189134e16fbbe0b0aeb234bb5e356625"
+    },
+    {
+      "position": 7,
+      "id": "4a54de6c0688b422a9cf966bd1ff712a",
+      "title": "Agentic Resource Discovery (ARD): An open specification for agent discovery",
+      "article_url": "https://arc-codex.com/article/4a54de6c0688b422a9cf966bd1ff712a"
+    },
+    {
+      "position": 9,
+      "id": "a949c3db26aaee80817e57b038074ab0",
+      "title": "Basins of Attraction to Multiple Fixed Points in Discrete",
+      "article_url": "https://arc-codex.com/article/a949c3db26aaee80817e57b038074ab0"
+    },
+    {
+      "position": 10,
+      "id": "9aff2f7ee1438b3739f6a749780e3882",
+      "title": "The lazy developer’s guide to observing your own code",
+      "article_url": "https://arc-codex.com/article/9aff2f7ee1438b3739f6a749780e3882"
+    },
+    {
+      "position": 11,
+      "id": "ee726c54772668f05f7226c41446a3d0",
+      "title": "The Chinese Campaign to Shape the World’s AI Chatbots",
+      "article_url": "https://arc-codex.com/article/ee726c54772668f05f7226c41446a3d0"
+    },
+    {
+      "position": 12,
+      "id": "ff422380f51e6c759921fe82b215af7b",
+      "title": "What blessed Stanley Rother and Pope Leo XIV share",
+      "article_url": "https://arc-codex.com/article/ff422380f51e6c759921fe82b215af7b"
+    },
+    {
+      "position": 13,
+      "id": "4e11a9425471aaa897dc93fb9314528a",
+      "title": "MBARI hosts teacher workshop to bring ocean data to the classroom",
+      "article_url": "https://arc-codex.com/article/4e11a9425471aaa897dc93fb9314528a"
+    },
+    {
+      "position": 15,
+      "id": "57332ef2cb5bfb4a1a511cfb40e9ed62",
+      "title": "Agentic AI for Safety-critical Multi-drone Systems: Challenges and Opportunities",
+      "article_url": "https://arc-codex.com/article/57332ef2cb5bfb4a1a511cfb40e9ed62"
+    },
+    {
+      "position": 16,
+      "id": "752453ae46ad2e47029142cfad48b653",
+      "title": "Bridging the silos in affective AI: a critical perspective from data to society",
+      "article_url": "https://arc-codex.com/article/752453ae46ad2e47029142cfad48b653"
+    },
+    {
+      "position": 17,
+      "id": "1aedf40bcd1d1fdbb6e5f2a37cbc3952",
+      "title": "FACT CHECK: Old Sarah Discaya ‘confession’ deepfake used in posts amid recent floods",
+      "article_url": "https://arc-codex.com/article/1aedf40bcd1d1fdbb6e5f2a37cbc3952"
+    },
+    {
+      "position": 18,
+      "id": "b69f26414d3021f408d9d6ce360fb31c",
+      "title": "LIVE | Chipuitverkoop zet voort op Aziatische beurzen",
+      "article_url": "https://arc-codex.com/article/b69f26414d3021f408d9d6ce360fb31c"
+    },
+    {
+      "position": 21,
+      "id": "434392aeb7f1b2d9d759671461f5cd10",
+      "title": "Economic complexity and firm dynamics: Evidence from European industries",
+      "article_url": "https://arc-codex.com/article/434392aeb7f1b2d9d759671461f5cd10"
+    },
+    {
+      "position": 22,
+      "id": "ee5ff69782c63404487ada065c3717f0",
+      "title": "Can an LLM Forget the Right Things?",
+      "article_url": "https://arc-codex.com/article/ee5ff69782c63404487ada065c3717f0"
+    },
+    {
+      "position": 24,
+      "id": "d8277e38d73c2024e611998cdcbc3b3f",
+      "title": "Self",
+      "article_url": "https://arc-codex.com/article/d8277e38d73c2024e611998cdcbc3b3f"
+    },
+    {
+      "position": 25,
+      "id": "eb3c7aa26974b7daafc0bef566a1eb83",
+      "title": "SEC Investigating Near",
+      "article_url": "https://arc-codex.com/article/eb3c7aa26974b7daafc0bef566a1eb83"
+    },
+    {
+      "position": 27,
+      "id": "e931e65234bfd6f878347d81bac1f3b8",
+      "title": "Silicon Sensing Launches Zenith Closed-Loop MEMS Accelerometer for Spacecraft Stabilization",
+      "article_url": "https://arc-codex.com/article/e931e65234bfd6f878347d81bac1f3b8"
+    },
+    {
+      "position": 28,
+      "id": "5661d01f751e1554013993f6baa5ae59",
+      "title": "Avestra: Agentic AI for SystemVerilog Assertion Generation",
+      "article_url": "https://arc-codex.com/article/5661d01f751e1554013993f6baa5ae59"
+    },
+    {
+      "position": 29,
+      "id": "656e3a5363f9b0f75bb9644354892570",
+      "title": "Instruction Learning Paradigms: A Dual Perspective on White",
+      "article_url": "https://arc-codex.com/article/656e3a5363f9b0f75bb9644354892570"
+    },
+    {
+      "position": 30,
+      "id": "a6a10cde3f8606ba521a3d61bfd3296c",
+      "title": "The malleability of consciousness representations: how AI claims of sentience shape human beliefs and trust",
+      "article_url": "https://arc-codex.com/article/a6a10cde3f8606ba521a3d61bfd3296c"
+    },
+    {
+      "position": 31,
+      "id": "a8de204a5ff41fcd3c3f8bdfa0cc4e8c",
+      "title": "Benchmarking LLM Serving Systems for Agentic AI Workloads with XPerf",
+      "article_url": "https://arc-codex.com/article/a8de204a5ff41fcd3c3f8bdfa0cc4e8c"
+    },
+    {
+      "position": 32,
+      "id": "d37ae88bfbeca9e5d295a0a990deb2f0",
+      "title": "On the notions of bounded bypass, and how to make any deadlock",
+      "article_url": "https://arc-codex.com/article/d37ae88bfbeca9e5d295a0a990deb2f0"
+    },
+    {
+      "position": 33,
+      "id": "755a646fcae5a60c4801ef6ff37d7061",
+      "title": "The Download: kids outlearning AI, and space travel agents",
+      "article_url": "https://arc-codex.com/article/755a646fcae5a60c4801ef6ff37d7061"
+    },
+    {
+      "position": 35,
+      "id": "ff1c29b47ce7d6a8866f687767fd0671",
+      "title": "When code is abundant",
+      "article_url": "https://arc-codex.com/article/ff1c29b47ce7d6a8866f687767fd0671"
+    },
+    {
+      "position": 36,
+      "id": "3c5a7a58cdf19fdc82cbd6dccca138ac",
+      "title": "AI is hitting entry",
+      "article_url": "https://arc-codex.com/article/3c5a7a58cdf19fdc82cbd6dccca138ac"
+    },
+    {
+      "position": 37,
+      "id": "28e2102b0aacdec39354f3ac572bf52d",
+      "title": "AmeriFlex AI Recruiting Tool Aims to Identify RIAs Near Retirement",
+      "article_url": "https://arc-codex.com/article/28e2102b0aacdec39354f3ac572bf52d"
+    },
+    {
+      "position": 38,
+      "id": "6251c6fffaf72fd56ca8fb2d35850c20",
+      "title": "A Study of AI-Driven Knowledge Distillation for Efficient Geospatial Modeling",
+      "article_url": "https://arc-codex.com/article/6251c6fffaf72fd56ca8fb2d35850c20"
+    },
+    {
+      "position": 40,
+      "id": "17a8d872b1cb8a75e9a9f7f9b145797b",
+      "title": "10 Positions for Enterprise RAG That Mainstream Tutorials Get Wrong",
+      "article_url": "https://arc-codex.com/article/17a8d872b1cb8a75e9a9f7f9b145797b"
+    },
+    {
+      "position": 41,
+      "id": "44ba5d48edc6980ca7998d4591bda98e",
+      "title": "RD Congo irashinja inyeshyamba za M23 kutubahiriza uburenganzira bwa muntu",
+      "article_url": "https://arc-codex.com/article/44ba5d48edc6980ca7998d4591bda98e"
+    },
+    {
+      "position": 42,
+      "id": "b747200afd034e7c513c057c427b8270",
+      "title": "Nvidia Senior Manager Linked To Supermicro Scheme Smuggling AI Servers To China",
+      "article_url": "https://arc-codex.com/article/b747200afd034e7c513c057c427b8270"
+    },
+    {
+      "position": 46,
+      "id": "9396c5d707cbd4355586448f61d6b0cd",
+      "title": "Artemis Moonbase: NASA’s Plan for a Permanent Human Presence on the Moon",
+      "article_url": "https://arc-codex.com/article/9396c5d707cbd4355586448f61d6b0cd"
+    },
+    {
+      "position": 47,
+      "id": "4296d5eeb9959919d3a3b4e5e965f97c",
+      "title": "PrimeAgentOrchestrator: Memory-Primed Agent Spawning for Personal AI Infrastructure",
+      "article_url": "https://arc-codex.com/article/4296d5eeb9959919d3a3b4e5e965f97c"
+    },
+    {
+      "position": 49,
+      "id": "9fbe46b6c8582a9fd3c07642beb7a3c6",
+      "title": "Trump wants a $103,265 fee on new H",
+      "article_url": "https://arc-codex.com/article/9fbe46b6c8582a9fd3c07642beb7a3c6"
+    }
+  ]
+}

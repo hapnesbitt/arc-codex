@@ -1,0 +1,54 @@
+# audio-backfill.service — sliding-window narration daemon (2026-08-27)
+#
+# Runs backend/audio_backfill.py continuously. Redesigned the same day this
+# unit was written: no snapshot, no resume logic, no checkpoint file (see the
+# script's own docstring) — a restart just re-reads Redis and continues, so
+# this can be as aggressive about restarting as any other worker.
+#
+# Modeled directly on arc-watchdog.service (same Restart=always shape, same
+# log-append convention) — the one addition here is RestartSteps/
+# RestartMaxDelaySec for genuine backoff rather than a fixed delay, since a
+# tight crash loop against Kokoro is worth damping harder than a watchdog
+# poll loop is.
+#
+# WHY THIS EXISTS AS A UNIT AT ALL: nohup detaches from the terminal but NOT
+# from user@1000.service's scope — that's exactly why the old batch backfill
+# died at 90/263 on a reboot (2026-08-26). A systemd unit with
+# WantedBy=multi-user.target starts at boot without any login session, which
+# a plain nohup'd process never could. Resolute has no FileVault-equivalent
+# boot gate blocking that (unlike the M1), so this actually works here.
+#
+# Install (root):
+#   cp ops/systemd/audio-backfill.service /etc/systemd/system/
+#   systemctl daemon-reload
+#   systemctl enable --now audio-backfill.service
+#
+# The weekday 13:59-19:01 peak-hour blackout (arc.cfg [audio]) is handled
+# INSIDE the script (it idles in place, wait_out_peak loops rather than
+# exiting) — not by this unit. If the script exited during the blackout
+# instead, Restart=always would just crash-loop it every RestartSec for five
+# hours; idling in place is what makes this unit's restart policy correct
+# rather than noisy.
+
+[Unit]
+Description=Arc Codex audio backfill (sliding-window narration daemon)
+After=network-online.target redis-server.service
+Wants=network-online.target
+# Not Requires=/PartOf= arc-stack.service: this daemon reads Redis directly
+# and doesn't depend on gunicorn/frontend/etc. being up, and its own
+# survival shouldn't be tied to arc-stack's restart cycle.
+
+[Service]
+Type=simple
+User=ross
+WorkingDirectory=/home/www/arc_stack/backend
+ExecStart=/home/www/arc_stack/backend/venv/bin/python3 /home/www/arc_stack/backend/audio_backfill.py
+Restart=always
+RestartSec=5
+RestartSteps=5
+RestartMaxDelaySec=60
+StandardOutput=append:/home/www/arc_stack/logs/audio_backfill.log
+StandardError=append:/home/www/arc_stack/logs/audio_backfill.log
+
+[Install]
+WantedBy=multi-user.target

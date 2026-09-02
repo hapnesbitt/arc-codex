@@ -95,3 +95,72 @@ groups:
         annotations:
           summary: "Prediger pull-backup job has not reported in >26h"
           description: "No prediger_backup_last_pull_timestamp metric or it is too old — the cron may not be running at all. Check Resolute's crontab and logs/pull_backup_cron.log."
+
+  # ===========================================================================
+  # Off-host cold-archive shipping (M1, 192.168.1.185)
+  # Fed by m1-pull-backups.sh via node_exporter's textfile collector on the M1
+  # (offsite_backup.prom), scraped by job 'm1_offsite'.
+  #
+  # THE DEAD-MAN IS THE PRIMARY SIGNAL HERE, not a nicety. The destination is a
+  # MacBook Air: it sleeps, so "no alert" is otherwise indistinguishable from
+  # "lid has been shut for a week". A missed pull must be LOUD.
+  # Deliberately NOT alerting on up{job="m1_offsite"} — that flaps every time
+  # the laptop sleeps and would train everyone to ignore it.
+  # ===========================================================================
+  - name: offsite_backup
+    interval: 60s
+    rules:
+      - alert: OffsiteBackupPullDead
+        # Dead-man. Weekly cadence (arc backup-cold is Sun 04:00, the pull runs
+        # after) + generous laptop slack. 10d: if the M1 has not reported in
+        # ten days, either it has not been opened or the job is broken — both
+        # mean the off-host copy is not happening.
+        expr: absent(offsite_backup_last_pull_timestamp) or (time() - offsite_backup_last_pull_timestamp) > 864000
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Off-host backup pull has not reported in >10d"
+          description: "No offsite_backup_last_pull_timestamp, or it is stale. The M1 may be shut, asleep for an extended period, or the launchd job is broken. Everything on /dev/sda1 is currently single-copy. Check ~/offsite/pull.log on the M1."
+      - alert: OffsiteBackupFailed
+        # Any non-zero exit: 1 rsync/ssh, 2 stale, 3 capacity floor, 4 arrival
+        # verification. Exit 4 is the serious one — bytes arrived corrupt.
+        expr: offsite_backup_pull_exit_code != 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Off-host backup pull last exited non-zero (code {{ $value }})"
+          description: "1=rsync/ssh, 2=stale, 3=capacity floor, 4=ARRIVAL VERIFICATION FAILED. Grep ~/offsite/pull.log on the M1 for R-OFFSITE ALERT."
+      - alert: OffsiteBackupStale
+        # The newest archive held off-host is older than ~9 days: backup-cold on
+        # Resolute may be dead even though the pull itself is succeeding.
+        expr: offsite_backup_newest_archive_age_seconds > 777600
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Newest off-host archive is >9d old"
+          description: "The pull is running but finding nothing new — check backup-cold on Resolute (crontab, logs/backup_cron.log) before suspecting the M1."
+      - alert: OffsiteRetentionDegraded
+        # The byte budget is holding fewer than nominal 3 arc / 4 hunt copies.
+        # This is INTENDED behaviour as archives grow (+1.65 GB/month observed)
+        # and is explicitly not an error — but it must be visible, not silent,
+        # because it is the early warning that the M1 is running out of runway.
+        expr: offsite_backup_retention_degraded == 1
+        for: 1h
+        labels:
+          severity: info
+        annotations:
+          summary: "Off-host retention has degraded below nominal copy count"
+          description: "Byte budget is working as designed — archives grew, so fewer are retained. Holding {{ with query \"offsite_backup_archives_held{stack='arc'}\" }}{{ . | first | value }}{{ end }} arc copies. Plan destination capacity; consider an always-on target."
+      - alert: OffsiteDestinationLowSpace
+        # Free space on the M1 volume approaching the 10 GB runtime floor the
+        # script refuses to transfer below.
+        expr: offsite_backup_dest_free_bytes < 15000000000
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Off-host destination below 15 GB free"
+          description: "m1-pull-backups.sh aborts transfers below a 10 GB floor. Below that threshold no new archive ships at all."

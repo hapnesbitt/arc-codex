@@ -81,8 +81,15 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
       : article.dossier;
   }
 
-  const score = dossier.chimera_score || dossier.sentiment || 0;
-  const formattedScore = Math.round(score * 100);
+  // chimera_score is already 0-100 (Arc's readability composite) — do not
+  // *100 it. sentiment is VADER's -1..1 compound score, which does need
+  // the *100 to read as a rough percentage. These are different scales;
+  // blending them through one shared `* 100` (as this used to) rendered
+  // "Chimera Score: 6900/100" whenever chimera_score was present. See
+  // ops/RUNBOOK.md 2026-08-27.
+  const formattedScore = dossier.chimera_score != null
+    ? Math.round(dossier.chimera_score)
+    : Math.round((dossier.sentiment ?? 0) * 100);
 
   const stripMd = (text: string) =>
     text.replace(/^#{1,6}\s+/gm, '').replace(/\*{1,3}(.*?)\*{1,3}/g, '$1')

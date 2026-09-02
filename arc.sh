@@ -694,96 +694,68 @@ cmd_backup() {
 }
 
 # ==============================================================================
-# BACKUP — COLD (big drive, full snapshot, stack stays up, keep 30)
-# For: disaster recovery. Stack code + config PLUS the data layer:
-#   data_layer/redis-arc.rdb    — consistent RDB via redis-cli --rdb
-#                                 (streams a point-in-time snapshot over the
-#                                 socket; /var/lib/redis is root-only, and
-#                                 --rdb can never capture a mid-write file)
-#   data_layer/solr-snapshot/   — Solr replication-handler backup (consistent
-#                                 committed-segment snapshot; raw index-dir
-#                                 copy can race merges). Staged under
-#                                 SOLR_HOME because solr.allowPaths restricts
-#                                 backup locations; moved into the archive.
-#   data_layer/library.db       — SQLite online .backup (safe with readers)
-# Plus host config that lives outside $ITC_ROOT and was captured nowhere:
-#   host_config/Caddyfile       — /etc/caddy/Caddyfile. Sole server of
-#                                 /uploads/* since uploads left the frontend
-#                                 image; without it a restore has no heroes.
-#                                 A required member — no Caddyfile, no archive.
-#   host_config/systemd/        — installed unit files + drop-ins. The repo's
-#                                 ops/systemd/ copies are authoritative and
-#                                 already in the tar; these record what is
-#                                 actually installed, so drift is visible.
-#                                 Best-effort: warns, does not fail the run.
-# Restore drops host_config/ into $ITC_ROOT alongside data_layer/ — both are
-# inert on extraction; reinstalling them to /etc is a deliberate root step
-# (see ops/RUNBOOK.md).
-# Stack does NOT stop. backend/.env rides in the stack tar (known R9 issue —
-# encrypted secret store is a separate fix; do not half-solve it here).
+# BACKUP — COLD (small: code + config only, stack stays up, keep N)
+# For: disaster recovery of what can't be re-derived. NOT a snapshot of
+# ingested content. Ross's principle (2026-08-27): "Nothing I ingest actually
+# matters, it's the ingestion code that needs backup, not the contents.
+# Anything I already have is already obsolete — this is a system for
+# analyzing current signals, not antique ones." Reshaped from a ~19 GB
+# data-heavy archive to ~355 MB on that basis. See ops/RUNBOOK.md 2026-08-27
+# for the full inventory and reasoning; summary:
+#
+#   DROPPED (was captured here, no longer is):
+#     - Redis RDB       — the ingested corpus. Disposable per the principle;
+#                         re-ingests via scribe's normal cycle.
+#     - Solr snapshot    — rebuildable from Redis (kasmir7.py has a
+#                         re-index-from-Redis path already).
+#     - library.db       — re-fetchable from Gutenberg (library_fetcher.py),
+#                         a stable low-risk source. A download, not a loss.
+#   DROPPED (excluded from the tar below, was never staged separately):
+#     - frontend/public/uploads/  — audio + scraped hero images + loose
+#                         assets. Audio derives from original_text, which
+#                         lives in the (also disposable) Redis RDB — keeping
+#                         audio without the text it narrates is incoherent,
+#                         and old narrations aren't worth ~37h resynthesis
+#                         under the principle above anyway. Hero images are
+#                         re-fetchable from image_source_url only while the
+#                         source is still live — same disposability as Redis.
+#     - frontend/.next   — build output, regenerate with `npm run build`.
+#
+#   KEPT:
+#     - .git             — despite the nightly GitHub push (see
+#                         ops/nightly-git-push.sh). A backup that depends on
+#                         a third party being reachable isn't self-sufficient,
+#                         and 251 MB is nothing at this archive's new size.
+#     - host_config/Caddyfile — sole server of /uploads/*. A required member.
+#     - host_config/systemd/  — installed unit drift record. Best-effort.
+#
+# Restore requires supplying separately (not in the archive, by R9 design):
+#   backend/.env, frontend/.env.local, secret/ — reconfigurable, not
+# recoverable. Plus rebuilding what was dropped above: library.db via
+# library_fetcher.py, Solr via kasmir7's re-index, the corpus via normal
+# re-ingestion. OLD CONTENT IS NOT RESTORED — that is by design, not a gap.
 # Cron: 0 2 * * 0 /home/www/arc_stack/arc.sh backup-cold
 # ==============================================================================
 cmd_backup_cold() {
-    # Archives embed backend/.env (R9). They must not be world-readable: the
-    # off-host pull account (bkpull) reads them via the bkread group, nobody
-    # else needs them. 027 → files 640, dirs 750. The GROUP comes from the
-    # setgid bit on $COLD_BACKUP_DIR (2750 ross:bkread), not from here —
-    # without setgid these land ross:ross and bkpull cannot read them.
+    # No secrets in the archive (R9 closed 2026-08-27) and no bulk ingested
+    # data either now, but still kept non-world-readable — code, config, and
+    # host_config aren't meant for every local account. 027 → files 640,
+    # dirs 750. The GROUP comes from the setgid bit on $COLD_BACKUP_DIR
+    # (2750 ross:bkread), not from here — without setgid these land
+    # ross:ross and bkpull cannot read them.
     umask 027
     local DATE=$(date +%Y-%m-%d_%H%M)
     mkdir -p "$COLD_BACKUP_DIR"
     local FILE="$COLD_BACKUP_DIR/arc_cold_$DATE.tar.gz"
     local STAGING="$COLD_BACKUP_DIR/.staging_$DATE"
-    local SOLR_BK_HOME="/home/ross/solr-9.9.0/server/solr/backups"
-    mkdir -p "$STAGING/data_layer" "$SOLR_BK_HOME"
-    echo "🧊 Cold archive backup (data layer + stack)..."
-
-    # --- Redis: consistent point-in-time RDB over the socket ---
-    if redis-cli --no-auth-warning -a "$REDIS_PASSWORD" --rdb "$STAGING/data_layer/redis-arc.rdb" &>/dev/null \
-        && [ -s "$STAGING/data_layer/redis-arc.rdb" ]; then
-        echo "   ✅ Redis RDB captured ($(du -sh "$STAGING/data_layer/redis-arc.rdb" | cut -f1))"
-    else
-        echo "   ⚠️  Redis RDB capture FAILED — archive will lack Redis data"
-    fi
-
-    # --- Solr: commit, then replication-handler snapshot ---
-    curl -s "http://localhost:8983/solr/feeds/update?commit=true" >/dev/null 2>&1
-    rm -rf "$SOLR_BK_HOME/snapshot.cold_$DATE"
-    local solr_bk=$(curl -s "http://localhost:8983/solr/feeds/replication?command=backup&location=$SOLR_BK_HOME&name=cold_$DATE&wt=json")
-    if echo "$solr_bk" | grep -q '"OK"'; then
-        # Backup is async — poll until the snapshot dir size is stable
-        local prev=0 size=0
-        for i in $(seq 1 30); do
-            sleep 2
-            size=$(du -sb "$SOLR_BK_HOME/snapshot.cold_$DATE" 2>/dev/null | cut -f1)
-            [ -n "$size" ] && [ "$size" -gt 0 ] && [ "$size" = "$prev" ] && break
-            prev="$size"
-        done
-        if [ -d "$SOLR_BK_HOME/snapshot.cold_$DATE" ]; then
-            mv "$SOLR_BK_HOME/snapshot.cold_$DATE" "$STAGING/data_layer/solr-snapshot"
-            echo "   ✅ Solr snapshot captured ($(du -sh "$STAGING/data_layer/solr-snapshot" | cut -f1))"
-        else
-            echo "   ⚠️  Solr snapshot never appeared — archive will lack Solr data"
-        fi
-    else
-        echo "   ⚠️  Solr backup command failed — archive will lack Solr data"
-    fi
-
-    # --- SQLite library: online backup (consistent with concurrent readers) ---
-    if [ -f /mnt/arcdata/library.db ]; then
-        if sqlite3 /mnt/arcdata/library.db ".backup '$STAGING/data_layer/library.db'" 2>/dev/null; then
-            echo "   ✅ library.db captured ($(du -sh "$STAGING/data_layer/library.db" | cut -f1))"
-        else
-            echo "   ⚠️  library.db backup FAILED — archive will lack the library"
-        fi
-    fi
+    mkdir -p "$STAGING/host_config/systemd"
+    echo "🧊 Cold archive backup (code + config only — see header comment)..."
 
     # --- Host config: lives outside $ITC_ROOT, so the stack tar never saw it ---
     # The Caddyfile is the whole reason this block exists: since uploads left
     # the frontend image, Caddy's `handle /uploads/*` file_server is the ONLY
     # thing serving hero images. A restore-from-scratch without it comes back
     # with every hero 404ing and no config on disk explaining why.
-    mkdir -p "$STAGING/host_config/systemd"
     if cp /etc/caddy/Caddyfile "$STAGING/host_config/Caddyfile" 2>/dev/null; then
         echo "   ✅ Caddyfile captured ($(du -sh "$STAGING/host_config/Caddyfile" | cut -f1))"
     else
@@ -801,40 +773,40 @@ cmd_backup_cold() {
             && cp -r "/etc/systemd/system/$u.service.d" "$STAGING/host_config/systemd/"
     done
 
-    echo "🗜️  Archiving stack + data layer (this may take a while)..."
+    echo "🗜️  Archiving stack (code + config — no data layer, see header)..."
     local PARTIAL="$FILE.partial"
     tar -zcf "$PARTIAL" \
         --exclude="./frontend/node_modules" \
+        --exclude="./frontend/.next" \
+        --exclude="./frontend/public/uploads" \
         --exclude="./backend/venv" \
+        --exclude="./backend/.env*" \
+        --exclude="./frontend/.env.local*" \
+        --exclude="./secret" \
         --exclude="./backups" \
         --exclude="./logs" \
         --exclude="./pids" \
         --exclude="*.log" \
         --exclude="*.log.gz" \
-        --exclude="./upload/completed" \
-        --exclude="./upload/failed" \
+        --exclude="./backend/upload/completed" \
+        --exclude="./backend/upload/failed" \
         -C "$ITC_ROOT" . \
-        -C "$STAGING" data_layer host_config
+        -C "$STAGING" host_config
     local tar_rc=$?
 
     # --- Verification gate. Nothing gets a .sha256 sidecar without passing
     # every check here, so a torn archive can never impersonate a good one.
-    # The sidecar is the eligibility token for the off-host pull: as of
-    # 2026-08-01 the M1 (192.168.1.185) pulls cold archives via LaunchAgent
-    # com.rossnesbitt.m1-pull-backups from the bkpull account on this host
-    # (see ops/m1-pull-backups.sh). Missing sidecar = not pulled — this
-    # gate is now load-bearing, not aspirational.
+    # No RDB to redis-check-rdb any more — gate is tar exit, gzip -t, and
+    # required-member presence. The sidecar is the eligibility token for the
+    # off-host pull (ops/spectre-pull-backups.sh). Missing sidecar = not
+    # pulled — this gate is load-bearing, not aspirational.
     local fail=""
     [ $tar_rc -eq 0 ] || fail="tar exit $tar_rc"
-    if [ -z "$fail" ] && ! redis-check-rdb "$STAGING/data_layer/redis-arc.rdb" >/dev/null 2>&1; then
-        fail="redis-check-rdb rejected staged RDB"
-    fi
     if [ -z "$fail" ] && ! gzip -t "$PARTIAL" 2>/dev/null; then
         fail="gzip -t integrity check"
     fi
     if [ -z "$fail" ]; then
-        local required="./backend/main.py ./arc.sh data_layer/redis-arc.rdb data_layer/solr-snapshot/ host_config/Caddyfile"
-        [ -f /mnt/arcdata/library.db ] && required="$required data_layer/library.db"
+        local required="./backend/main.py ./arc.sh host_config/Caddyfile"
         local members
         members=$(tar -tzf "$PARTIAL" 2>/dev/null) || fail="tar -tzf listing"
         if [ -z "$fail" ]; then

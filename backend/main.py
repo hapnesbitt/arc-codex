@@ -2286,6 +2286,34 @@ def _slice_for_translation(body: str) -> int:
     return boundary if boundary != -1 else cap
 
 
+def _library_publication_fields(meta) -> dict:
+    """Serialize nullable original-publication metadata consistently."""
+    def value(key):
+        if hasattr(meta, "get"):
+            return meta.get(key)
+        try:
+            return meta[key]
+        except (KeyError, IndexError):
+            return None
+
+    year = value("original_publication_year")
+    confidence = value("original_publication_confidence")
+    try:
+        year_out = int(year) if year not in (None, "") else None
+    except (TypeError, ValueError):
+        year_out = None
+    try:
+        confidence_out = float(confidence) if confidence not in (None, "") else None
+    except (TypeError, ValueError):
+        confidence_out = None
+    return {
+        "original_publication_year": year_out,
+        "original_publication_source": value("original_publication_source") or None,
+        "original_publication_confidence": confidence_out,
+        "original_publication_evidence": value("original_publication_evidence") or None,
+    }
+
+
 @app.route('/api/library/<gutenberg_id>', methods=['GET'])
 def get_library_work(gutenberg_id):
     """Return a single work, including its full text body.
@@ -2471,6 +2499,7 @@ def get_library_work(gutenberg_id):
             'is_preview':           is_preview,
             'total_chars':          len(body),
         }
+        payload.update(_library_publication_fields(meta))
         if is_preview and preview_chars is not None:
             payload['preview_chars'] = preview_chars
         if language_name:
@@ -2499,6 +2528,8 @@ def library_search():
             for row in library_db.iter_work_meta(conn, [
                 'gutenberg_id', 'title', 'author', 'language',
                 'download_count', 'year_published',
+                'original_publication_year', 'original_publication_source',
+                'original_publication_confidence', 'original_publication_evidence',
             ]):
                 title, author = row['title'], row['author']
                 if not title:
@@ -2506,14 +2537,16 @@ def library_search():
                 haystack = f"{title or ''} {author or ''}".lower()
                 if q not in haystack:
                     continue
-                results.append({
+                result = {
                     'gutenberg_id':   str(row['gutenberg_id']),
                     'title':          title or '',
                     'author':         author or 'Unknown',
                     'language':       row['language'] or '',
                     'download_count': row['download_count'] or 0,
                     'year_published': row['year_published'] or '',
-                })
+                }
+                result.update(_library_publication_fields(row))
+                results.append(result)
                 if len(results) >= 50:
                     break
 
@@ -2592,7 +2625,7 @@ def get_library_shelf(slug):
                 chimera_int = int(row['chimera_score']) if row['chimera_score'] not in (None, '') else None
             except (ValueError, TypeError):
                 chimera_int = None
-            books.append({
+            book = {
                 'gutenberg_id':        str(row['gutenberg_id'] or gid),
                 'title':               row['title'] or '',
                 'author':              row['author'] or 'Unknown',
@@ -2603,7 +2636,9 @@ def get_library_shelf(slug):
                 'chimera_score':       chimera_int,
                 'reading_label':       row['reading_label'] or '',
                 'chimera_skip_reason': row['chimera_skip_reason'] or '',
-            })
+            }
+            book.update(_library_publication_fields(row))
+            books.append(book)
 
         # Stable proxy for Gutenberg's own ranking: most-downloaded first.
         books.sort(key=lambda b: (-b['download_count'], b['title'].lower()))

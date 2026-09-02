@@ -29,14 +29,73 @@ it (see the dated entry for depth).
 | 4 | Frontend down right after a deploy | `docker compose up -d frontend` (no `--no-deps`) tries to recreate the `gunicorn` dependency, which conflicts with the bare-metal gunicorn on `:5005`, and leaves the container down | Deploy via **`./arc.sh build`** (it already uses `up -d --no-deps`), or `docker compose up -d --no-deps frontend`. **Never** the bare form. See *Bounce & deploy* below. |
 | 5 | After a reboot — is arc actually up? | arc auto-starts via **`itc-stack.service`** (systemd system unit, `enabled`, legacy "itc" name; runs `arc.sh start` at boot). Earlier belief "arc has no systemd unit" was **wrong** (Phase 0 correction, 2026-07-18) | `systemctl status itc-stack.service` → should be `active (exited)`. If services are down, `./arc.sh start` (as user `ross`) or `sudo systemctl start itc-stack.service`. `./arc.sh status` / `./arc.sh checkup` confirm per-service health. |
 
-> **M1 Ollama — CLI instance, not the GUI app.** The pipeline's inference host
-> (`192.168.1.185:11434`) must be the **`brew services` CLI Ollama bound to
-> `0.0.0.0:11434`** — reachable from Resolute — **not** the macOS **GUI app**,
-> which grabs the port as the wrong (Mac-localhost-only) instance and breaks
-> remote calls. The GUI login-item was **disabled 2026-07-18**. Verify from
-> Resolute: `curl -s http://192.168.1.185:11434/api/version` must answer, and
-> `/api/tags` must list `gemma4:e2b`. (Both confirmed green 2026-07-18 — v0.32.1,
-> `gemma4:e2b` present.)
+> **M1 Ollama — system LaunchDaemon, nothing else.** The pipeline's inference
+> host (`192.168.1.185:11434`) runs as the system **`LaunchDaemon com.arc.ollama`**
+> (`/Library/LaunchDaemons/com.arc.ollama.plist`, **2026-08-19**), bound to
+> `0.0.0.0:11434`, `OLLAMA_KEEP_ALIVE=-1` (model pinned — dedicated inference
+> host, peak-hour gaps must not evict), plus perf tunings
+> `OLLAMA_FLASH_ATTENTION=1` and `OLLAMA_KV_CACHE_TYPE=q8_0`. Runs as
+> `rossnesbitt:staff` with `HOME=/Users/rossnesbitt` and
+> `OLLAMA_MODELS=/Users/rossnesbitt/.ollama/models`. **Binary** is
+> `/opt/homebrew/opt/ollama/bin/ollama` (from the `ollama` brew **formula**;
+> there is no cask, never has been). Starts at boot without anyone logging in
+> — the previous `brew services` LaunchAgent died with Ross's session and
+> forced a manual `ollama serve` after every reboot.
+>
+> **The two things that MUST NOT come back on this host, and why:** both bind
+> `:11434` and either evict the daemon (last one in wins) or restart-loop it
+> (already-bound port).
+>
+> 1. **The macOS GUI `Ollama.app` (menu-bar Electron app, downloaded from
+>    ollama.com or installed by Ollama.app's own auto-updater — NOT brew).**
+>    The 2026-07-18 attempt of "disable it as a login item" did **not hold** —
+>    it re-installed itself, and it was in fact the process holding `:11434`
+>    when the LaunchDaemon migration went in on 2026-08-19, forcing the daemon
+>    into a 44-run KeepAlive restart-loop until the app was killed. **Fix
+>    (2026-08-19):** app removed by `mv /Applications/Ollama.app ~/.Trash/` —
+>    reversible via Finder → Put Back if ever wanted. If it reappears in
+>    `/Applications/` (auto-update from a stray Ollama.app on the machine, or
+>    Ross reinstalls it deliberately), pkill it and Trash it again. There
+>    is no scenario where the GUI app and the daemon should co-exist on this
+>    host.
+>
+> 2. **The `brew services` LaunchAgent for the formula.** Any
+>    `brew upgrade ollama` will re-lay
+>    `~/Library/LaunchAgents/homebrew.mxcl.ollama.plist` and, if
+>    `brew services start ollama` is ever run, will fight the daemon on
+>    `:11434`. **Post-upgrade SOP** (run on the M1, no sudo):
+>    ```
+>    brew services stop ollama && rm -f ~/Library/LaunchAgents/homebrew.mxcl.ollama.plist
+>    ```
+>    Then `sudo launchctl kickstart -k system/com.arc.ollama` if the daemon
+>    flapped during the collision window.
+>
+> Verify from Resolute after any of the above:
+> `curl -s http://192.168.1.185:11434/api/version` answers; `/api/tags` lists
+> `gemma4:e2b`; the listener's PPID (via `lsof -nP -iTCP:11434 -sTCP:LISTEN`
+> + `ps -o ppid`) is **1** (launchd), and the command path is
+> `/opt/homebrew/opt/ollama/bin/ollama` — never `/Applications/Ollama.app/…`.
+>
+> **KEEP_ALIVE=-1 does not defend against context-flip runner reloads.**
+> An 8.79h measurement window under normal Arc/Hunt traffic
+> (2026-08-19 → 2026-08-20, gemma4:e2b pinned) recorded **4 runner starts** —
+> all triggered by requests flipping between `-c 4096` (default) and `-c 32768`
+> contexts, not by keep-alive expiry. Each context flip pays ~8s reload + a
+> full mmap re-scan of the model blob. If Arc/Hunt calls standardize on one
+> context size, that collapses to a single boot-time load. Steady-state paging
+> cost under pinning was **15,174 swapouts/min ≈ 14.9 GB/hr SSD writes**, with
+> compressor occupancy *shrinking* over the window (−104 MB) and swap growing
+> only ~29 MB/hr — the machine coped fine.
+>
+> **M1 pre-login boot gate (FileVault two-tier):** the daemon still cannot
+> serve pre-login. On Apple Silicon with FileVault, the system volume decrypts
+> at boot (sshd's TCP:22 opens) but `/Users` and everything firmlinked to the
+> data volume — including `/opt/homebrew/opt/ollama/bin/ollama` — stays
+> encrypted until a user logs in. The daemon spawns at login moment, not boot
+> moment. Only fixes are `sudo fdesetup disable` (accept unencrypted data at
+> rest on this LAN-only inference host) or accept manual login after each
+> reboot. Post-migration wins (no manual `ollama serve`, `KEEP_ALIVE=-1`,
+> `HOST=0.0.0.0`, no GUI app fighting for the port) still stand either way.
 
 ## Bounce & deploy procedures
 
@@ -76,6 +135,15 @@ Newest first. Deep detail in the dated entry of the same date.
 | Date | Change | Note |
 |------|--------|------|
 | 2026-08-20 | Kokoro synthesis relocated: M1 (ssh) → resolute (local) | `scribe.py` — removes `_audio_ssh`/`AUDIO_HOST`/`AUDIO_VENV`; preflight now `psutil.virtual_memory().available`. Spectre benched ~20% faster but ruled out (ssh/scp coupling + Python 3.14 + OOM'd Hunt's ollama mid-bench). Live verification caught a real [[council-ollama-host-misrouted]] collision. Full detail in the incident journal entry below. |
+| 2026-08-19 | M1 Ollama → system LaunchDaemon (`com.arc.ollama`); `OLLAMA_KEEP_ALIVE=-1`; `OLLAMA_HOST=0.0.0.0:11434` | Starts at boot without login; model pinned (no idle eviction). Retires brew LaunchAgent. Behavioural proof: `/api/ps` `expires_at` in year 2318 (Go max-duration = -1). |
+| 2026-08-19 | `/Applications/Ollama.app` moved to Trash | Was holding `:11434` at daemon install, starving `com.arc.ollama` into a KeepAlive restart-loop. The 2026-07-18 "GUI login-item disabled" note was stale — the app self-reinstalled or auto-updated back. **Not a brew cask** (there is no cask; only the `ollama` formula). App removed manually. See M1 Ollama box for the "must not come back" list. |
+| 2026-08-20 | M1 pinned-model 8.79h paging measurement + context-flip reload finding | 15,174 swapouts/min (~14.9 GB/hr SSD), compressor occupancy shrank -104 MB, swap grew +29 MB/hr — steady state, machine coping. 4 runner reloads in the window, all context-flip driven (4k ↔ 32k), NOT keep-alive expiry. Standardizing Arc/Hunt request contexts would collapse the reloads. |
+| 2026-08-20 | `~/Library/LaunchAgents/homebrew.mxcl.nginx.plist` → `.disabled` on M1 | Was never `brew services start`ed, never running, so no bootout needed. Config default was `listen 8080; server_name localhost;` (loopback only, no LAN exposure). Rename defuses any future accidental `brew services start` or launchctl bootstrap. Formula install left in place. |
+| 2026-08-20 | M1 auto-launch sweep complete | **User-scope** (no sudo): `~/Library/LaunchAgents/` — Google Updater + Keystone (×2) + XPCservice, Movavi Converter Agent, VirtualBox web service → `.disabled`; two dead `homebrew.mxcl.ollama.plist.bak-*` files `rm`'d. Kept: `com.ross.rotate.plist`, `com.rossnesbitt.m1-pull-backups.plist`, `homebrew.mxcl.netdata.plist`, `homebrew.mxcl.node_exporter.plist`. **System-scope** (sudo): `/Library/LaunchAgents/` — Adobe ARMDCHelper, 4× Citrix (AuthManager_Mac, ReceiverHelper, safariadapter, ServiceRecords), Microsoft update agent → `bootout system` + `.disabled`. Kept: 2× Zoom updaters (Ross's call). All disabled labels verified via `launchctl print system/<label>` = `Bad request.` — fully unloaded from launchd catalog, not just stopped. All reversible: `sudo launchctl bootstrap system /Library/LaunchAgents/<file>` after `mv` back. |
+| 2026-08-20 | Audio preflight vs KEEP_ALIVE=-1 pin collision **fixed** | `scribe.py:kokoro_preflight` used to refuse whenever `/api/ps` reported any resident model. Under the 2026-08-19 daemon pin, gemma4:e2b is resident by design → 63% coverage on 08-19 collapsed to **4% on 08-20** (67 resident-defers vs 3 narrations). Bench on the M1 with the model resident + ~1.4 GB "available" synthesized a 1988-char article in 41 s wall, peak RSS 2.6 GB, zero swap (M1 bench: `/tmp/kokoro_bench.py`). Fix: removed the "any-model-resident → defer" branch, kept the ollama probe for logging, and re-tuned `AUDIO_MIN_FREE_MB` 2048 → 1024 to reflect the new steady-state memory picture (2048 predated the pin, when models evicted between narrations). Scribe restarted 2026-08-20 12:5X MDT — verifying narration resumes in the next 1–2 cycles. |
+| 2026-08-20 | Prediger backup silent-fail — **alerting was working, mailbox was unread** | Discovered during a `generate_latest.sh`-cron-mail sweep: `/home/ross/Maildir/` (postfix `home_mailbox = Maildir/`) holds **648 cron messages** from `/home/hms/pt/backup.py`, all failure reports, delivered faithfully since ~2026-07-25. Not a monitoring gap — Prometheus alerts (`PredigerBackupStale` / `PredigerPullDead`, per R-PT2 2026-07-17 entry below) presumably fired on their own path; the mailed diagnostics have simply been sitting in a local Unix mailbox nobody opens. See the R-PT2 entry for the full backup thread. Related sub-finding: ross's crontab is otherwise disciplined (16 of 17 entries redirect stdout+stderr to a log file). The one non-redirected entry is `generate_latest.sh`, whose 251 cron messages also live in the Maildir. Fix pending on that script's rewrite (add `>> logs/generate_latest.log 2>&1` to the cron line). |
+| 2026-08-20 | `:00:05` `-c 4096` runner-reload class **closed** | deliberation_stack `backend/ollama_utils.py` gained `_apply_spec_following_options` (commit `93c7e6d` on master). Verified post-reboot: deliberation's calls now match arc/hunt's 32k window and share the same runner. Arc/hunt harmonization (arc @ 8192 vs hunt @ 32768 for voice/reaction) remains open — this fix did not touch it. |
+| 2026-08-20 | num_ctx investigation: `:00:05` hourly `-c 4096` runner-reload pattern — **caller identified as `deliberation_stack`** | 69 loads across log retention land at exactly `HH:00:05`, all `-c 4096`. `ss` watcher on resolute caught the connection: PID 5085, `python3 analyzer.py`, cwd `/home/www/deliberation_stack/backend` — a **third stack** running as `ross` on resolute (not arc, not hunt). Its private `ollama_utils.py` (dated 2026-07-06, permissions 600) has no `num_ctx` handling and no `_apply_spec_following_options` — every call it makes goes to M1 without `num_ctx`, gets the model default 4096, forces a reload from arc/hunt's 32k. Queue key `dlb:analyzer:queue`, sole producer `deliberation_stack/backend/main.py:141` (Flask API endpoint) — the `:00:05` cadence is an external hit on that endpoint, unidentified (not in user crontab; possibly root's crontab or an external monitor). **DO NOT set `OLLAMA_CONTEXT_LENGTH=32768` as a shortcut fix.** Runner reloads mmap/read-scan the model blob, showing as **pageins (reads)** — the wear-critical counter is **swapouts (writes)**. Reads don't wear the SSD. Pinning a permanent 32k KV cache adds ~1 GB of pinned RAM on top of a machine with ~60 MB steady-state free; the extra pressure would show up as *more* swapouts, not fewer. Ross corrected this 2026-08-20 — leave the reloads alone; the read cost is not a wear cost. **Targeted fix — landed 2026-08-20 (deliberation_stack commit `93c7e6d`):** ported arc's `_apply_spec_following_options` into `deliberation_stack/backend/ollama_utils.py` (think=false + num_predict=-1 + num_ctx=32768 as one merge, applied to both `call_ollama_with_fallback` local branch and `call_ollama_local_only`). Post-reboot verification (resolute rebooted 11:56 MDT, deliberation analyzer PID 5205): 5 local calls from `192.168.1.198` between 12:08-12:10 all attached to the existing `06:42:47 -c 32768` runner; **zero runner starts logged since 11:56**. The two 500s at 12:10:24 were client-side (`aborting completion request due to client closing the connection`), not model errors. `:00:05` `-c 4096` reload class is closed. **Open decision (not implemented, arc/hunt harmonization):** arc's `analyzer.py:499` and `character_builder.py:207` use `num_ctx=8192` (documented as memory-freeing for voice/reaction tasks); hunt's `character_builder.py:208` uses `32768` for the same-shaped task. Direction should be to bring hunt DOWN to 8192, not arc UP — memory is the scarce resource on the M1. Requires a considered decision on whether hunt's council prompts need the larger window; docstring is silent. |
 | 2026-07-18 | Hero-image subject cropping — **diagnosed, deferred** | Pipeline center-crop to 16:9; CSS can't fix. See known-issue entry. |
 | 2026-07-18 | `analysis:pending` stream capped `MAXLEN ~10000` | Was unbounded (85k). Commit `f777470`. |
 | 2026-07-18 | Pin model → news-only; unpinned 76 reference plants | `arc:pinned_articles` 80→4; reference still type-protected. |
@@ -1960,6 +2028,18 @@ changes:
 - Container recreate verified harmless: all four targets `up`,
   Prometheus/Grafana/Alertmanager healthy after.
 
+**Update 2026-08-20** — `/home/hms/pt/backup.py` has been mailing failure
+reports since ~2026-07-25 (25+ days), delivered faithfully to
+`/home/ross/Maildir/` (postfix `home_mailbox = Maildir/`, not `/var/mail`),
+where nobody has opened them. 648 unread cron messages from that script sit
+in the Maildir today. The Prometheus alerting side (rules above) is the
+authoritative channel; the mailed body is a redundant diagnostic that only
+gets seen if you check local Unix mail. Consider either (a) redirecting
+`backup.py`'s cron line to a log file matching the rest of ross's crontab
+discipline, or (b) adding `MAILTO=rossnesbitt@gmail.com` after backup.py
+itself stops being chatty. Postfix is already configured with
+`relayhost = [smtp.gmail.com]:587`, so remote delivery works.
+
 ## 2026-07-18 — Operational coordinates relocated off public /about/developer
 
 The public developer page (`arc-codex.com/about/developer`, no auth) carried
@@ -2046,10 +2126,567 @@ non-127.0.0.1; `X-User-Id` injected by the Next.js proxy.
 
 ---
 
+## 2026-07-23 — Cold archive now captures host config (both stacks)
+
+**Gap:** the cold archive tarred `$ITC_ROOT` plus the staged `data_layer/`
+and nothing else, so everything under `/etc` was captured nowhere. Since
+uploads left the frontend image, Caddy's `handle /uploads/*` file_server
+blocks (rooted at `<stack>/frontend/public`) are the **only** thing serving
+hero images — a restore-from-scratch produced a site with no heroes and no
+config on disk explaining why. R4 (2026-07-11) fixed the data layer; this
+closes the host-config half.
+
+**Added** — `host_config/` staged alongside `data_layer/` in both
+`arc.sh` and `huntaegis.sh` `cmd_backup_cold`:
+
+- `host_config/Caddyfile` — verbatim `/etc/caddy/Caddyfile`. Added to the
+  **required-member gate**, so a run that cannot read it produces no
+  archive and no sidecar, exactly like a missing RDB. The file is
+  host-wide (arc, hunt, soc, holmes and the legacy redirects share it);
+  each stack keeps its own copy so **either** archive alone can restore
+  serving. Readable without root — the live file is `ross:ross 664`.
+- `host_config/systemd/` — installed `*-stack.service` and
+  `*-watchdog.service`, plus any `.service.d/` drop-in dir. **Best-effort:
+  warns, does not fail the run.** Rationale: `ops/systemd/` in each repo
+  is the source of truth and already rides in the stack tar, so a missing
+  unit is recoverable; these copies exist to record what is *actually*
+  installed, making drift visible. Verified identical repo↔installed for
+  all four units at time of writing.
+
+**Restore semantics unchanged.** `cmd_restore` still does
+`tar -zxf … -C "$ITC_ROOT"`, so `host_config/` lands at
+`<stack>/host_config/` as an inert directory, same as `data_layer/`.
+Reinstalling to `/etc` is a deliberate root step:
+
+```bash
+sudo cp <stack>/host_config/Caddyfile /etc/caddy/Caddyfile
+caddy adapt --validate --config /etc/caddy/Caddyfile   # before reload
+sudo systemctl reload caddy
+sudo cp <stack>/host_config/systemd/*.service /etc/systemd/system/
+sudo systemctl daemon-reload
+```
+
+**Verification** — real `backup-cold` run on both stacks, fresh archives
+inventoried for the new members:
+
+- Hunt `huntaegis_cold_2026-07-23_1751.tar.gz` (1.7 GB, 1m29s):
+  `host_config/Caddyfile` (12,045 B) sha256-identical to the live
+  `/etc/caddy/Caddyfile`; `huntaegis-stack.service` +
+  `huntaegis-watchdog.service` present; gate passed, sidecar written.
+- Arc `arc_cold_2026-07-23_*.tar.gz`: same three-member set
+  (`arc-stack.service`, `arc-watchdog.service`), gate passed.
+
+**Still not captured** (documented here, not archived): `redis.conf`,
+crontab, `/etc/systemd/journald.conf`, logrotate config.
+
+### Two adjacent findings — NOT fixed here
+
+1. **Arc's cold archives have no `.sha256` sidecars.** The three
+   pre-existing archives (`07-11`, `07-12`, `07-19`) are bare `.tar.gz`
+   with no sidecar; hunt's `07-21` has one. **Investigated same day —
+   benign, see the 2026-07-23 sidecar entry below.** Short version: the
+   sidecar code landed on arc 12h after hunt and arc simply had not run
+   `backup-cold` since. Nothing failed. That investigation also found
+   the off-host pull job the sidecar was built for **does not exist**;
+   the claim in this bullet's first draft ("no arc archive has ever been
+   eligible to leave this host", implying a shipper was skipping them)
+   was wrong and is corrected below.
+2. **`arc-stack.service.d/limits.conf` was never installed.** The unit
+   header's install procedure says to create it; only the legacy
+   `itc-stack.service.d/limits.conf` exists on disk (and `itc-stack` is
+   now `disabled`), so `LimitNOFILE=65536` is **not** in effect for
+   `arc-stack.service`. The archive now faithfully records this gap
+   rather than papering over it with the repo copy. **Measured
+   2026-07-23 — low urgency, see the fd-headroom entry below.**
+
+> Quick-reference row #5 above still names `itc-stack.service` as the boot
+> unit. As of 2026-07-21 that unit is `disabled`; `arc-stack.service` is
+> `enabled` and is what actually starts arc at boot.
+
+---
+
+## 2026-07-23 — Sidecar investigation: benign, but it exposed a real gap
+
+Triggered by the missing-sidecar finding in the entry above. Read
+before acting on any future "backups aren't shipping" alarm.
+
+### Why arc had no sidecars — nothing failed
+
+Not a code difference, not permissions, not a swallowed error. The
+atomic-publish work landed on the two stacks **12 hours apart**, and arc
+had not run since:
+
+| stack | commit | landed | first post-gate run |
+|-------|--------|--------|---------------------|
+| Hunt | `091bed5` | 2026-07-21 10:10:03 -0600 | `07-21 22:18` (manual smoke test — a Tuesday; cold cron is Sun 03:00) |
+| Arc | `0d71fc1` | 2026-07-21 **22:21:34** -0600 | `07-23 17:54` (this session) |
+
+Arc's three sidecar-less archives (`07-11`, `07-12`, `07-19`) all
+predate arc's commit. `git show 0d71fc1^:arc.sh` confirms the old code
+had **no `sha256sum` line at all** and tarred straight to `$FILE` with no
+`.partial` — so the sidecars were *never generated*, not generated-and-
+lost, and not a run that died between tar and sidecar. `backup_cron.log`
+shows both scheduled runs closing cleanly with `✅ Cold archive:`.
+
+Arc's cold cron is `0 4 * * 0`; last Sunday was 07-19 and the code landed
+Tuesday night, so arc had simply had **zero scheduled runs** in between.
+Hunt got its sidecar because someone smoke-tested hunt manually after its
+morning commit; arc's port landed that night and never got the equivalent.
+
+**Lesson**: when a stack pair gets the same fix at different times, the
+one that isn't smoke-tested looks broken until its next cron tick. Smoke-
+test both, or don't read the asymmetry as a fault.
+
+### All four arc archives verified sound
+
+Full independent verification, 2026-07-23 (`gzip -t`, `tar -tzf`,
+required-member presence, `redis-check-rdb` on each embedded RDB):
+
+| archive | gzip -t | tar -tzf | required members | redis-check-rdb | sidecar |
+|---------|---------|----------|------------------|-----------------|---------|
+| `arc_cold_2026-07-11_0724` (6.1G) | PASS | PASS (22,173) | all present | PASS 176M, checksum OK | absent |
+| `arc_cold_2026-07-12_0400` (6.2G) | PASS | PASS (23,419) | all present | PASS 179M, checksum OK | absent |
+| `arc_cold_2026-07-19_0400` (6.2G) | PASS | PASS (32,356) | all present | PASS 122M, checksum OK | absent |
+| `arc_cold_2026-07-23_1754` (6.7G) | PASS | PASS (41,641) | all present + `host_config/` | PASS 119M, checksum OK | **PRESENT, verifies** |
+
+`sha256sum -c` passes on all three sidecars that exist (arc `07-23`, hunt
+`07-23`, hunt `07-21`). No corruption anywhere.
+
+### Backfill: not recommended, and why
+
+> **Superseded — Ross authorized the backfill; it was executed 2026-07-23.
+> See "Backfill executed" at the end of this entry.** The reasoning below
+> is retained because it is still the correct read of what a backfilled
+> sidecar does and does not prove.
+
+A sidecar minted today for the `07-11`/`07-12`/`07-19` archives would
+prove only **"this file has not changed since 2026-07-23."** It would
+NOT prove the archive was written correctly, that it wasn't torn at
+write time, or that it matches what production held on its capture date
+— the properties the gate exists to establish, all of which require
+checks *at write time*.
+
+The integrity table above is the stronger statement and it already
+exists in writing. A backfilled sidecar adds tamper-evidence from today
+forward and nothing else, while **looking** identical to a gate-issued
+one — an unearned promotion of three archives to "shippable" status.
+Recommendation: leave them bare. They rotate out at `KEEP=4` anyway —
+`07-11` is evicted by the next run. If tamper-evidence on the remaining
+window is wanted, name the files differently (e.g. `.sha256.observed`)
+so they can never be confused with a gate-issued token. **Ross's call;
+nothing generated.**
+
+### The gap that actually matters: there is no off-host copy
+
+The sidecar's stated purpose — "the eligibility token the off-host pull
+job keys on (Codex task-7)" — describes a consumer that **was never
+built**:
+
+- `claude_horst/ops/pull_prod_backups.sh` is the only backup-transfer
+  job and runs the *other* direction: it pulls Horst's dumps **inbound**
+  from predigertoday.com into `/mnt/arcdata/prediger-backups/`. It never
+  reads a `.sha256` and never touches arc or hunt archives.
+- Nothing else in `crontab -l` or `systemctl list-timers` references
+  cold archives; grep for `arc_cold`/`huntaegis_cold` across `/home/www`
+  outside the two stack scripts returns only documentation.
+- `/home/ross/.ssh/authorized_keys` is **empty** and auth.log has zero
+  `Accepted` entries — no remote host can pull from this box even in
+  principle.
+
+So the missing sidecars were never a silent skip. There was nothing to
+skip. **Every cold archive for both stacks lives on `/mnt/arcdata`
+(`/dev/sda1`) — the same physical disk as the live `library.db` it
+backs up.** Losing that disk loses the 13 GB library and all four of its
+copies simultaneously. Stack code is better off (root disk `/dev/sdb2`,
+plus `nightly-git-push.sh`), but the data layer has no second location.
+
+The 07-21 work built the eligibility token. **The shipper is the missing
+half — that is the open item, not the sidecars.**
+
+### fd headroom — `LimitNOFILE` gap is real but not urgent
+
+Measured before proposing any fix. Arc gunicorn runs under
+`/system.slice/arc-stack.service` (so a drop-in *would* apply):
+
+- `/proc/<pid>/limits` → `Max open files 1024 / 524288` — systemd's
+  default. Confirms `LimitNOFILE=65536` is not in effect.
+- Actual usage across all 22 processes: master **35** fds, workers
+  **21–23**. ~2% of the soft limit. The 20-workers × 8-threads topology
+  spreads load over separate processes, each with its own 1024.
+- `gunicorn.log` contains exactly **one** `[Errno 24] Too many open
+  files`, at line 25272/58121 — inside a wall of `TranslateGemma failed`
+  timeouts. TranslateGemma was retired 2026-05-06, so that region
+  predates May; it was an M1-outage socket pile-up on a code path that
+  no longer exists. **Zero** occurrences in the last 5,000 lines.
+- Hunt's gunicorn runs at 1024 too, and `huntaegis_stack/ops/systemd/`
+  has no `limits.conf` at all — hunt never intended one. Arc's is an
+  orphan of the itc-stack era.
+
+**Verdict**: lower than intended, never approached. Install for
+correctness at the next arc-stack bounce; not worth its own intervention.
+
+### Backfill executed 2026-07-23 (Ross's call, overriding the above)
+
+Sidecars generated for `07-11`, `07-12`, `07-19` after all four archives
+passed independent verification. Provenance is recorded in
+**`/mnt/arcdata/backups/SIDECAR-PROVENANCE.md`** — read that before
+treating any sidecar here as a shippability token.
+
+**Format is deliberately identical to gate output** so a future shipper
+parses all of them the same way — which also means format alone cannot
+reveal provenance. Verified equivalent:
+
+| | bytes | lines | separator | trailing NL | `cut -d' ' -f1` |
+|---|---|---|---|---|---|
+| backfilled ×3 | 98 | 1 | 2 spaces | yes | 64 hex |
+| gate-issued `07-23` | 98 | 1 | 2 spaces | yes | 64 hex |
+
+(Hunt's are 104 bytes purely because `huntaegis_cold_` is 6 chars longer
+than `arc_cold_`.) A `#` provenance comment inside the sidecar was
+considered and rejected: GNU `sha256sum -c` tolerates comment lines, but
+a shipper parsing line 1 with `cut`/`awk` would read the comment as the
+hash. Provenance therefore lives beside the files, not inside them.
+
+**What the three backfilled sidecars attest**: the archive is unchanged
+since 2026-07-23, plus the independent verification recorded in the
+table above. **What they do not attest**: correct write on their capture
+date. That is unrecoverable after the fact.
+
+---
+
+## 2026-07-23 — `LimitNOFILE` drop-ins installed (arc-stack + arc-watchdog)
+
+Closes the mismatch between `arc-stack.service`'s documented intent
+(`LimitNOFILE=65536`, per its own install header) and the systemd default
+it was actually running with. Installed by Ross; values below are read
+back from `systemctl show`, not assumed.
+
+### What was installed
+
+```
+/etc/systemd/system/arc-stack.service.d/limits.conf      (root:root 644, 104 B)
+/etc/systemd/system/arc-watchdog.service.d/limits.conf   (root:root 644, 104 B)
+```
+
+Both are copies of `ops/systemd/limits.conf`. `systemctl daemon-reload`
+run. Verified effective:
+
+| unit | LimitNOFILESoft | LimitNOFILE (hard) |
+|------|-----------------|--------------------|
+| `arc-stack.service` | **65536** | 65536 |
+| `arc-watchdog.service` | **65536** | 65536 |
+
+The orphaned `/etc/systemd/system/itc-stack.service.d/` was removed
+(`itc-stack.service` has been `disabled` since 2026-07-21; that stale
+drop-in was the only place the 65536 intent had ever actually existed,
+which is why the value looked "configured" while not applying to arc).
+
+**Cosmetic**: both installed files carry the repo header comment
+`# arc-stack.service.d/limits.conf`, so the watchdog copy is misnamed in
+its own first line. Harmless — systemd ignores it. Split into a separate
+`ops/systemd/watchdog-limits.conf` if it ever causes confusion.
+
+### Why the watchdog drop-in matters — the non-obvious half
+
+`watchdog.sh:262` restarts a dead service with:
+
+```bash
+setsid bash -c "cd '$dir' && source '$VENV' && exec $cmd" &
+```
+
+Recovered services are spawned as the **watchdog's own children**, so
+they inherit `arc-watchdog.service`'s rlimits — *not* `arc-stack`'s.
+rlimits pass through fork/exec regardless of `setsid`, and the child
+stays in the watchdog's cgroup.
+
+Installing on `arc-stack` alone would therefore have been **incomplete in
+the worst possible way**: the limit would hold at boot, then silently
+revert to 1024 the first time the watchdog recovered a crashed service —
+i.e. precisely when the stack is already degraded and fd pressure is most
+likely. Both units need it or neither is meaningfully fixed.
+
+### Three start paths, three different limits — write this down
+
+The effective fd limit depended entirely on *how arc was last started*.
+This is what made the first pass at the fix look sufficient when it
+wasn't:
+
+| start path | soft limit before | after |
+|------------|-------------------|-------|
+| systemd boot (`arc-stack.service`) | 1024 (systemd default) | **65536** |
+| manual `./arc.sh start` from a terminal | 524288 (systemd **user** manager default) | unchanged — drop-in does not govern this path |
+| watchdog recovery restart | 1024 (inherited from `arc-watchdog.service`) | **65536** |
+
+Corollary: `/proc/<pid>/limits` on a *running* arc process tells you
+which path last started it, not what the unit is configured for. During
+this investigation the boot-time generation (soft 1024, in
+`/system.slice/arc-stack.service`) had already been replaced by a
+terminal-started generation (soft 524288, in a `vte-spawn-*.scope`), and
+`arc-stack.service`'s cgroup was **empty** while the unit still reported
+`active` — `Type=oneshot` + `RemainAfterExit=yes` means unit state says
+nothing about whether the services are alive. Check `arc.sh status`, not
+`systemctl is-active`.
+
+### Staged only — no bounce forced
+
+`daemon-reload` updates unit configuration; running processes keep the
+rlimits they were started with. Confirmed after install: live gunicorn
+(pid 111618) still shows soft 524288. The new value applies to whatever
+systemd or the watchdog starts next. **No restart was forced** — there
+was no fd pressure justifying one (see the fd-headroom measurements in
+the 2026-07-23 sidecar entry: 21–35 fds in use per process).
+
+### `LimitNOFILE=65536` sets soft *and* hard
+
+systemd applies a single value to both. On the systemd path the hard
+ceiling therefore drops 524288 → 65536. That is the intended
+configuration and what is installed now (`65536:65536`).
+
+If a higher ceiling is ever wanted — e.g. to let a process raise its own
+soft limit at runtime — the alternative is:
+
+```ini
+[Service]
+LimitNOFILE=65536:524288
+```
+
+which sets soft 65536 and leaves hard at 524288. Not installed; recorded
+so the trade-off doesn't have to be rediscovered.
+
+### Hunt is deliberately different — do not "fix" it
+
+`huntaegis_stack/ops/systemd/` has **no** `limits.conf` and never has.
+Hunt's gunicorn runs at the systemd default and has never shown fd
+pressure. Arc's 65536 was an inheritance from the itc-stack era, not a
+measured requirement — so this is arc catching up to its own documented
+intent, **not** a standard hunt is failing to meet. Porting it to hunt
+would be cargo-culting a number nobody has justified for either stack.
+
+---
+
+## 2026-07-23 — Off-host shipper built (Resolute → M1). NOT YET LIVE
+
+Closes the gap found in the sidecar investigation: every cold archive sat on
+`/dev/sda1` beside the live `library.db` it backs up, with no second copy
+anywhere. **Code is written and tested; the credential and M1 halves need
+Ross's hands — see "Activation" below. Until those are done, everything is
+still single-copy.**
+
+### Accepted risk: NO ENCRYPTION — SUPERSEDED 2026-08-27, see the entry at the
+### end of this file ("R9 closed: secrets stripped from cold archives"). This
+### section is kept for history — the reasoning below was sound at the time
+### and the `age` rejection still stands on its own merits — but the premise
+### (secrets ride in the archive, so the destination's disk state matters) no
+### longer holds. Do not re-derive policy from this section alone.
+
+Cold archives embed `backend/.env` (the known R9 issue: `ARC_ADMIN_PASSWORD`,
+OAuth secrets, `REDIS_PASSWORD`, Bluesky/Mastodon tokens). **Shipping them
+unencrypted widens that exposure from one host to two.** This is accepted
+deliberately, and ONLY because the destination is Ross-controlled,
+FileVault'd, and on the LAN, with transport over SSH.
+
+**Revisit immediately if the destination ever stops being Ross-controlled** —
+cloud, offsite, a friend's NAS, anyone else's hardware. That change alone
+invalidates the reasoning; do not carry the decision forward by inertia.
+
+`age` was evaluated and rejected on key custody, not effort. For an off-host
+backup to be useful when Resolute is dead, the private key must live somewhere
+that is not Resolute — practically the M1, beside the ciphertext, which yields
+nothing over FileVault. Key-only-on-Resolute makes the M1 copy unrecoverable in
+exactly the disaster it exists for. `age` would also have broken the arrival
+verification (`gzip -t`, `tar -tzf`, `redis-check-rdb` all need plaintext) and
+split the sidecar into two hash domains.
+
+**R9 is the real fix**: an encrypted secret store removes secrets from the
+archive at source, which beats wrapping 7 GB of ciphertext around them.
+
+### What ships, and what does not
+
+| class | contents | retention |
+|-------|----------|-----------|
+| arc cold | `arc_cold_*.tar.gz` + sidecar | byte budget, 22 GB |
+| hunt cold | `huntaegis_cold_*.tar.gz` + sidecar | byte budget, 8 GB |
+| statics | one corpus RDB + post-plantorium RDB | **never pruned** |
+
+**Eligibility**: only archives with a matching `.sha256` sidecar ship. No
+sidecar, a `.partial`, or a failed verification → skipped and logged.
+
+**Statics are verified in place, never re-transferred.** The 8.11 GB corpus RDB
+is already on the M1 from Ross's manual scp; re-shipping it would cost 8 GB of
+a 58 GB destination for nothing. They live in `/mnt/arcdata/backups/statics/`
+as **hardlinks** into `/mnt/arcdata/` — same filesystem, zero extra space, and
+`links=2` means an accidental `rm` on either path leaves the data intact. This
+keeps ONE `rrsync` confinement root and avoids a second credential.
+
+**The duplicate corpus RDB does not ship.** `redis-full-archive-2026-03-to-07`
+and `redis-pre-library-purge-2026-07-08` are **byte-identical** (both
+`02d873fe…`, verified 2026-07-23 — separate inodes, 1 link each, not
+hardlinks). Only the first is linked into `statics/`. The two names carry
+distinct provenance meaning (one names the *event*, one the *coverage*) even
+though the bytes are the same; that is recorded in
+`/mnt/arcdata/backups/statics/MANIFEST.md` so the omitted name's meaning is
+not lost.
+
+### Retention is a BYTE BUDGET, not a count — and the degrade is intended
+
+Measured growth: arc archives went 6.49 → 7.15 GB in 12 days (**+10.1%,
+≈1.65 GB/month**). A fixed "keep 3" would have silently overflowed the M1
+within ~6 months, at 04:30 on some Sunday. So retention keeps the **N most
+recent within a byte budget**, contiguously, always ≥1 per stack.
+
+As archives grow the retained COUNT drops — 3 arc copies today, 2 around
+November, 1 by mid-2027 on current trend. **This degrade path is correct
+behaviour, not a fault**, and it is deliberately never silent:
+
+- logged explicitly (`NOTE: retention degraded — holding N arc…`)
+- exported as `offsite_backup_retention_degraded`
+- alerted at `severity: info` via `OffsiteRetentionDegraded`
+
+A **10 GB floor is read at runtime** (`df`, never a constant) and the script
+refuses to transfer if the fetch would breach it — it exits 3 rather than
+shipping a partial set or wedging the disk.
+
+### Permissions: setgid is load-bearing
+
+Archives were `664` in a `775` dir — **world-readable, containing `.env`**.
+Now: `umask 027` in both stack scripts (files 640, dirs 750), group `bkread`,
+directory `2750 ross:bkread`.
+
+**The setgid bit is not cosmetic.** `umask` controls MODE, not GROUP: without
+setgid on `$COLD_BACKUP_DIR`, new archives land `ross:ross 640` and `bkpull`
+**cannot read them at all** — the shipper would silently find nothing eligible.
+Verified in scratch: setgid propagates the group *and* itself to nested dirs,
+so `huntaegis/` and `statics/` inherit correctly.
+
+`umask` placement differs by function, deliberately:
+- `cmd_backup_cold` — function-level `umask 027`. Safe: that path starts no
+  services.
+- `cmd_backup` (SSD) — `umask` scoped to a **subshell around the tar only**.
+  That function calls `cmd_stop`/`cmd_start`, and a function-level umask would
+  follow `cmd_start` into every service log and pidfile it creates.
+
+Verified end-to-end before any permission change: `huntaegis.sh backup-cold`
+under the new umask produced `huntaegis_cold_2026-07-23_2058.tar.gz` at
+`-rw-r-----`, gate passed, sidecar written and verifying, `host_config/`
+intact, staging cleaned.
+
+### The destination is a laptop — built for, not around
+
+The M1 is a MacBook Air. It sleeps. This is designed for explicitly:
+
+- `caffeinate -s` holds it awake for the transfer duration.
+- launchd runs a missed `StartCalendarInterval` at next wake, so the job
+  degrades to "whenever the lid opens" rather than failing outright.
+- **The dead-man alert is the PRIMARY freshness signal, not a nicety.** With a
+  sleeping destination, "no alert" is otherwise indistinguishable from "lid has
+  been shut for a week". `OffsiteBackupPullDead` fires at >10d.
+- **No alert on `up{job="m1_offsite"}`** — that flaps every time the laptop
+  sleeps and would train everyone to ignore the job.
+
+**The M1 is a sound FIRST copy, not a guarantee.** Freshness is genuinely
+unpredictable on a machine that is only sometimes on. If off-host backup is to
+be a real guarantee rather than a strong improvement, **an always-on
+destination is the better long-term target** — a NAS or a small always-on box.
+Treat the M1 as stage one.
+
+### Monitoring
+
+node_exporter on the M1 with the textfile collector publishes
+`offsite_backup_*`; Prometheus scrapes it as job `m1_offsite` — the **only
+non-localhost target** in `prometheus.yml`. Scraping it also yields the M1's
+disk-free, which is what the capacity alert keys on.
+
+**`prometheus.yml` is a single-file bind mount that pins the inode**, so an
+edit is invisible to the container until `docker restart arc-prometheus` —
+`/-/reload` is NOT enough. Confirmed again here: after editing, the container
+still grepped 0 occurrences of `m1_offsite`. The `rules/` directory is a
+directory mount, so rule edits ARE visible — but Prometheus does not watch rule
+files, so they stay inactive until reload/restart either way.
+
+### Activation — order matters
+
+**Do not `docker restart arc-prometheus` until the M1 side is live.** The
+rules are on disk but not loaded (verified: only `arc_capacity`, `arc_liveness`,
+`arc_pipeline`, `prediger_offsite` are active). On restart,
+`OffsiteBackupPullDead` uses `absent()` and will fire within 30m if the M1 is
+not yet reporting.
+
+That is not a false positive — until the shipper runs, there genuinely is no
+off-host copy and everything is single-copy on `/dev/sda1`. But it will be
+noisy through the setup window, so restart Prometheus **last**.
+
+Deliverables in the repo: `ops/m1-pull-backups.sh` (runs on the M1; lives here
+so it is version-controlled and rides in the cold archive).
+
+### 2026-07-23 — first live pull failed; shipper rewritten to v2
+
+The first run authenticated cleanly (SSH, forced command, and `from=` IP
+restriction all worked) but reported:
+
+> `nothing eligible on source — every archive lacks a sidecar?`
+
+**That message was wrong and it accused the wrong component.** Permissions were
+fine (`sudo -u bkpull ls -l` showed all seven archives + sidecars readable, 640
+`ross:bkread`, dirs `2750`) and the sidecars were fine. Two defects in v1, both
+mine:
+
+1. **Error masking.** `listing=$(rsync … 2>/dev/null | awk …) || alert` — the
+   `||` tests the PIPELINE's exit status, which is `awk`'s, and awk succeeds
+   even when rsync dies. The failure branch could never fire. `2>/dev/null`
+   then discarded the one message that would have explained anything. Verified
+   empirically: a deliberately broken rsync path yields exit status 0 and an
+   empty listing, and the script proceeds to blame the sidecars.
+2. **Format-dependent enumeration.** v1 parsed `--list-only`'s column layout
+   with `awk '{print $NF}'`. That works on GNU rsync 3.4.1 (confirmed — fed
+   real data the v1 logic finds all 7 archives correctly) but macOS ships
+   either rsync 2.6.9 or **openrsync**, both of which differ. `--out-format`
+   is not honoured under `--list-only`, so there was no clean way to pin the
+   format either.
+
+`rrsync` was NOT the cause — it maps a leading `/` onto the restricted root
+(`validated_arg`: `if arg.startswith('/'): arg = args.dir + arg`), so
+`host:/` resolves correctly. Confirmed by running rrsync directly with a
+synthetic `SSH_ORIGINAL_COMMAND`.
+
+**v2 fixes the class, not the instance:**
+
+- Nothing is silenced. rsync stderr is captured and echoed on failure; status
+  comes from the command directly, never from a downstream pipe.
+- **Eligibility no longer parses any listing output.** Sidecars are 98 bytes,
+  so v2 fetches the sidecars first and derives the eligible set from which ones
+  arrive — format-independent by construction, and it reuses the eligibility
+  rule as its own transport.
+- Ordering comes from the date-stamped **filename**, not `stat`/mtime — no
+  GNU/BSD `stat` divergence.
+- **Budget selection now happens BEFORE transfer.** v1 pulled everything
+  eligible then deleted the overflow: ~26.8 GB fetched to keep 22 GB, wasting
+  6.5 GB of LAN transfer every run. v2 selects 3 of 4 and never touches the 4th.
+- Per-archive transfer instead of one blob, so a mid-run failure leaves the
+  NEWEST archives complete and verified rather than dying at 90% of 27 GB.
+- **Preflight fails loudly**: detects openrsync and rsync < 3.1 by name and
+  version and exits 5 with `brew install rsync`, instead of degrading to
+  silence. New exit code 5 = preflight.
+- `remote_size()` is guaranteed to emit an integer — `$(( n + ))` is a hard
+  syntax error, not a zero.
+
+Retested after the rewrite: eligibility derivation (4 arc + 3 hunt, correctly
+ordered newest-first), budget selection (3 of 4 at today's sizes; degrades to 1
+at projected 13 GB sizes; keeps ≥1 when size lookup fails entirely), and
+arithmetic safety on unparseable/failed size lookups.
+
+**Lesson worth keeping**: the v1 failure message named the one thing that was
+healthy. An error path that cannot fire, plus a discarded stderr, turns any
+upstream fault into a confident lie about something else. Never `2>/dev/null` a
+command whose failure you intend to report, and never test `||` on a pipeline
+when you mean to test its first stage.
+
+---
+
 ## 2026-08-20 — Kokoro relocation: off the M1, resolute chosen over Spectre
 
 **Goal:** remove Kokoro's synthesis peak (~2.6 GB, per the 2026-08-19/20 M1
-bench) from the M1, an 8 GB fanless box that cannot be upgraded. Deliberately not conflated with the M1's separate, larger baseline
+bench) from the M1, an 8 GB fanless box that cannot be upgraded. Deliberately
+not conflated with the M1's separate, larger baseline
 problem — the pinned `gemma4:e2b` model's ~14.9 GB/hr paging (same entry).
 
 ### Bench: resolute vs Spectre
@@ -2157,3 +2794,377 @@ the full account.
 
 One cycle of data post-relocation isn't a trend, but 1/1 with zero deferrals
 despite a real concurrent 7.8 GB collision is a clean first result.
+
+## 2026-08-27 — R9 closed: secrets stripped from cold archives; Spectre replaces the M1 offsite
+
+Triggered by a disk-cleanup pass on the M1 that found it 90% full — `~/offsite`
+(the M1's copy of the cold-archive shipper's destination, see "Off-host
+shipper built" above) was 32 GB of the 90%, and Spectre was the obvious
+replacement destination (66 GB free, no memory pressure) *except* Spectre's
+disk is unencrypted (the July LUKS install was reversed) and the "Accepted
+risk: NO ENCRYPTION" section above gates that specifically on the destination
+being FileVault'd. Rather than encrypt the transport — evaluated and rejected
+again on the same key-custody grounds as before: a key that lives on either
+end defeats the disaster it exists to survive — R9 was closed at the source.
+`cmd_backup_cold` in both `arc.sh` and `huntaegis.sh` now excludes secrets
+from the archive entirely, so the FileVault condition no longer applies to
+this design. The M1's `~/offsite`, its LaunchAgent, and its copy of the
+shipper script are gone (see M1 cleanup notes elsewhere); Spectre is now
+being stood up as the pull destination.
+
+**What actually got excluded, found by three successive passes, not one —
+each fixed pass immediately surfaced the next gap:**
+
+1. `./backend/.env` — the originally-known R9 scope (`ARC_ADMIN_PASSWORD`,
+   `REDIS_PASSWORD`, OAuth secrets, Bluesky/Mastodon tokens).
+2. `./frontend/.env.local` (`AUTH_SECRET`, OAuth provider credentials —
+   see CLAUDE.md's env var table). **This was never in the "Accepted risk"
+   enumeration above — it was outside the original threat model, not a
+   deliberate exception.** Found only by empirically listing a freshly-built
+   archive (`tar -tzf`) and grepping for credential-shaped filenames, rather
+   than trusting the code comment's stated scope.
+3. `./secret/` — a directory at the stack root, present in **both** stacks,
+   holding one text file per third-party credential (Facebook, Bluesky,
+   GitHub, Google, LinkedIn ×2, Gmail app-password, Mastodon on arc,
+   `redis_password.txt`). Not referenced anywhere in the R9 tracking or the
+   "Accepted risk" section — a second, larger threat-model gap than #2.
+   Classified before excluding, per the standing rule that "reconfigurable,
+   not recoverable" doesn't hold uniformly for every file shape: checked
+   every file for PEM markers (`-----BEGIN...`, the signature of a private
+   key or certificate) and found **none** — no SSH keys, no service-account
+   keys, no certificates, in either stack's copy. Everything is a plain API
+   token / OAuth client secret / app password, all revocable/reissuable from
+   the respective provider's dashboard. `redis_password.txt` is the one
+   asterisk: reconfigurable, but rotating it means updating every consumer
+   (arc, hunt, and per `redis-db-ownership-map.md` LightBox shares Arc's
+   db0) together, not a single five-minute fix like the others.
+
+The sweep that found #3 also checked `host_config/` (Caddyfile + systemd
+units, both the live copies and the repo copies) and the rest of a full
+archive listing for anything PEM/key/cert-shaped, `.npmrc`/`.netrc`/AWS/kube
+credential-store conventions, and SSH private-key filename patterns
+(`id_rsa`, `id_ed25519`, etc.). Nothing else turned up. `backend/.env.example`
+and `frontend/.next/.../jsonwebtoken/` (the npm package, not a real token)
+were flagged by the sweep and checked individually — both harmless, left in.
+
+**Separate finding, not a backup issue at all**: arc's `secret/` directory was
+`775` with most files `644`/`664` — **world-readable on resolute's live
+filesystem**, independent of anything about backups or Spectre. Hunt's copy
+was already correctly `700`/`600`, so this was arc-specific drift, not a
+shared default that both stacks inherited. Means those credentials (Facebook,
+Bluesky, GitHub, Google, LinkedIn, Gmail, Mastodon, plus `redis_password.txt`
+which was separately already `600`) were readable by any local shell on
+resolute for an unknown period — first noticed 2026-08-27, not dated before
+that. Fixed on the spot (`chmod 700` dir, `chmod 600` files) since it's pure
+hardening with no downside; recorded here as a finding, not just a fix,
+because "was it actually exposed" matters more than "is it fixed now."
+
+**What a restore requires that it didn't before**: a cold archive no longer
+carries a runnable stack. After extracting one, `backend/.env`,
+`frontend/.env.local`, and `./secret/` must be supplied separately before the
+stack will start. **These values are reconfigurable, not recoverable** — that
+is the deliberate tradeoff Ross made closing R9, not a gap. If resolute is
+gone, expect to regenerate: `REDIS_PASSWORD` (coordinate across every
+consumer), `ARC_ADMIN_PASSWORD`, `AUTH_SECRET`, and every third-party token in
+`secret/` (a dashboard visit per provider, not a code change) — none of that
+data lives anywhere else, so restoring service after a total loss of resolute
+means new credentials everywhere before the stack is usable, not lost data.
+
+### Follow-up, same day — archive reshaped from ~19 GB to ~300 MB, IMPLEMENTED
+
+Ross's reframing after seeing the 19 GB `library.db` capture: *"Nothing I
+ingest actually matters, it's the ingestion code that needs backup, not the
+contents. Anything I already have is already obsolete — this is a system for
+analyzing current signals, not antique ones."* A cold archive should be code +
+config + rebuild-critical state, not a snapshot of everything ingested.
+
+**Inventoried by size, reproducibility checked per item, then dropped:**
+
+| Item | Size | Why dropped |
+|---|---|---|
+| `library.db` | 19.6 GB | Re-fetchable from Gutenberg (`library_fetcher.py`) — a download, not a loss |
+| Redis RDB | 171 MB | The ingested corpus — disposable per the principle |
+| Solr snapshot | 94 MB | Rebuildable from Redis (`kasmir7.py` has a re-index path already) |
+| `uploads/audio` | 5.2 GB, 1,741 files | Derives from `original_text` in the (also dropped) Redis RDB — keeping audio without the text it narrates is incoherent. Not "expensive but recoverable": without the text, it's unrecoverable without re-scraping dead URLs. Keep both or drop both; principle says drop both. |
+| `uploads/scraped` + loose `uploads/*` | 2.3 GB + 54 MB | Hero images, re-fetchable from `image_source_url` only while the source is still live — same disposability class as Redis |
+| `frontend/.next` | 379 MB | Build output, not previously excluded — `npm run build` regenerates it |
+
+**Kept, deliberately, against the size-minimizing instinct**: `.git` (251 MB).
+Despite `nightly-git-push.sh` already pushing both repos to GitHub nightly,
+Ross's call: *"a backup that depends on a third party being reachable isn't
+self-sufficient."* 251 MB is nothing at the new archive size.
+
+**Result: arc 314 MB, huntaegis 301 MB** (2026-08-27 06:55 run, both stacks) —
+under the ~355 MB target, verification gate passed, sidecars issued.
+
+**Two pre-existing breakages fixed before they hit an automated run:**
+1. The verification gate in both `arc.sh`/`huntaegis.sh` hard-required
+   `data_layer/redis-*.rdb` and `data_layer/solr-snapshot/` as archive
+   members — every future cold backup would have failed its own gate the
+   moment those stopped being captured. `required` member lists trimmed to
+   match what's actually in the archive now (`./backend/main.py`,
+   `./<stack>.sh`, `host_config/Caddyfile`).
+2. `spectre-pull-backups.sh`'s `verify_one()` extracted and `redis-check-rdb`'d
+   an embedded RDB as its structural check, and treated "no RDB found" as a
+   failure (`alert "no embedded RDB in $name"; return 1`) — every archive
+   from here on would have failed arrival verification. Now: absence of an
+   RDB is an explicit pass ("expected for the code+config shape, not a
+   failure"), logged as such; presence (an older archive still in rotation)
+   still gets checked.
+
+**Also fixed**: `--exclude="./upload/completed"` never matched — the actual
+path is `./backend/upload/completed` (missing prefix), so 3 small text files
+rode along despite the exclude every week. Both scripts now use the correct
+`./backend/upload/completed` / `./backend/upload/failed` paths.
+
+**A third secrets file, found only by the final verification sweep, not by
+any pattern anticipated in advance**: `backend/.env.May06` — a dated backup
+copy of `.env` sitting in arc's working tree (gitignored — `*.May[0-9]*` in
+`.gitignore` — so never committed, but tar doesn't consult `.gitignore` and
+was walking right past it). The original exact-name excludes
+(`--exclude="./backend/.env"`, `--exclude="./frontend/.env.local"`) don't
+catch dated or suffixed variants of either file. **Broadened both to globs**:
+`--exclude="./backend/.env*"` and `--exclude="./frontend/.env.local*"` — this
+also now excludes `backend/.env.example`/`frontend/.env.local.example` from
+the plain filesystem walk, which is fine and intentional: both are
+git-tracked (`git ls-files` confirms it in both stacks), so they still ride
+along via `.git`, which is kept. Confirmed via a fourth verification pass,
+this time explicitly including backup-file patterns (`.bak`, `.old`, `~`,
+`.orig`, `.swp`) in the sweep — turned up one more (`backend/sources.json.bak`,
+checked and confirmed to hold nothing but RSS feed URLs, harmless, left in).
+Three real secrets files were found by looking three separate times before
+this one was actually clean, at this same layer of "one more grep, done
+properly." No further items expected, but the standing lesson is: don't trust
+that a single sweep, however broad-seeming, was actually complete — verify
+against the archive that will actually ship, every time this list changes.
+
+**Retention changed from a byte budget to a plain count** in
+`spectre-pull-backups.sh` (see spectre standup notes elsewhere) — a byte
+budget stops meaning anything at ~300 MB/archive when the destination has
+66 GB free. `ARC_KEEP_COUNT=52` / `HUNT_KEEP_COUNT=52` (a year of weekly
+snapshots, ~18.5 GB total, still a fraction of what's available).
+
+## 2026-08-27 — audio_backfill.py redesigned: sliding window, not a batch job
+
+Same session, same principle applied a second time. The 2026-08-26 "263 run"
+(see the reboot/PID-death entry elsewhere) exposed the actual failure mode of
+the old design: it snapshotted a candidate list at launch and worked through
+it in order, so twelve hours in it was narrating articles that were fresh at
+launch and long stale, while articles published since launch weren't in its
+list at all. Ross: *"Any cycles spent on anything that isn't breaking news is
+old news."*
+
+**The 3,431-article full backfill is DECLINED, not deferred.** Recorded here
+explicitly because "deferred" implies it's still owed — it isn't. The old
+silence stays silent, on purpose.
+
+**New model**: every pass, silent articles published in the last
+`backfill_window_hours` (arc.cfg `[audio]`, default 2h, clamped 0.25-6h —
+same clamp shape as scribe's own `scan_lookback_hours`, so a wide value
+can't turn this back into a full backfill), newest first, rebuilt fresh from
+Redis on every single narration — not once per pass, once per *article*.
+Narrate the newest. Rebuild. Repeat. A **trailing** window, not fixed clock
+buckets — Ross's framing: article published at 06:58 should get most of a
+2-hour window of attention, not get cut off the moment the clock hits 07:00.
+An article that ages out before its turn is **permanently silent** —
+deliberate, stated plainly in the script's own docstring, not a bug to
+someone reading the code later.
+
+**No checkpoint, no resume logic, no give-up bookkeeping.** A process with no
+snapshot has no position to lose — restart it (planned, crashed, or a
+reboot) and it looks at what's silent in the current window and continues.
+Worst case: one lost in-flight synthesis, never a lost place in a list. The
+old `DEFER_BUDGET_SECONDS`/"gave up after 30 min" accounting is gone
+entirely — when Kokoro capacity frees up, the window re-evaluates fresh, so
+there's no risk of finishing a wait for a target that's since aged out. The
+age filter already dropped it if it aged out; no separate bookkeeping needed
+to notice.
+
+**Runs continuously now, not CLI-invoked.** `ops/systemd/audio-backfill.service`
+— `Restart=always` with real backoff (`RestartSteps=5`,
+`RestartMaxDelaySec=60`, systemd 259 on resolute supports it),
+`WantedBy=multi-user.target` so it starts at boot with no login session.
+This is the actual fix for the 2026-08-26 death: `nohup` detaches from the
+terminal but **not** from `user@1000.service`'s scope, which is exactly why
+that run died at 90/263 on a reboot rather than surviving it. Resolute has no
+FileVault-equivalent boot gate blocking a no-login start (unlike the M1), so
+this works here. **Not yet installed** — needs a root step (`cp` to
+`/etc/systemd/system/`, `daemon-reload`, `enable --now`) and then an actual
+reboot to confirm survival, not just `systemctl restart`. Both pending Ross.
+
+The 13:59-19:01 weekday peak-hour blackout (arc.cfg `[audio]`) still applies,
+unchanged in spirit from the old version, but now **idles** through the
+window (`wait_out_peak` loops in place, doesn't return/exit) specifically so
+`Restart=always` doesn't see the blackout as a crash and loop-restart the
+daemon every `RestartSec` for five hours straight.
+
+### Should this merge with scribe's own live audio pass? Not yet — reported, not done
+
+Asked to report, not act. They now do a similar-*sounding* job (keep recent
+silent articles narrated, don't bother with old ones), but the mechanisms and
+guarantees differ in one way that matters:
+
+- **Window shape differs.** Scribe's pass (`_audio_scan_window` in
+  `scribe.py`) is **rank-based**, not time-based: top-N of the feed ZSET,
+  where N is derived from a 6h lookback but clamped 50-500 by *count*. An
+  article can still be in scope well past 6h old if publish volume was low.
+  The new daemon's window is a **hard time cutoff** — nothing past
+  `backfill_window_hours` is ever considered, full stop. These aren't the
+  same policy expressed two ways; they're different policies that happen to
+  overlap most of the time.
+- **The peak-hour blackout is the concrete reason to keep them separate for
+  now.** The daemon idles 13:59-19:01 weekdays; scribe's pass has never had
+  that blackout and isn't gated by it. If they merged into one mechanism,
+  either peak-hour coverage disappears entirely (scribe stops narrating
+  fresh articles for 5 hours every weekday) or the blackout has to get bolted
+  into scribe's main loop too — a bigger, more invasive change than what was
+  asked for here. As it stands, scribe's pass is the thing keeping breaking
+  news narrated *during* the blackout window; that's a real functional
+  reason for the two to coexist, not just inertia.
+- **Coupling differs.** Scribe's pass runs once per its own ~13-minute
+  ingestion cycle, embedded in a process with many other responsibilities —
+  if scribe is busy or restarting, audio narration pauses too. The daemon is
+  a dedicated, continuously-running systemd unit with no other job, checking
+  far more frequently (every completed narration, not every 13 minutes).
+
+Net: real functional difference (peak-hour handling), not just two code
+paths doing the same thing twice. Leaving both in place. If the peak-hour
+blackout is ever removed or generalized into scribe's own loop, this
+question is worth reopening — the rank-vs-time window difference alone
+probably isn't enough reason to keep them apart forever.
+
+## 2026-08-27 — Boot-race defense: redis-server ordering + wait_for_redis
+
+Two things landed together, in the order below. Both are DEFENSIVE, not
+repairs — nothing was actively broken today; the checkup fix (same-day
+entry above? see arc.sh cmd_checkup) surfaced the failure mode, not the
+other way around.
+
+### Part 1 — Three dangling systemd units named redis.service
+
+`soc.service`, `lightbox_backend.service`, and `pt.service` ordered
+`After= redis.service` — same shape as the arc-stack/huntaegis-stack unit
+files carried until the 2026-07-21 fix (see that entry above).
+
+**What's actually on the box** — worth writing down so nobody re-reports
+this as a live defect:
+
+- `/etc/systemd/system/redis.service` is a symlink to
+  `/usr/lib/systemd/system/redis-server.service`, dated **2025-05-08** —
+  it's installed by the Debian `redis` package's postinst as an alias.
+- Systemd resolves aliases, so `After=redis.service` DOES enforce
+  ordering today on this host.
+- The fix is defensive: a fresh install without the redis package's
+  alias symlink, or a package reconfigure that dropped it, would
+  silently leave those units with no Redis ordering at all — the
+  `After=` line would read as protection while not being any. Canonical
+  name removes that fragility.
+
+Sources of truth updated in-repo:
+
+- `/home/www/claude_stack/ops/systemd/soc.service` (new — no prior repo
+  copy existed; the installed version was the only source of truth).
+- `/home/www/claude_stack_vid/backend/lightbox_backend.service`
+  (reconverged with the installed unit — repo drift: `User=www-data` in
+  the repo vs `User=ross` installed; missing `SyslogIdentifier`,
+  `network-online`).
+- `/home/www/claude_horst/pt.service`.
+
+Installer (idempotent, diffs each file, backs up under
+`/root/systemd-backups-<ts>/`):
+
+```
+sudo bash /tmp/claude-1000/.../scratchpad/install-redis-server-fix.sh
+```
+
+Post-install check:
+
+```
+for u in soc lightbox_backend pt; do
+  systemctl show "$u.service" -p After | grep -io 'redis-server.service' \
+    || echo "$u: still not on canonical name"
+done
+```
+
+### Part 2 — wait_for_redis on every boot-start Redis consumer
+
+`redis-server.service` reports `started` to systemd the moment its
+process forks, not when the on-disk dataset is done loading. Every
+`After=redis-server.service` consumer that connects and issues a
+command during the load window gets `BusyLoadingError "Redis is
+loading the dataset in memory"`. Sampled 2026-08-27 boot: no backend
+daemon in either arc or hunt caught it — they either raised at first
+PING (killed by their own CRITICAL branch, restart-looped until Redis
+finished loading) or degraded silently behind a broader `except`. Same
+failure-mode family as the poster's counter-analyst fallback: designed
+to survive, so nobody notices it's been the normal case.
+
+Ordering is necessary but insufficient — the runtime retry is what
+actually closes the load window.
+
+New shared helper: `backend/redis_readiness.py::wait_for_redis`. Same
+60s/2s shape as `sync_intel.sh` (proven under boot pressure). One PING
+on a ready Redis, so callers can gate every startup unconditionally
+with no runtime cost when Redis is healthy. Single WARNING on the first
+miss and one INFO on clear — no log flood if the wait is long.
+
+Coverage on arc.sh boot-start daemons:
+
+| daemon | site of gate | mechanism |
+|---|---|---|
+| gunicorn (`main.py`) | Flask boot block | inline after `redis.from_url` |
+| `scribe` | module-init try block | inline after `redis.Redis(...)` |
+| `analyzer` | module-init try block | inline after `redis.Redis(...)` |
+| `mailer` | `get_redis()` factory | inside factory — every caller inherits |
+| `stream_consumer` | `stream_utils.get_redis_connection()` | inside factory |
+| `manual_publisher` | `stream_utils.get_redis_connection()` | inside factory |
+| `bluesky_poster` | `make_redis()` factory | inside factory |
+| `mastodon_poster` | `make_redis()` factory | inside factory |
+| `facebook_poster` | `make_redis()` factory | inside factory |
+| `threads_poster` | `make_redis()` factory | inside factory |
+| `character_builder` | module top | inline after `redis.from_url` |
+| `quiz_generator` | module top try block | inline after `redis.from_url` |
+| `corpus_exporter` | `main()` entry | inline after `redis.Redis(...)` |
+| `audio_backfill` (`audio-backfill.service`) | `run()` entry | inline after `redis.Redis(...)` |
+
+Deliberately NOT gated (documented for the reader):
+
+- `caddy_exporter` — doesn't touch Redis. Confirmed by grep.
+- `watchdog` — shell, no Python surface.
+- Docker `frontend` — no direct Redis.
+- `kasmir7.py` (TUI) — fast-fail is the right behavior when a human is
+  at the keyboard. `sync_intel.sh` gates in the shell before invoking
+  it, so the cron path is covered.
+- `user_prefs.py`, `auth.py`, `translation.py`, `grade.py`,
+  `quiz_api.py`, `rss_feed.py` — imported by `main.py` AFTER its gate,
+  so import order guarantees Redis is ready when their bodies run.
+- All `backfill_*.py`, `cleanup.py`, `retention.py`, `reindex_solr.py`,
+  `library_fetcher.py`, `score_library.py` — cron or manual, well past
+  boot.
+
+Hunt gets the same treatment for its parallel set (minus
+`threads_poster`, `quiz_generator`, `audio_backfill`, which Hunt
+doesn't ship). See `huntaegis_stack/ops/RUNBOOK.md`.
+
+claude_horst gets its own copy of `redis_readiness.py` and gates
+`backup.py` (hourly `nightly-check` cron — same cron-timing exposure
+as `sync_intel.sh`) and `app.py` (`pt.service`).
+
+`claude_stack` (soc.service) and `claude_stack_vid`
+(lightbox_backend.service) got the unit-file ordering fix in Part 1 but
+NOT the Python readiness retry on this pass. Their startup will now
+correctly wait for `redis-server` to fork, but they still can't
+handle the load window. Add on a session that's actually working in
+those repos.
+
+### Sync_intel timestamp fix (subordinate to the same commit)
+
+`backend/sync_intel.sh` and its hunt sibling: interior `print()` calls
+from `kasmir7.connect_redis` / `generate_*` used to land in the log
+un-timestamped. `cmd_checkup`'s time gate had no way to age them out —
+the pre-existing 9 undated Redis-loading messages from boot-adjacent
+cron fires floated to the tail forever. Prefixed every line with
+`YYYY-MM-DD HH:MM:SS` inside the shell, matching the format the awk
+regex in `cmd_checkup` already recognizes. Also added a Python
+readiness gate inside the wrapper before `import kasmir7`, so a
+boot-adjacent cron fire doesn't get the load-window BusyLoadingError.

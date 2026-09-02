@@ -59,10 +59,14 @@ cd frontend && npm run lint
                            # WebP variants), backend/.env (known R9 issue), and data_layer/
                            # with a consistent Redis RDB (redis-cli --rdb), a Solr
                            # replication-handler snapshot, and an sqlite .backup of
-                           # /mnt/arcdata/library.db.
-                           # Does NOT contain: host config outside the repo (Caddyfile,
-                           # redis.conf, crontab, systemd units — documented in
-                           # ops/RUNBOOK.md but not captured) or logs.
+                           # /mnt/arcdata/library.db. Plus host_config/ with
+                           # /etc/caddy/Caddyfile (sole server of /uploads/* — a
+                           # required member, no Caddyfile no archive) and the
+                           # installed systemd units + drop-ins (drift record; the
+                           # repo's ops/systemd/ copies remain the source of truth).
+                           # Does NOT contain: the rest of the host config outside the
+                           # repo (redis.conf, crontab — documented in ops/RUNBOOK.md
+                           # but not captured) or logs.
 ```
 
 ### Docker Compose (alternative to arc.sh)

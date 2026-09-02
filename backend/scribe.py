@@ -285,13 +285,16 @@ SOURCES_WARN = int(_integrity.get("warn_sources", 0) or 0)
 
 
 def _enforce_sources_floor():
-    """Refuse to start on a silently-truncated sources.json.
+    """Refuse to start on an unexpectedly-small sources.json.
 
-    A truncated JSONL file parses cleanly line by line, so nothing
-    downstream complains when the file is clobbered (see 2026-09-01:
-    arc's sources.json dropped 2,310 → 30 in the working tree and
-    scribe kept sweeping the fragment for 36 hours before anyone
-    noticed). Guard:
+    Failure mode this guard exists for: sources.json is JSONL, and a
+    truncated JSONL file parses cleanly line by line — every remaining
+    record is still valid JSON. Feed-parsing, sweeping, dedup, and
+    every downstream stage all keep working on the fragment, so an
+    unintended shrink produces no error signal anywhere. Scribe just
+    quietly sweeps a fraction of the corpus.
+
+    Bands:
         count < SOURCES_MIN  → ERROR + SystemExit (probable clobber)
         count < SOURCES_WARN → WARNING + start (likely deliberate prune)
         count ≥ SOURCES_WARN → INFO with count
@@ -300,8 +303,9 @@ def _enforce_sources_floor():
 
     Override: ARC_ALLOW_SMALL_SOURCES=1 downgrades the hard refusal to
     a WARNING for that run, so operator experiments (deliberately
-    small sources.json) don't need a cfg edit. The override is logged
-    at ERROR so a forgotten flag stays visible in the log.
+    small sources.json — e.g. partitioning tests on the working-tree
+    file) don't need a cfg edit. The override is logged at ERROR so a
+    forgotten flag stays visible in the log.
     """
     if SOURCES_MIN <= 0 and SOURCES_WARN <= 0:
         return  # guard disabled
@@ -2164,9 +2168,10 @@ def main():
     logger.info(f"   ⚡ Priority queue: {REDIS_PRIORITY_QUEUE_KEY} (processed each cycle)")
     logger.info(f"   📋 Red/Blue/Purple: deferred to analyzer.py (on-demand)")
 
-    # Fail-fast on a truncated sources.json — the 2026-09-01 incident
-    # (2310 → 30 records, 36 hours of silent partial sweeps) is why.
-    # No-op when [integrity] is disabled (both bounds 0).
+    # Fail-fast on an unexpectedly-small sources.json — truncated JSONL
+    # parses cleanly line by line, so a shrunk file produces no error
+    # signal anywhere downstream. No-op when [integrity] is disabled
+    # (both bounds 0).
     _enforce_sources_floor()
 
     # Reap any orphan Playwright browsers left by a prior crashed scribe.

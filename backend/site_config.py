@@ -62,10 +62,9 @@ DEFAULTS = {
         "sources_file": "backend/sources.json",
     },
     # sources.json floor guard — a truncated JSONL parses cleanly line by line,
-    # so nothing downstream complains when the file is clobbered from thousands
-    # of records to a handful (see 2026-09-01: arc dropped 2310→30, scribe kept
-    # sweeping the fragment for 36 hours before anyone noticed). Both bounds
-    # default to 0 = disabled; each site opts in via its own [integrity] block.
+    # so a shrunk sources.json produces no error signal anywhere downstream:
+    # scribe just quietly sweeps a fraction of the corpus. Both bounds default
+    # to 0 = disabled; each site opts in via its own [integrity] block.
     "integrity": {"min_sources": 0, "warn_sources": 0},
     "pipeline": {
         "sentinel_timeout_s": 900,

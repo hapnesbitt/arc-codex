@@ -1,0 +1,93 @@
+Here's the work order for Ceci:
+
+---
+
+**Task: fix scribe startup crash, then diagnose the stale pid behind it**
+
+Scribe on `arc` will not start. `arc start scribe` fails immediately, every attempt, with this traceback:
+
+```
+File "/home/www/arc_stack/backend/scribe.py", line 2331, in <module>
+    main()
+  File "/home/www/arc_stack/backend/scribe.py", line 2103, in main
+    startup_kill_zombies()
+  File "/home/www/arc_stack/backend/playwright_tier3.py", line 169, in startup_kill_zombies
+    if not _proc_has_signature(p.info["pid"]):
+  File "/home/www/arc_stack/backend/playwright_tier3.py", line 149, in _proc_has_signature
+    with open(f"/proc/{pid}/environ", "rb") as f:
+ProcessLookupError: [Errno 3] No such process: '/proc/138179/environ'
+```
+
+This is blocking a recovery: `sources.json` was truncated from 2,310 records to 30 in the working tree on Sep 1, restored from HEAD today, and scribe cannot reload the full corpus until it starts. Treat the fix as urgent and the diagnosis as follow-on.
+
+**Part 1 — make startup survive an unreadable pid.**
+
+`/proc/PID/environ` for a dead pid raises `ProcessLookupError` (ESRCH), not `FileNotFoundError` (ENOENT). Whatever the current `except` clause is, it doesn't cover ESRCH. A pid that can't be read is by definition not a zombie we need to kill, so failing to `False` is correct behavior, not error suppression.
+
+In `backend/playwright_tier3.py` around line 149:
+
+```python
+def _proc_has_signature(pid: int) -> bool:
+    """True if this pid's environ carries our marker.
+
+    Any read failure -> False. ProcessLookupError (ESRCH) is the common one.
+    A process we can't read is not a zombie we need to kill. PermissionError
+    means it isn't ours to inspect. Do NOT narrow this to FileNotFoundError —
+    /proc/PID/environ on a dead pid raises ESRCH, not ENOENT.
+    """
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as f:
+            environ = f.read()
+    except OSError:
+        return False
+    return PLAYWRIGHT_SIGNATURE in environ   # keep the existing marker check
+```
+
+And the caller at line 169, so a single bad pid can't take down startup:
+
+```python
+for p in psutil.process_iter(["pid", "name", "cmdline"]):
+    try:
+        if not _proc_has_signature(p.info["pid"]):
+            continue
+        # ... existing kill logic ...
+    except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+        continue
+```
+
+`psutil.Error` is not an `OSError` subclass — both need naming explicitly.
+
+Then start scribe, confirm a fresh PID, and verify it's sweeping the restored corpus rather than the 30-source remnant:
+
+```bash
+grep -oP 'https?://\K[^/]+' /home/www/arc_stack/logs/scribe.log | tail -500 | sort -u | wc -l
+```
+
+**Part 2 — find out why the pid is always 138179.**
+
+The pid is identical on every attempt. A genuine TOCTOU race against `process_iter()` would show a different pid each time. A fixed pid means one of two things, and I want to know which:
+
+(a) `startup_kill_zombies` is reading pids from something persistent — a pidfile, a Redis key, a state file — rather than live from the process table. If so, a stale record survives across restarts and will keep accumulating.
+
+(b) 138179 is genuinely in the process table but unreadable — a true zombie in the reaped-but-not-waited sense, where `ps` lists it and `/proc/PID/environ` returns ESRCH. That's a real state and the function is named for it.
+
+Start here:
+
+```bash
+cd /home/www/arc_stack/backend
+sed -n '140,180p' playwright_tier3.py          # what does the loop actually iterate?
+ps -o pid,stat,ppid,cmd -p 138179              # still present? what state?
+grep -rn "138179" /home/www/arc_stack/ --include="*.json" --include="*.pid" --include="*.state" 2>/dev/null
+redis-cli --scan --pattern '*playwright*'
+redis-cli --scan --pattern '*zombie*'
+```
+
+If it's (a), clear the stale entry and make the writer remove its record on exit. If it's (b), the pid's parent isn't reaping — find the parent and decide whether `startup_kill_zombies` should be skipping `Z`-state processes outright, since they can't be killed anyway.
+
+**Part 3 — check huntaegis for the same defect.**
+
+`huntaegis_stack` has its own copy of `playwright_tier3.py`. The two stacks have been the silent halves of shared defects twice before (PD-05, and the council load gate). Grep both stacks for any other raw `/proc/{pid}/...` read inside a psutil loop, and apply the same `OSError` guard wherever it appears.
+
+**Part 4 — add a floor check on sources.json.**
+
+Separate from the above, related to the recovery. A truncated JSONL file parses cleanly — the 30-line `sources.json` was valid JSON on every line, which is why nothing upstream complained for 36 hours. Add a startup guard in scribe: if `sources.json` has fewer than ~2,000 records, log at ERROR and refuse to start rather than silently sweeping a fraction of the corpus. Put the threshold in `arc.cfg`, not in the `.py`.

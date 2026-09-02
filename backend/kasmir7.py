@@ -9,15 +9,15 @@
 #   - [10] A.R.C. Pattern Scanner — scans purple_team_analysis across corpus,
 #          ranks ARC-0001..0048 by detection frequency, drills into articles
 #          per pattern. Shows the rhetorical fingerprint of the news cycle.
-#   - [2d] Remove by Chimera Score threshold — prune divisive/low-quality
-#          articles below a score, or outliers above one.
+#   - [2d] Remove by Chimera Score threshold — prune by readability
+#          difficulty below a score, or outliers above one.
 #   - [2e] Remove by Sentinel verdict — batch-delete SYNTHETIC, UNCERTAIN,
 #          or HUMAN-flagged articles.
 #   - [3]  Trim by directive — rebalance corpus by pruning oldest N from one
 #          directive without touching others.
 #   - [4]  Inspect now shows ARC patterns detected in purple_team_analysis
 #          and domain / language / sentinel fields.
-#   - [1]  Research now supports chimera score filter (e.g. >0.6 or <0.3).
+#   - [1]  Research now supports chimera score filter (e.g. >70 or <20).
 #
 # Changelog v7.1:
 #   - Emergency removal: [2b] Remove by Domain (TLD) — full domain match
@@ -219,6 +219,26 @@ def _get_chimera_score(data):
         pass
     return None
 
+
+# chimera_score means different things on the two stacks (same fork split
+# documented in mailer.py and IntelligenceCard.tsx): on Hunt it's a 0-1
+# objectivity ratio, on Arc — this stack — it's a 0-100 readability
+# difficulty composite (compute_chimera in main.py: avg of FK/Coleman-Liau/
+# SMOG/Dale-Chall grade levels, 0=Kindergarten .. 100=Quantum
+# Electrodynamics). Hunt's kasmir7.py has near-identical inspect-article
+# code that's CORRECT there (0-1 thresholds, "divisive/low-quality"
+# framing) — this file inherited it unchanged, which on Arc's 0-100 scale
+# meant `chimera < 0.3`/`< 0.6` were true for almost nothing, the bar's
+# max_value=1.0 overflowed to hundreds of block characters, and the label
+# described objectivity for a field that measures difficulty. Fixed
+# 2026-08-27 — see ops/RUNBOOK.md. Don't resync this block from Hunt's copy.
+def _chimera_color(score):
+    """Color band for Arc's 0-100 chimera_score. Not a value judgment the
+    way objectivity's red/green was — green/accessible, red/dense is just
+    the readable convention for a difficulty metric on a general news feed."""
+    return 'green' if score < 30 else ('yellow' if score < 60 else 'red')
+
+
 def _scan_arc_patterns(text):
     """Return list of ARC codes mentioned in a text block."""
     found = []
@@ -315,7 +335,11 @@ def research_articles(r, solr):
     query            = input("Search query (leave blank for filter-only): ").strip()
     start_date_input = input("Start date (YYYY-MM-DD, optional): ").strip()
     end_date_input   = input("End date (YYYY-MM-DD, optional): ").strip()
-    score_filter     = input("Chimera score filter (e.g. >0.6  <0.3  blank=none): ").strip()
+    # Arc's chimera_score is 0-100 readability difficulty, not Hunt's 0-1
+    # objectivity ratio — see the note above _chimera_color. The comparison
+    # below is scale-agnostic (just compares whatever's typed against the
+    # raw stored value), so this only needed the example text fixed.
+    score_filter     = input("Chimera score filter (e.g. >70  <20  blank=none): ").strip()
 
     score_op, score_val = None, None
     if score_filter:
@@ -324,7 +348,7 @@ def research_articles(r, solr):
             score_op  = m.group(1)
             score_val = float(m.group(2))
         else:
-            print(colored("⚠️  Score filter ignored — use format >0.6 or <0.3", "yellow"))
+            print(colored("⚠️  Score filter ignored — use format >70 or <20", "yellow"))
 
     def passes_score(data):
         if score_op is None:
@@ -404,7 +428,7 @@ def research_articles(r, solr):
                 continue
 
         s = _get_chimera_score(data)
-        score_str = f'  χ={s:.2f}' if s is not None else ''
+        score_str = f'  χ={s:.0f}' if s is not None else ''
         matches.append((raw_ts, data.get("title", ""), article_id, score_str))
 
     print(f"Found {colored(str(len(matches)), 'cyan')} results:")
@@ -618,13 +642,22 @@ def remove_by_language(r, solr):
 
 
 def remove_by_score(r, solr):
-    """[2d] Remove articles above or below a chimera_score threshold."""
+    """[2d] Remove articles above or below a chimera_score threshold.
+
+    On Arc — this stack — chimera_score is a 0-100 readability-difficulty
+    composite (FK/Coleman-Liau/SMOG/Dale-Chall averaged; see main.py's
+    compute_chimera), NOT an objectivity ratio. Hunt's copy of this
+    function is correct for its own 0-1 objectivity field; don't resync
+    this prompt text from there. Fixed 2026-08-27 — see ops/RUNBOOK.md,
+    same fork-split confusion as the mailer digest bug and kasmir7's own
+    inspect-article display.
+    """
     print(colored("\n--- [2d] Remove by Chimera Score ---", "cyan"))
-    print("Chimera score: 0.0 = maximally divisive/emotional, 1.0 = maximally objective.")
+    print("Chimera score: 0 = easiest (Kindergarten), 100 = hardest (Quantum Electrodynamics).")
     print("Examples:")
-    print("  <0.2  — nuke the most divisive/inflammatory articles")
-    print("  <0.3  — prune low-quality bottom tier")
-    print("  >0.95 — remove suspiciously 'clean' outliers (sanity check)\n")
+    print("  <10   — suspiciously trivial (likely a stub/junk scrape, not real prose)")
+    print("  >90   — extreme outliers (genuinely dense text, or a parsing artifact worth checking)")
+    print("  >70   — prune the densest tier if it's skewing the feed's reading level\n")
 
     expr = input("Score expression (e.g. <0.2): ").strip()
     if not expr:
@@ -679,9 +712,8 @@ def remove_by_score(r, solr):
 
     print(colored(f"\nDRY RUN — {len(matching)} article(s) with score {op}{val}:", "yellow"))
     for _, aid, title, s in matching[:25]:
-        bar = _bar(s, 1.0, width=20)
-        score_color = 'red' if s < 0.3 else ('yellow' if s < 0.6 else 'green')
-        print(f"  χ={colored(f'{s:.3f}', score_color)} [{bar}] {title[:52]}")
+        bar = _bar(s, 100.0, width=20)
+        print(f"  χ={colored(f'{s:.0f}', _chimera_color(s))} [{bar}] {title[:52]}")
     if len(matching) > 25:
         print(f"  ... and {len(matching) - 25} more")
 
@@ -948,15 +980,15 @@ def inspect_article(r, solr):
     print(colored("\n--- Chimera Score ---", "yellow"))
     chimera = _get_chimera_score(data)
     if chimera is not None:
-        bar = _bar(chimera, 1.0, width=35)
-        score_color = 'red' if chimera < 0.3 else ('yellow' if chimera < 0.6 else 'green')
-        print(f"  {colored(f'{chimera:.3f}', score_color)} [{bar}]")
-        if chimera < 0.3:
-            print(colored("  ⚠️  Low score — high emotional/divisive content flagged", "red"))
-        elif chimera < 0.6:
-            print(colored("  ℹ️  Moderate score — some framing concerns", "yellow"))
+        bar = _bar(chimera, 100.0, width=35)
+        score_color = _chimera_color(chimera)
+        print(f"  {colored(f'{chimera:.0f}/100', score_color)} [{bar}]")
+        if chimera < 30:
+            print(colored("  ℹ️  Accessible — general-audience reading level", "green"))
+        elif chimera < 60:
+            print(colored("  ℹ️  Moderate — some technical/dense language", "yellow"))
         else:
-            print(colored("  ✅ High score — largely objective framing", "green"))
+            print(colored("  ⚠️  Dense — advanced reading level, verify NLP quality", "red"))
     else:
         print(colored("  No chimera score available", "dark_grey"))
 
@@ -1322,7 +1354,11 @@ def intelligence_dashboard(r, solr):
         s = _get_chimera_score(data)
         if s is not None:
             scores.append(s)
-            bucket = min(int(s * 10), 9)
+            # Arc's chimera_score is 0-100, not Hunt's 0-1 — see the note
+            # above _chimera_color. int(s * 10) collapsed every real score
+            # into bucket 9 via the min() clamp; int(s / 10) buckets by
+            # actual 10-point grade-level bands. Fixed 2026-08-27.
+            bucket = min(int(s / 10), 9)
             score_buckets[bucket] += 1
 
         for field in TRACKED_FIELDS:
@@ -1390,26 +1426,26 @@ def intelligence_dashboard(r, solr):
 
     # --- Chimera score histogram ---
     print()
-    print(colored("  CHIMERA SCORE DISTRIBUTION   0.0=divisive → 1.0=objective", "yellow"))
+    print(colored("  CHIMERA SCORE DISTRIBUTION   0=accessible → 100=dense (readability difficulty)", "yellow"))
     if scores:
         avg_score = sum(scores) / len(scores)
         max_bucket_val = max(score_buckets.values()) if score_buckets else 1
         for i in range(10):
-            label = f"{i/10:.1f}–{(i+1)/10:.1f}"
+            label = f"{i*10:>3}–{(i+1)*10:<3}"
             count = score_buckets.get(i, 0)
             pct   = count / scored_count * 100 if scored_count else 0
-            bucket_color = 'red' if i < 3 else ('yellow' if i < 6 else 'green')
+            bucket_color = 'green' if i < 3 else ('yellow' if i < 6 else 'red')
             bar = _bar(count, max_bucket_val, W)
             print(f"  {colored(label, bucket_color)}  {count:>5}  {pct:>4.1f}%  {bar}")
 
-        avg_color = 'red' if avg_score < 0.3 else ('yellow' if avg_score < 0.6 else 'green')
+        avg_color = _chimera_color(avg_score)
         print()
-        print(f"  Average  : {colored(f'{avg_score:.3f}', avg_color)}  {_bar(avg_score, 1.0, W)}")
-        low_count = sum(1 for s in scores if s < 0.3)
-        high_count = sum(1 for s in scores if s >= 0.7)
-        print(f"  Low  (<0.3) : {colored(str(low_count), 'red')} articles  "
+        print(f"  Average  : {colored(f'{avg_score:.1f}', avg_color)}  {_bar(avg_score, 100.0, W)}")
+        low_count = sum(1 for s in scores if s < 30)
+        high_count = sum(1 for s in scores if s >= 70)
+        print(f"  Accessible (<30) : {colored(str(low_count), 'green')} articles  "
               f"({low_count/scored_count*100:.1f}% of scored)")
-        print(f"  High (≥0.7) : {colored(str(high_count), 'green')} articles  "
+        print(f"  Dense      (≥70) : {colored(str(high_count), 'red')} articles  "
               f"({high_count/scored_count*100:.1f}% of scored)")
     else:
         print(colored("  No scored articles found.", "yellow"))
@@ -1620,8 +1656,7 @@ def _inspect_by_id(r, solr, article_id):
     print(f"  Sentinel : {data.get('sentinel_verdict', 'N/A')}")
     s = _get_chimera_score(data)
     if s is not None:
-        sc = 'red' if s < 0.3 else ('yellow' if s < 0.6 else 'green')
-        print(f"  Chimera  : {colored(f'{s:.3f}', sc)}")
+        print(f"  Chimera  : {colored(f'{s:.0f}/100', _chimera_color(s))}")
     purple = data.get('purple_team_analysis', '')
     if purple:
         found = _scan_arc_patterns(purple)
@@ -1683,8 +1718,7 @@ def my_publications(r, solr):
         print(f"  Image    : {data.get('imageUrl', 'N/A')}")
         s = _get_chimera_score(data)
         if s is not None:
-            sc = 'red' if s < 0.3 else ('yellow' if s < 0.6 else 'green')
-            print(f"  Chimera  : {colored(f'{s:.3f}', sc)}")
+            print(f"  Chimera  : {colored(f'{s:.0f}/100', _chimera_color(s))}")
         action = input("\n  [r] Remove  [q] Back: ").strip().lower()
         if action == 'r':
             confirm = input(f"  Remove '{title[:50]}'? (yes/no): ").strip()

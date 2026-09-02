@@ -89,7 +89,10 @@ const getDirectiveConfig = (directive: string) => {
 };
 
 const getChimeraColors = (score: number) => {
-  // score is 0..1 from search; convert to 0-100 difficulty
+  // chimera_score is already 0-100 (Arc's readability composite) — no scaling here.
+  // This comment used to say "0..1 from search"; that was wrong and, per
+  // ops/RUNBOOK.md 2026-08-27, exactly the kind of stale note that gets a
+  // future edit to "fix" this into a real *100 bug. Left correct on purpose.
   const pct = Math.round(score);
   if (pct < 30)  return { bar: 'bg-emerald-200', text: 'text-emerald-300', label: 'Elementary' };
   if (pct < 50)  return { bar: 'bg-emerald-400', text: 'text-emerald-300', label: 'High School' };

@@ -20,6 +20,7 @@ from bs4 import BeautifulSoup
 from stream_utils import publish_analysis, get_redis_connection, ensure_stream_group
 from ollama_utils import call_ollama_with_fallback, OLLAMA_CLOUD_MODEL, OLLAMA_LOCAL_FALLBACK
 from fetch_utils import sanitize_active_content
+from api_client import APIClient
 import yaml
 from datetime import datetime, timezone
 from dotenv import load_dotenv
@@ -289,27 +290,10 @@ def run_counter_analyst(article_text: str, article_id: str, redis_conn, timeout:
 
 
 # --- API CLIENT ---
-class APIClient:
-    def __init__(self, base_url, secret_key):
-        self.base_url = base_url
-        self.secret_key = secret_key
-
-    def _post(self, endpoint, json_data, add_secret=True, timeout=90):
-        url = f"{self.base_url}/{endpoint}"
-        headers = {'X-Scribe-Secret': self.secret_key} if add_secret else {}
-        try:
-            response = requests.post(url, json=json_data, headers=headers, timeout=timeout)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            logger.error(f"API request failed for {endpoint}: {e}")
-            return None
-
-    def pre_analyze(self, text):
-        return self._post('pre_analyze', {'inputText': text}, add_secret=False)
-
-    def publish_article(self, article_payload):
-        return self._post('publish_article', article_payload)
+# class APIClient moved to api_client.py 2026-08-27, consolidating this
+# file's independent (drifted) copy onto the one scribe.py now uses too —
+# see api_client.py's own docstring for why the logger is passed in
+# explicitly here rather than left at its default.
 
 # --- UTILITY FUNCTIONS ---
 def get_article_hash(title, text_content):
@@ -442,7 +426,7 @@ def process_manual_upload(filepath, api_client):
         
         # Analyze the content
         logger.info(f"  🔍 Analyzing content...")
-        dossier = api_client.pre_analyze(article_text)
+        dossier = api_client.pre_analyze(article_text, article_hash)
         if not dossier:
             dossier = {'sentiment': 0.0, 'civility': 0.5, 'chimera_score': 0.0}
             logger.warning(f"  Analysis failed, using default scores")
@@ -541,7 +525,7 @@ def main_loop():
     logger.info(f"   Local fallback: {OLLAMA_LOCAL_FALLBACK}")
     logger.info("")
     
-    api_client = APIClient(API_BASE_URL, SCRIBE_SECRET_KEY)
+    api_client = APIClient(API_BASE_URL, SCRIBE_SECRET_KEY, logger=logger)
     
     while True:
         try:

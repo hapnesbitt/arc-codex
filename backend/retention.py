@@ -42,6 +42,14 @@ PINNED_SET = f"{_site.slug}:pinned_articles"
 # state so retention no longer orphans them (cleanup.py is only a 9-day backstop).
 SCRAPED_IMAGE_DIR = os.path.join(_site.stack_path, "frontend", "public", "uploads", "scraped")
 
+# Narrated audio, added 2026-08-27 (the 48h nuclear purge — see ops/RUNBOOK.md).
+# Images had this from the start; audio never did, and had no backstop sweep
+# anywhere either (unlike images' cleanup.py 9-day pass) — a trimmed article
+# with audio_url set left its mp3 behind with nothing tracking it. Third
+# same-shaped orphan found in one day; fixed at the one function every
+# deletion path already funnels through rather than bolted on per-caller.
+AUDIO_DIR = os.path.join(_site.stack_path, "frontend", "public", "uploads", "audio")
+
 
 def _character_state_keys(r):
     """All per-handle character-state keys (pending/posted/skipped/skip_attempts),
@@ -100,6 +108,15 @@ def purge_article_satellites(r, article_id, char_state_keys=None):
             os.remove(path)
         except FileNotFoundError:
             pass
+
+    # Exact match, not a glob: AUDIO_DIR also holds non-article files (show
+    # builds, playlist manifests, latest.mp3) that must never be touched by
+    # a prefix match. Article ids are 32-char md5 hex, so this can't collide.
+    audio_path = os.path.join(AUDIO_DIR, f"{article_id}.mp3")
+    try:
+        os.remove(audio_path)
+    except FileNotFoundError:
+        pass
 
 
 def trim_by_hours(r, solr, hours: int, dry_run: bool = False) -> dict:

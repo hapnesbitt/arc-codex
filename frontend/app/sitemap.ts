@@ -13,6 +13,9 @@ const BACKEND = process.env.BACKEND_INTERNAL_URL ?? process.env.NEXT_PUBLIC_BACK
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const entries: MetadataRoute.Sitemap = [
     { url: 'https://arc-codex.com', changeFrequency: 'hourly', priority: 1 },
+    { url: 'https://arc-codex.com/reporters/torchy_blane', changeFrequency: 'weekly', priority: 0.7 },
+    { url: 'https://arc-codex.com/reporters/af_heart', changeFrequency: 'weekly', priority: 0.7 },
+    { url: 'https://arc-codex.com/reporters/miriam_vale', changeFrequency: 'weekly', priority: 0.7 },
     { url: 'https://arc-codex.com/wiki', changeFrequency: 'weekly', priority: 0.8 },
     { url: 'https://arc-codex.com/search', changeFrequency: 'monthly', priority: 0.5 },
   ];

@@ -61,6 +61,32 @@ Redis, Solr, Docker, and systemd. Evidence wins over narrative accounts.
   inspect loaded properties with 'systemctl show'.
 - Finish with 'git diff --check' and 'git status --short'.
 
+## Traffic observability
+
+- The custom Caddy traffic exporter is 'backend/caddy_exporter.py', managed
+  only through './arc.sh start|stop|restart caddy_exporter'. Its Prometheus
+  target is 'arc_traffic' on port 9102.
+- Exporter positions under '/var/lib/arc-traffic-exporter' are production
+  continuity state. Never reset, delete, or backfill them without explicit
+  operator approval. Recovery must remain fail-closed when a retained
+  rotation boundary is missing, ambiguous, unsafe, or outside configured
+  bounds.
+- After an exporter restart, 'up{job="arc_traffic"} == 1' proves only that
+  Prometheus can scrape the process. Also require per-site
+  'arc_traffic_exporter_ready == 1', lag zero, and zero checkpoint, parse,
+  recovery, and known-duplicate errors before declaring it caught up.
+- Grafana production dashboard UID 'arc-traffic-v2' and correctness-pilot UID
+  'arc-traffic-correctness-pilot' are separate approval domains. Never promote
+  or overwrite production merely because the pilot validates.
+- Validate selected-range traffic with identical explicit Caddy-event and
+  Prometheus boundaries. A restart can shift replayed events into scrape time,
+  and newly appearing labeled counter series can hide their first value from
+  'increase()'; distinguish these metric-semantics effects from source-log
+  loss.
+- Keep Prometheus labels bounded. Traffic paths use the fixed 'path_group'
+  vocabulary; never add full URI, query string, exact client IP, full user
+  agent, referer, article ID, or attacker-controlled strings as labels.
+
 ## Non-negotiable product rule
 
 Scores annotate; they never gate or rank the chronological article feed.

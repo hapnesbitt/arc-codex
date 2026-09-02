@@ -25,7 +25,11 @@ import sys
 import tomllib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from site_config import SiteConfig, SiteConfigError  # noqa: E402
+from site_config import (  # noqa: E402
+    SiteConfig,
+    SiteConfigError,
+    expected_site_cfg_name,
+)
 
 MUST_BE_UNIQUE = [
     ("site", "slug"),
@@ -42,18 +46,18 @@ MUST_BE_UNIQUE = [
 
 
 def discover(root: str) -> list[SiteConfig]:
-    """Find every site cfg under root (stack roots only, one level deep).
-    A .cfg without a [site] table is not a site cfg and is skipped; a .cfg
-    WITH one must fully validate — those errors are fatal, not skippable."""
+    """Find every actual site cfg under root (stack roots only, one level deep).
+    Only the canonical cfg filename for each stack root is considered."""
     sites = []
-    for path in sorted(glob.glob(os.path.join(root, "*", "*.cfg"))):
+    for stack_root in sorted(glob.glob(os.path.join(root, "*_stack"))):
+        path = os.path.join(stack_root, expected_site_cfg_name(stack_root))
+        if not os.path.isfile(path):
+            continue
         try:
             with open(path, "rb") as f:
                 raw = tomllib.load(f)
         except tomllib.TOMLDecodeError as e:
             raise SiteConfigError(f"{path}: not valid TOML: {e}")
-        if "site" not in raw:
-            continue
         sites.append(SiteConfig(path))
     return sites
 

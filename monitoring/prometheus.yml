@@ -8,7 +8,7 @@
 global:
   # Global scrape default — per-job overrides below (corpus is on 2m, node/
   # traffic on 15s).
-  scrape_interval:     60s
+  scrape_interval:      60s
   # Wave C R6 (2026-07-11) — rule-eval MUST be short enough for
   # capacity/liveness alerts to fire promptly. Was 60m; that made every
   # rule effectively silent. Corpus scrape frequency is now the per-job
@@ -53,6 +53,21 @@ scrape_configs:
 
   - job_name: 'node'
     static_configs:
-      - targets: ['localhost:9100']
+      - targets: ['host.docker.internal:9100']
     scrape_interval: 15s
     scrape_timeout:  10s
+
+  # M1 (192.168.1.185) — off-host backup destination. The ONLY non-localhost
+  # target in this file. node_exporter there runs with the textfile collector
+  # so m1-pull-backups.sh can publish offsite_backup_* gauges; scraping it also
+  # gives us the M1's disk-free, which is what the capacity floor alerts on.
+  #
+  # The M1 is a LAPTOP AND SLEEPS: up{job="m1_offsite"} will legitimately go 0
+  # whenever the lid is shut. Do NOT alert on `up` for this job — alert on the
+  # dead-man (offsite_backup_last_pull_timestamp going stale), which tolerates
+  # sleep but still catches "shut for a week". Long timeout for the same reason.
+  - job_name: 'm1_offsite'
+    static_configs:
+      - targets: ['192.168.1.185:9100']
+    scrape_interval: 5m
+    scrape_timeout:  30s

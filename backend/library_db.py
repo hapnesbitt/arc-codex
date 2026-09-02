@@ -32,6 +32,7 @@ import json
 import os
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timezone
 
 DB_PATH = os.environ.get("LIBRARY_DB_PATH", "/mnt/arcdata/library.db")
 
@@ -42,7 +43,14 @@ CREATE TABLE IF NOT EXISTS works (
     author              TEXT NOT NULL DEFAULT 'Unknown',
     language            TEXT NOT NULL DEFAULT '',
     subjects            TEXT NOT NULL DEFAULT '[]',
+    -- Legacy name: this is Gutenberg's dcterms:issued YEAR, not the
+    -- underlying work's original publication year.
     year_published      TEXT NOT NULL DEFAULT '',
+    original_publication_year       INTEGER,
+    original_publication_source     TEXT,
+    original_publication_confidence REAL,
+    original_publication_evidence   TEXT,
+    original_publication_checked_at TEXT,
     download_count      INTEGER NOT NULL DEFAULT 0,
     encoding            TEXT NOT NULL DEFAULT '',
     source_url          TEXT NOT NULL DEFAULT '',
@@ -93,11 +101,29 @@ CREATE TABLE IF NOT EXISTS translations (
 
 WORK_META_COLUMNS = [
     "gutenberg_id", "title", "author", "language", "subjects",
-    "year_published", "download_count", "encoding", "source_url",
+    "year_published", "original_publication_year",
+    "original_publication_source", "original_publication_confidence",
+    "original_publication_evidence", "original_publication_checked_at",
+    "download_count", "encoding", "source_url",
     "fetched_at", "text_md5", "chimera_score", "reading_label",
     "fk_grade", "coleman_liau", "smog", "dale_chall",
     "chimera_skip_reason", "scored_at",
 ]
+
+_WORKS_ADDITIVE_COLUMNS = {
+    "original_publication_year": "INTEGER",
+    "original_publication_source": "TEXT",
+    "original_publication_confidence": "REAL",
+    "original_publication_evidence": "TEXT",
+    "original_publication_checked_at": "TEXT",
+}
+
+_PUBLICATION_SOURCE_PRIORITY = {
+    "manual": 400,
+    "bibliographic": 300,
+    "gutenberg_description": 200,
+    "gutenberg_text": 100,
+}
 
 
 def connect() -> sqlite3.Connection:
@@ -111,6 +137,30 @@ def connect() -> sqlite3.Connection:
 
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(_SCHEMA)
+    existing = {
+        row["name"] if isinstance(row, sqlite3.Row) else row[1]
+        for row in conn.execute("PRAGMA table_info(works)")
+    }
+    for column, column_type in _WORKS_ADDITIVE_COLUMNS.items():
+        if column in existing:
+            continue
+        try:
+            conn.execute(f"ALTER TABLE works ADD COLUMN {column} {column_type}")
+        except sqlite3.OperationalError as error:
+            # Multiple application processes may initialize the same upgraded
+            # database concurrently. Ignore only a confirmed duplicate-column
+            # race; every other migration failure remains fatal.
+            refreshed = {
+                row["name"] if isinstance(row, sqlite3.Row) else row[1]
+                for row in conn.execute("PRAGMA table_info(works)")
+            }
+            if column not in refreshed:
+                raise error
+        existing.add(column)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_works_original_publication_year "
+        "ON works (original_publication_year DESC)"
+    )
     conn.commit()
 
 
@@ -192,6 +242,194 @@ def upsert_work(conn: sqlite3.Connection, gid: int | str, meta: dict, text: str)
         ON CONFLICT (gutenberg_id) DO UPDATE SET text = excluded.text
         """,
         (int(gid), text),
+    )
+    if meta.get("original_publication_year") is not None:
+        set_original_publication_metadata(
+            conn,
+            gid,
+            year=meta["original_publication_year"],
+            source=meta.get("original_publication_source", ""),
+            confidence=meta.get("original_publication_confidence"),
+            evidence=meta.get("original_publication_evidence"),
+        )
+    checked_at = meta.get("original_publication_checked_at")
+    if checked_at:
+        mark_original_publication_checked(conn, gid, str(checked_at))
+
+
+def _normalize_evidence(evidence: str | None) -> str | None:
+    if not evidence:
+        return None
+    normalized = " ".join(str(evidence).split())
+    return normalized[:240] or None
+
+
+def _validate_original_publication_value(
+    year: int | str,
+    source: str,
+    confidence: float | str | None,
+) -> tuple[int, str, float]:
+    try:
+        normalized_year = int(year)
+    except (TypeError, ValueError) as error:
+        raise ValueError("original publication year must be an integer") from error
+    current_year = datetime.now(timezone.utc).year
+    if normalized_year < 1 or normalized_year > current_year:
+        raise ValueError(
+            f"original publication year must be between 1 and {current_year}"
+        )
+    normalized_source = str(source or "").strip().lower()
+    if not normalized_source:
+        raise ValueError("original publication source is required")
+    try:
+        normalized_confidence = float(confidence)
+    except (TypeError, ValueError) as error:
+        raise ValueError("original publication confidence is required") from error
+    if not 0.0 <= normalized_confidence <= 1.0:
+        raise ValueError("original publication confidence must be between 0 and 1")
+    return normalized_year, normalized_source, normalized_confidence
+
+
+def set_original_publication_metadata(
+    conn: sqlite3.Connection,
+    gid: int | str,
+    *,
+    year: int | str,
+    source: str,
+    confidence: float | str | None,
+    evidence: str | None = None,
+    replace_manual: bool = False,
+) -> bool:
+    """Set publication metadata only when its provenance outranks existing data.
+
+    Returns True when the row changed. Automatic callers must leave
+    ``replace_manual`` false. A deliberate manual correction may set it true.
+    """
+    year_i, source_s, confidence_f = _validate_original_publication_value(
+        year, source, confidence
+    )
+    row = conn.execute(
+        "SELECT original_publication_year, original_publication_source, "
+        "original_publication_confidence, original_publication_evidence "
+        "FROM works WHERE gutenberg_id = ?",
+        (int(gid),),
+    ).fetchone()
+    if row is None:
+        raise KeyError(f"unknown Gutenberg work {int(gid)}")
+
+    existing_year = row["original_publication_year"]
+    existing_source = (row["original_publication_source"] or "").lower()
+    existing_confidence = row["original_publication_confidence"]
+    incoming_priority = _PUBLICATION_SOURCE_PRIORITY.get(source_s, 0)
+    existing_priority = _PUBLICATION_SOURCE_PRIORITY.get(existing_source, 0)
+
+    should_update = existing_year is None
+    if existing_year is not None:
+        if existing_source == "manual":
+            should_update = source_s == "manual" and replace_manual
+        elif source_s == "manual":
+            should_update = True
+        elif incoming_priority > existing_priority:
+            should_update = True
+        elif incoming_priority == existing_priority:
+            existing_confidence_f = float(existing_confidence or 0.0)
+            should_update = confidence_f > existing_confidence_f
+            if (
+                not should_update
+                and year_i == int(existing_year)
+                and source_s == existing_source
+                and confidence_f == existing_confidence_f
+                and not row["original_publication_evidence"]
+                and evidence
+            ):
+                should_update = True
+
+    if not should_update:
+        return False
+
+    conn.execute(
+        "UPDATE works SET original_publication_year = ?, "
+        "original_publication_source = ?, original_publication_confidence = ?, "
+        "original_publication_evidence = ? WHERE gutenberg_id = ?",
+        (
+            year_i,
+            source_s,
+            confidence_f,
+            _normalize_evidence(evidence),
+            int(gid),
+        ),
+    )
+    return True
+
+
+def set_manual_original_publication_year(
+    conn: sqlite3.Connection,
+    gid: int | str,
+    year: int | str,
+    evidence: str | None = None,
+) -> bool:
+    """Set or deliberately correct a manually verified publication year."""
+    return set_original_publication_metadata(
+        conn,
+        gid,
+        year=year,
+        source="manual",
+        confidence=1.0,
+        evidence=evidence,
+        replace_manual=True,
+    )
+
+
+def mark_original_publication_checked(
+    conn: sqlite3.Connection,
+    gid: int | str,
+    checked_at: str | None = None,
+) -> None:
+    conn.execute(
+        "UPDATE works SET original_publication_checked_at = ? "
+        "WHERE gutenberg_id = ?",
+        (checked_at or datetime.now(timezone.utc).isoformat(), int(gid)),
+    )
+
+
+def publication_backfill_candidates(
+    conn: sqlite3.Connection,
+    *,
+    limit: int,
+    after_id: int = 0,
+    min_id: int | None = None,
+    max_id: int | None = None,
+    shelf: str | None = None,
+    retry_checked: bool = False,
+) -> list[sqlite3.Row]:
+    """Return IDs for a bounded, resumable stored-text backfill."""
+    clauses = ["w.original_publication_year IS NULL", "w.gutenberg_id > ?"]
+    params: list[object] = [int(after_id)]
+    if not retry_checked:
+        clauses.append("w.original_publication_checked_at IS NULL")
+    if min_id is not None:
+        clauses.append("w.gutenberg_id >= ?")
+        params.append(int(min_id))
+    if max_id is not None:
+        clauses.append("w.gutenberg_id <= ?")
+        params.append(int(max_id))
+    if shelf:
+        clauses.append(
+            "EXISTS (SELECT 1 FROM shelf_members sm "
+            "WHERE sm.gutenberg_id = w.gutenberg_id AND sm.slug = ?)"
+        )
+        params.append(str(shelf))
+    clauses.append(
+        "EXISTS (SELECT 1 FROM work_texts wt WHERE wt.gutenberg_id = w.gutenberg_id)"
+    )
+    params.append(max(0, int(limit)))
+    return list(
+        conn.execute(
+            "SELECT w.gutenberg_id FROM works w "
+            f"WHERE {' AND '.join(clauses)} "
+            "ORDER BY w.gutenberg_id LIMIT ?",
+            params,
+        )
     )
 
 

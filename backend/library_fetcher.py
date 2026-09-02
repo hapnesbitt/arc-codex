@@ -52,12 +52,18 @@ from charset_normalizer import from_bytes
 from dotenv import load_dotenv
 
 import library_db
+from publication_metadata import extract_original_publication
 
 load_dotenv()
 
 # --- CONFIG ---
 TOP_LIST_URL  = "https://www.gutenberg.org/browse/scores/top#authors-last30"
-SHELF_URL_TMPL = "https://www.gutenberg.org/ebooks/bookshelf/{id}?start_index={start}"
+SHELF_SORT_ORDER = "release_date"
+SHELF_SORT_LABEL = "Release Date"
+SHELF_URL_TMPL = (
+    "https://www.gutenberg.org/ebooks/bookshelf/{id}"
+    "?sort_order={sort_order}&start_index={start}"
+)
 RDF_URL_TMPL  = "https://www.gutenberg.org/cache/epub/{id}/pg{id}.rdf"
 TXT_URL_TMPLS = [
     "https://www.gutenberg.org/files/{id}/{id}-0.txt",   # UTF-8 modern
@@ -92,6 +98,10 @@ log = logging.getLogger("library_fetcher")
 
 class ShelfFetchError(RuntimeError):
     """A shelf listing could not be fetched completely and safely."""
+
+
+class ShelfPaginationOverlap(ShelfFetchError):
+    """A stable-order shelf scan overlapped and could not prove completeness."""
 
 
 class WorkFetchError(RuntimeError):
@@ -191,6 +201,7 @@ def _parse_shelf_page(
     html: str,
     bookshelf_id: int,
     expected_start: int,
+    expected_sort_order: str,
 ) -> ShelfPage:
     """Validate one Gutenberg shelf result page and its pagination metadata."""
     soup = BeautifulSoup(html, "lxml")
@@ -203,6 +214,13 @@ def _parse_shelf_page(
         )
     if items_per_page <= 0:
         raise ValueError("itemsPerPage must be positive")
+
+    selected_sort = soup.select_one("button.sort-dropdown-toggle span")
+    selected_sort_label = selected_sort.get_text(strip=True) if selected_sort else None
+    if expected_sort_order == SHELF_SORT_ORDER and selected_sort_label != SHELF_SORT_LABEL:
+        raise ValueError(
+            f"expected {SHELF_SORT_LABEL!r} sorting, found {selected_sort_label!r}"
+        )
 
     results = soup.select_one("ul.results")
     if results is None:
@@ -225,15 +243,21 @@ def _parse_shelf_page(
         ids.append(gid)
 
     next_links = results.select('a[accesskey="+"][href]')
-    next_targets: set[tuple[str, int]] = set()
+    next_targets: set[tuple[str, int, str]] = set()
     for next_link in next_links:
         parsed = urlparse(next_link["href"])
         expected_path = f"/ebooks/bookshelf/{bookshelf_id}"
         query = parse_qs(parsed.query)
         values = query.get("start_index", [])
-        if parsed.path != expected_path or len(values) != 1 or not values[0].isdigit():
+        sort_values = query.get("sort_order", [])
+        if (
+            parsed.path != expected_path
+            or len(values) != 1
+            or not values[0].isdigit()
+            or sort_values != [expected_sort_order]
+        ):
             raise ValueError("Next link does not target the requested bookshelf")
-        next_targets.add((parsed.path, int(values[0])))
+        next_targets.add((parsed.path, int(values[0]), sort_values[0]))
     if len(next_targets) > 1:
         raise ValueError("conflicting Next links found")
     next_start = next(iter(next_targets))[1] if next_targets else None
@@ -267,19 +291,18 @@ def _parse_shelf_page(
     )
 
 
-def fetch_shelf_ids(bookshelf_id: int, limit: int = 50) -> list[int]:
-    """Fetch the first N book IDs from a Gutenberg bookshelf.
-
-    Gutenberg paginates 25 results per page via ?start_index=1, 26, 51, 76.
-    Returns IDs in the order Gutenberg lists them on the shelf page. Raises
-    ShelfFetchError if any required page fails so callers never replace a
-    valid shelf with a partial response.
-    """
+def _fetch_shelf_ids_once(bookshelf_id: int, limit: int) -> list[int]:
+    """Perform one structurally validated, stable-order shelf enumeration."""
     ids: list[int] = []
-    seen: set[int] = set()
+    seen: dict[int, tuple[int, int]] = {}
+    overlaps = 0
     start = 1
     while len(ids) < limit:
-        url = SHELF_URL_TMPL.format(id=bookshelf_id, start=start)
+        url = SHELF_URL_TMPL.format(
+            id=bookshelf_id,
+            sort_order=SHELF_SORT_ORDER,
+            start=start,
+        )
         try:
             resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT)
             resp.raise_for_status()
@@ -289,7 +312,12 @@ def fetch_shelf_ids(bookshelf_id: int, limit: int = 50) -> list[int]:
             ) from e
 
         try:
-            page = _parse_shelf_page(resp.text, bookshelf_id, start)
+            page = _parse_shelf_page(
+                resp.text,
+                bookshelf_id,
+                start,
+                SHELF_SORT_ORDER,
+            )
         except JobInterrupted:
             raise
         except Exception as e:
@@ -297,22 +325,82 @@ def fetch_shelf_ids(bookshelf_id: int, limit: int = 50) -> list[int]:
                 f"Bookshelf {bookshelf_id} page start_index={start} parse failed: {e}"
             ) from e
 
-        for gid in page.ids:
-            if gid in seen:
-                raise ShelfFetchError(
-                    f"Bookshelf {bookshelf_id} repeated ebook id {gid} across pages"
+        for position, gid in enumerate(page.ids, start=page.start_index):
+            previous = seen.get(gid)
+            if previous is not None:
+                overlaps += 1
+                log.warning(
+                    "Bookshelf %d overlap under sort_order=%s: ebook id %d "
+                    "at start_index=%d position=%d was already seen at "
+                    "start_index=%d position=%d; deduplicating pending "
+                    "completeness validation",
+                    bookshelf_id,
+                    SHELF_SORT_ORDER,
+                    gid,
+                    page.start_index,
+                    position,
+                    previous[0],
+                    previous[1],
                 )
-            seen.add(gid)
+                continue
+            seen[gid] = (page.start_index, position)
             ids.append(gid)
             if len(ids) >= limit:
                 break
 
-        if len(ids) >= limit or page.next_start is None:
+        if len(ids) >= limit:
+            if overlaps and page.next_start is not None:
+                raise ShelfPaginationOverlap(
+                    f"Bookshelf {bookshelf_id} encountered {overlaps} overlap(s) "
+                    "before the configured result limit; completeness cannot "
+                    "be established"
+                )
+            break
+        if page.next_start is None:
+            expected_unique = min(limit, page.total_results)
+            if overlaps or len(ids) != expected_unique:
+                raise ShelfPaginationOverlap(
+                    f"Bookshelf {bookshelf_id} stable-order enumeration was "
+                    f"incomplete after {overlaps} overlap(s): expected "
+                    f"{expected_unique} unique ebook ids, collected {len(ids)}"
+                )
             break
         start = page.next_start
         time.sleep(0.5)
 
     return ids[:limit]
+
+
+def fetch_shelf_ids(bookshelf_id: int, limit: int = 50) -> list[int]:
+    """Fetch the first N book IDs from a Gutenberg bookshelf.
+
+    Gutenberg paginates 25 results per page via ?start_index=1, 26, 51, 76.
+    Explicit release-date ordering avoids the default popularity order, whose
+    live download counts can move works across page boundaries during
+    enumeration. Unlike Gutenberg's title/author orderings, release-date order
+    also produced non-overlapping live enumerations up to Arc's configured
+    shelf limit during validation.
+    A rare overlap under stable ordering is deduplicated, checked against the
+    terminal result count, and retried once from page one if incomplete.
+    Raises ShelfFetchError if a required page or retry fails so callers never
+    replace a valid shelf with a partial response.
+    """
+    for attempt in range(2):
+        try:
+            return _fetch_shelf_ids_once(bookshelf_id, limit)
+        except JobInterrupted:
+            raise
+        except ShelfPaginationOverlap:
+            if attempt == 1:
+                raise
+            log.warning(
+                "Bookshelf %d stable-order enumeration was incomplete; "
+                "retrying once from start_index=1",
+                bookshelf_id,
+            )
+            time.sleep(0.5)
+
+    raise AssertionError("unreachable shelf retry state")
 
 
 # ---------------------------------------------------------------------------
@@ -368,7 +456,9 @@ def fetch_rdf_metadata(gid: int) -> Optional[dict]:
         except ValueError:
             pass
 
-    # Issued / publication date (Gutenberg release date — best we can do without parsing each work)
+    # Gutenberg's electronic-edition release date. The legacy database/API
+    # field year_published stores only this year; it is NOT the work's original
+    # publication year.
     issued_el = soup.find("dcterms:issued")
     year_published = ""
     if issued_el:
@@ -377,6 +467,9 @@ def fetch_rdf_metadata(gid: int) -> Optional[dict]:
         if m:
             year_published = m.group(1)
 
+    description_el = soup.find("dcterms:description")
+    description = description_el.get_text(" ", strip=True) if description_el else ""
+
     return {
         "title":          title,
         "author":         author,
@@ -384,6 +477,7 @@ def fetch_rdf_metadata(gid: int) -> Optional[dict]:
         "subjects":       subjects,
         "download_count": download_count,
         "year_published": year_published,
+        "gutenberg_description": description,
     }
 
 
@@ -497,7 +591,12 @@ def write_work(conn, gid: int, meta: dict, text: str, encoding: str, source_url:
     ).fetchone()
     old_text_md5 = old["text_md5"] if old else None
 
-    library_db.upsert_work(conn, gid, {
+    checked_at = datetime.now(timezone.utc).isoformat()
+    publication = extract_original_publication(
+        description=meta.get("gutenberg_description"),
+        text=text,
+    )
+    work_meta = {
         "title":          meta["title"],
         "author":         meta["author"],
         "language":       meta["language"],
@@ -506,9 +605,18 @@ def write_work(conn, gid: int, meta: dict, text: str, encoding: str, source_url:
         "download_count": meta["download_count"],
         "encoding":       encoding,
         "source_url":     source_url,
-        "fetched_at":     datetime.now(timezone.utc).isoformat(),
+        "fetched_at":     checked_at,
         "text_md5":       new_text_md5,
-    }, text)
+        "original_publication_checked_at": checked_at,
+    }
+    if publication is not None:
+        work_meta.update({
+            "original_publication_year": publication.year,
+            "original_publication_source": publication.source,
+            "original_publication_confidence": publication.confidence,
+            "original_publication_evidence": publication.evidence,
+        })
+    library_db.upsert_work(conn, gid, work_meta, text)
 
     if old_text_md5 and old_text_md5 != new_text_md5:
         # Source text changed — cached translations are stale.

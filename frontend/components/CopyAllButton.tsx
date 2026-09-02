@@ -56,7 +56,8 @@ export default function CopyAllButton({ article, comments }: CopyAllButtonProps)
     if (Object.keys(dossier).length > 0) {
       lines.push('');
       lines.push('--- DOSSIER ---');
-      if (dossier.chimera_score != null) lines.push(`Chimera Score: ${Math.round(dossier.chimera_score * 100)}/100`);
+      // chimera_score is already 0-100 (Arc's readability composite) — no *100 here. See ops/RUNBOOK.md 2026-08-27.
+      if (dossier.chimera_score != null) lines.push(`Chimera Score: ${Math.round(dossier.chimera_score)}/100`);
       if (dossier.reading_level) lines.push(`Reading Level: ${dossier.reading_level}`);
       if (dossier.deep_analysis_summary) lines.push(`Deep Analysis: ${dossier.deep_analysis_summary}`);
       if (dossier.talking_points?.length) {

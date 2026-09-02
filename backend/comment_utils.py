@@ -15,7 +15,10 @@ Storage shape:
   comments:<article_id>   LIST of comment UUIDs
   comment:<uuid>          HASH {author, text, article_id, parent_id, timestamp}
 """
+import logging
 import time
+
+logger = logging.getLogger(__name__)
 
 COUNTER_ANALYST_AUTHOR = "A.R.C. Counter-Analyst"
 _LEAD = "the article"
@@ -51,5 +54,15 @@ def get_counter_analyst_comment(r, article_id, wait_seconds=20):
         except Exception:
             pass
         if time.time() >= deadline:
+            try:
+                comment_count = r.llen(f"comments:{article_id}")
+            except Exception:
+                comment_count = "unavailable"
+            logger.warning(
+                "Counter-analyst comment missing for %s after %ss (comments=%s)",
+                article_id,
+                wait_seconds,
+                comment_count,
+            )
             return None
         time.sleep(5)
