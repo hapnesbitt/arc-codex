@@ -62,7 +62,6 @@ import charset_normalizer
 import gzip
 import zlib
 import yaml
-import yt_dlp
 from langdetect import detect, DetectorFactory, LangDetectException
 DetectorFactory.seed = 0  # deterministic
 
@@ -78,6 +77,17 @@ logger = logging.getLogger(__name__)
 from site_config import load_site_config
 site = load_site_config()
 _ingestion = site["ingestion"]
+_integrity = site["integrity"]
+
+# --- Extracted seams (2026-08-27 scribe recon/cleanup — ops/RUNBOOK.md) ---
+# Each was already self-contained (no scribe.py module state crossed the
+# boundary); moved out, not rewritten. One-directional: scribe imports
+# these, none of them import scribe.
+from net_safety import resolves_to_private_ip
+from youtube_ingest import is_youtube_url, fetch_youtube_metadata
+from image_rehost import rehost_article_image
+from prompt_to_article import generate_article_from_prompt
+from api_client import APIClient
 
 # --- CONFIGURATION ---
 manual_upload_event = threading.Event()
@@ -267,6 +277,145 @@ NETWORK_TIMEOUT_SECONDS = _ingestion["fetch_timeout_s"]
 FEED_TIMEOUT_SECONDS = _ingestion["feed_timeout_s"]
 DOMAIN_COURTESY_DELAY_SECONDS = _ingestion["courtesy_delay_s"]
 MIN_ARTICLE_LENGTH = 200
+
+# Sources-corpus floor — see [integrity] in the site cfg. Both bounds default
+# to 0 (disabled); arc.cfg sets 1500/2000.
+SOURCES_MIN = int(_integrity.get("min_sources", 0) or 0)
+SOURCES_WARN = int(_integrity.get("warn_sources", 0) or 0)
+
+
+def _enforce_sources_floor():
+    """Refuse to start on a silently-truncated sources.json.
+
+    A truncated JSONL file parses cleanly line by line, so nothing
+    downstream complains when the file is clobbered (see 2026-09-01:
+    arc's sources.json dropped 2,310 → 30 in the working tree and
+    scribe kept sweeping the fragment for 36 hours before anyone
+    noticed). Guard:
+        count < SOURCES_MIN  → ERROR + SystemExit (probable clobber)
+        count < SOURCES_WARN → WARNING + start (likely deliberate prune)
+        count ≥ SOURCES_WARN → INFO with count
+    Both bounds default 0 = disabled; sites opt in via [integrity] in
+    the cfg.
+
+    Override: ARC_ALLOW_SMALL_SOURCES=1 downgrades the hard refusal to
+    a WARNING for that run, so operator experiments (deliberately
+    small sources.json) don't need a cfg edit. The override is logged
+    at ERROR so a forgotten flag stays visible in the log.
+    """
+    if SOURCES_MIN <= 0 and SOURCES_WARN <= 0:
+        return  # guard disabled
+    try:
+        with open(SOURCES_FILE, "r", encoding="utf-8") as f:
+            count = sum(1 for line in f if line.strip())
+    except OSError as e:
+        logger.error(
+            "❌ [integrity] Cannot read %s (%s) — refusing to start", SOURCES_FILE, e
+        )
+        raise SystemExit(1)
+
+    override = os.environ.get("ARC_ALLOW_SMALL_SOURCES", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+    if SOURCES_MIN > 0 and count < SOURCES_MIN:
+        if override:
+            logger.error(
+                "🚨 [integrity] sources.json has %d records — BELOW hard floor of %d. "
+                "ARC_ALLOW_SMALL_SOURCES=%s override active: continuing anyway. "
+                "REMOVE the env var when done experimenting.",
+                count, SOURCES_MIN, os.environ.get("ARC_ALLOW_SMALL_SOURCES"),
+            )
+        else:
+            logger.error(
+                "❌ [integrity] sources.json has %d records — below hard floor of %d "
+                "(likely truncation). Refusing to start. "
+                "Set ARC_ALLOW_SMALL_SOURCES=1 to override for one run.",
+                count, SOURCES_MIN,
+            )
+            raise SystemExit(1)
+    elif SOURCES_WARN > 0 and count < SOURCES_WARN:
+        logger.warning(
+            "⚠️  [integrity] sources.json has %d records — below warn threshold %d "
+            "(hard floor %d). Continuing.",
+            count, SOURCES_WARN, SOURCES_MIN,
+        )
+    else:
+        logger.info(
+            "   🛡️  [integrity] sources.json: %d records (floor %d, warn %d)",
+            count, SOURCES_MIN, SOURCES_WARN,
+        )
+
+# CAPTCHA-boilerplate defense — see arc.cfg [extraction] for the full
+# rationale. Trafilatura extracting from a Cloudflare-checkpoint page
+# returns the checkpoint's OWN text (a 1,230-1,250 char cluster of
+# "checking your browser…" boilerplate), and every fetch/quality gate
+# before this treated that as a successful extraction. Downstream: it
+# published, hashed, and got NARRATED by Kokoro (~90s of af_heart
+# reading "cloudflare-ray-id"). Two-tier gate: normal 200-char floor
+# still applies to all extracts; a CAPTCHA-adjacent extract must clear
+# a higher bar or gets rejected.
+#
+# MIN_ARTICLE_CHARS_CAPTCHA_FLOOR is the code-side clamp: even if
+# arc.cfg [extraction].min_article_chars_captcha is set below this
+# (accidental zero, misconfigured knob), the effective value is raised
+# to the floor. The defense must not be silently disable-able.
+MIN_ARTICLE_CHARS_CAPTCHA_FLOOR = 800
+MIN_ARTICLE_CHARS_CAPTCHA = max(
+    MIN_ARTICLE_CHARS_CAPTCHA_FLOOR,
+    int(site.get("extraction", "min_article_chars_captcha", 1800)),
+)
+
+# HTML markers — presence in the fetched HTML signals a Cloudflare /
+# CAPTCHA challenge page. Case-insensitive substring match (kept cheap;
+# runs once per fetch). Order: Cloudflare's own markers first (most
+# common), then generic CAPTCHA.
+_CAPTCHA_HTML_MARKERS = (
+    "cloudflare",
+    "captcha",
+    "attention required",
+    "checking your browser",
+)
+
+# Boilerplate regex — matches the CHECKPOINT TEXT after extraction. Fires
+# even when the HTML markers were stripped, and catches novel wording that
+# still contains recognisable checkpoint prose. Anchored to phrases that
+# don't naturally occur in legitimate article prose. Case-insensitive.
+_CAPTCHA_TEXT_BOILERPLATE = re.compile(
+    r"(?i)("
+    r"checking your browser"
+    r"|verify(?:ing)? you are (?:a )?human"
+    r"|please enable javascript.{0,80}continue"
+    r"|cloudflare ray id"
+    r"|attention required[!:]?\s*\|?\s*cloudflare"
+    r"|ddos protection by cloudflare"
+    r"|please complete the security check to access"
+    r")"
+)
+
+
+def _extracted_looks_like_captcha_boilerplate(article_text, html_content):
+    """Return (True, reason) if extract is CAPTCHA boilerplate; else (False, None).
+
+    Two independent checks — either fires:
+      1. HTML page has a CAPTCHA marker AND extracted text is under the
+         MIN_ARTICLE_CHARS_CAPTCHA floor. Real articles served with a
+         CAPTCHA banner (e.g. science.org medical coverage at 6,000+
+         chars) clear the floor and are kept.
+      2. Extracted text ITSELF contains checkpoint-boilerplate prose,
+         regardless of length. Catches cases where the HTML stripped its
+         markers or where extraction over-grabbed the challenge text.
+    """
+    text_lower = article_text.lower()
+    html_lower = (html_content or "").lower()
+    has_captcha_html = any(m in html_lower for m in _CAPTCHA_HTML_MARKERS)
+    if has_captcha_html and len(article_text) < MIN_ARTICLE_CHARS_CAPTCHA:
+        return (True, f"captcha_boilerplate ({len(article_text)} chars, CAPTCHA in HTML)")
+    if _CAPTCHA_TEXT_BOILERPLATE.search(text_lower):
+        return (True, "captcha_boilerplate (checkpoint prose in extract)")
+    return (False, None)
+
+
 RECENTLY_PUBLISHED_MEMORY = 10
 MAX_CONCURRENT_SCRAPERS = _ingestion["concurrent_scrapers"]
 MAX_CONCURRENT_ANALYZERS = _ingestion["concurrent_preproc"]
@@ -614,131 +763,19 @@ def synthesize_article_audio(article_id: str, text: str) -> str | None:
                 pass
 
 
-# One narration at a time, on a thread of its own: a run can hold resolute's
-# CPU for a minute or more, and _analysis_executor's two workers belong to
-# sentinel and counter-analyst. The lock is what keeps the queue at zero — a
-# pass that finds one already running does nothing rather than stacking up
-# behind it.
-_audio_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"{site.slug}-audio")
-_audio_lock = threading.Lock()
-
-# Articles whose synthesis actually failed, as opposed to being deferred.
-# Without this a story that Kokoro cannot speak would be picked first by
-# every pass forever and no other story would ever get audio. Process-local
-# on purpose: a restart is a clean retry, and the alternative is a second
-# Redis field, which the one-field contract does not allow.
-_audio_failed = set()
-
-
-def _audio_scan_window(r_conn) -> int:
-    """How many top-of-feed articles this pass should consider.
-
-    Derived from actual publish rate — ZCOUNT of stories added in the last
-    AUDIO_SCAN_LOOKBACK_HOURS — then clamped between floor and ceiling. The
-    fixed 50 that lived here in v52 was fine on the steady-state cadence but
-    let bursty publishing push silent stories out of view before their turn.
-    See the AUDIO_SCAN_* block above (and arc.cfg [audio]) for why the clamp
-    is shaped the way it is.
-    """
-    try:
-        cutoff = time.time() - (AUDIO_SCAN_LOOKBACK_HOURS * 3600)
-        recent = int(r_conn.zcount('feed', cutoff, '+inf'))
-    except Exception as e:
-        logger.warning(f"🔊 Audio scan-window ZCOUNT failed, using floor: {e}")
-        return AUDIO_SCAN_WINDOW_FLOOR
-    return max(AUDIO_SCAN_WINDOW_FLOOR, min(AUDIO_SCAN_WINDOW_CEILING, recent))
-
-
-def _find_silent_article(r_conn):
-    """Newest story in the scan window with no audio yet. (id, text) or None.
-
-    Reads the feed ZSET rather than any queue of its own: the record of what
-    still needs narrating is the absence of audio_url, and that is already in
-    Redis. A story published while the M1 was busy is simply still silent
-    when the next pass looks.
-    """
-    window = _audio_scan_window(r_conn)
-    try:
-        ids = r_conn.zrevrange('feed', 0, window - 1)
-    except Exception as e:
-        logger.warning(f"🔊 Audio pass could not read the feed: {e}")
-        return None
-
-    ids = [aid for aid in ids if aid not in _audio_failed]
-    if not ids:
-        return None
-
-    pipe = r_conn.pipeline()
-    for aid in ids:
-        pipe.hmget(f"article:{aid}", ['audio_url', 'source_lang', 'original_text'])
-    for aid, (audio_url, lang, body) in zip(ids, pipe.execute()):
-        if audio_url:
-            continue
-        if (lang or 'English') != 'English':
-            continue
-        body = (body or '').strip()
-        if len(body) < AUDIO_MIN_CHARS:
-            continue
-        return aid, body
-    return None
-
-
-def _run_audio_pass() -> None:
-    """Narrate the newest story that has none, if the M1 can spare the room.
-
-    Creates its own Redis connection per the thread-safety rules above.
-    Writes exactly one field, audio_url. A skip writes nothing at all — an
-    absent field simply means this story has no audio yet.
-    """
-    try:
-        r_bg = redis.Redis(decode_responses=True, password=REDIS_PASSWORD, db=site.redis_db)
-    except Exception as e:
-        logger.error(f"🔊 [bg] Redis connect failed for audio pass: {e}")
-        _audio_lock.release()
-        return
-
-    try:
-        candidate = _find_silent_article(r_bg)
-        if not candidate:
-            return
-        article_id, body = candidate
-
-        # Preflight here rather than inside the synthesis, so the log
-        # distinguishes "the M1 was busy, try later" from "narration broke".
-        # Only reached when there is actually something to narrate: no work
-        # means no ssh at all.
-        result = kokoro_preflight()
-        if result:
-            reason, level = result
-            logger.log(level, f"🔊 Audio deferred for {article_id} — {reason}")
-            return
-
-        audio_url = synthesize_article_audio(article_id, body)
-        if not audio_url:
-            _audio_failed.add(article_id)
-            return
-
-        r_bg.hset(f"article:{article_id}", 'audio_url', audio_url)
-        logger.info(f"🔊 [bg] audio_url stored for {article_id}: {audio_url}")
-    except Exception as e:
-        logger.warning(f"🔊 [bg] Audio pass failed (non-fatal): {e}")
-    finally:
-        try:
-            r_bg.close()
-        except Exception:
-            pass
-        _audio_lock.release()
-
-
-def run_audio_pass() -> None:
-    """Start an audio pass in the background unless one is still running."""
-    if not _audio_lock.acquire(blocking=False):
-        return
-    try:
-        _audio_executor.submit(_run_audio_pass)
-    except Exception as e:
-        logger.warning(f"🔊 Could not start audio pass: {e}")
-        _audio_lock.release()
+# Scribe's own audio pass (_run_audio_pass / run_audio_pass /
+# _find_silent_article / _audio_scan_window) was RETIRED 2026-08-27. It never
+# took the arc:audio:active Redis mutex — only a process-local threading.Lock
+# — so it had no exclusion against audio_backfill.py's daemon at all. The two
+# independently reimplemented "pick the newest silent article" and could (did)
+# target the same article at once, running two concurrent Kokoro subprocesses
+# for it and blowing each other's AUDIO_TIMEOUT_SECONDS budget. See
+# ops/RUNBOOK.md 2026-08-27 for the incident and the merge decision.
+# audio_backfill.py now owns 100% of narration, including through the
+# weekday peak-hour window (throttled there, not idle — see its
+# peak_throttle_minutes handling). synthesize_article_audio() and
+# kokoro_preflight() below are unchanged and still the only synthesis path;
+# audio_backfill.py imports this module and calls them directly.
 
 
 # --- APPEARANCE ENHANCEMENT FUNCTIONS ---
@@ -902,6 +939,11 @@ def extract_image_url_enhanced(html_content, url):
 # scribe must run on the host, or mount that path if ever moved into Docker).
 # The original URL is kept in image_source_url for provenance. ~3% of scraped
 # sources 403 on hotlink (measured 2026-07-02) and URLs rot over time.
+#
+# The actual fetch/resize/save logic (rehost_article_image) moved to
+# image_rehost.py 2026-08-27 (scribe recon/cleanup — ops/RUNBOOK.md); only
+# this path constant, which is specific to where THIS stack's frontend
+# lives, stays here.
 SCRAPED_IMAGE_DIR = os.path.join(os.path.dirname(BASE_DIR), 'frontend', 'public', 'uploads', 'scraped')
 
 # --- Article audio ----------------------------------------------------------
@@ -952,22 +994,6 @@ AUDIO_MIN_CHARS = 100                   # matches the sentinel/counter-analyst s
 AUDIO_MAX_CHARS = 3500                  # per-request bound; chunks split on sentence boundaries
 AUDIO_TIMEOUT_SECONDS = 600             # a long feature piece still finishes well inside this
 
-# Scan-window derivation (see arc.cfg [audio] for the full rationale). The
-# window used to be a fixed 50 — that's fine on the current 20-articles/day
-# cadence, but during a publish burst it lets silent articles fall out of
-# view before their turn: three quick sweeps push the oldest silent story
-# past position 50 while narration is still busy with the top of the feed,
-# and the audio pass never sees it again. Live-deriving from ZCOUNT of the
-# lookback window matches the window to the actual publish rate; clamping
-# between floor and ceiling stops a slow hour from making the pass myopic
-# and a runaway ingest bug from making the window unbounded (same reason
-# the mailer clamps the liveness threshold). Values read once here; a bounce
-# picks up cfg edits, matching how CYCLE_MINUTES already works.
-_audio_cfg = site["audio"]
-AUDIO_SCAN_LOOKBACK_HOURS = float(_audio_cfg["scan_lookback_hours"])
-AUDIO_SCAN_WINDOW_FLOOR   = int(_audio_cfg["scan_window_floor"])
-AUDIO_SCAN_WINDOW_CEILING = int(_audio_cfg["scan_window_ceiling"])
-
 # Preflight budget. Superseded history: this floor used to gate the M1's
 # free memory over ssh (3584 MB, then 1024 MB post-KEEP_ALIVE=-1 — see git
 # blame on this line from before 2026-08-20 for that saga). None of it
@@ -993,41 +1019,15 @@ AUDIO_SCAN_WINDOW_CEILING = int(_audio_cfg["scan_window_ceiling"])
 # against a specific, known, still-unfixed collision, not just noise.
 AUDIO_MIN_FREE_MB = 2600
 
-REHOST_W, REHOST_H = 1200, 675          # 16:9 — matches the aspect-video card container
-REHOST_ORIG_MAX = 1920                  # longest-side cap for the preserved source; matches main.py:_upload_image_inner
-REHOST_MAX_BYTES = 10 * 1024 * 1024     # same cap as the manual-upload endpoint
-REHOST_FETCH_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-    'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-}
-
-
-def _resolves_to_private_ip(url):
-    """True if the host resolves to any private/loopback/link-local address.
-    Scraped pages control these URLs — never let scribe fetch internal targets."""
-    try:
-        import ipaddress
-        host = urlparse(url).hostname
-        if not host:
-            return True
-        for info in socket.getaddrinfo(host, None):
-            ip = ipaddress.ip_address(info[4][0])
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                return True
-        return False
-    except Exception:
-        return True
-
-
 class _SSRFBlocked(Exception):
     """Raised when a fetch target fails the SSRF guard."""
 
 
 def _get_with_ssrf_guard(session, url, timeout, max_redirects=5):
     """session.get() with manual redirect chasing so every hop passes
-    _resolves_to_private_ip. Rejects non-http(s) schemes at every hop.
-    Raises _SSRFBlocked on a rejected target; propagates network errors
-    unchanged.
+    net_safety.resolves_to_private_ip. Rejects non-http(s) schemes at every
+    hop. Raises _SSRFBlocked on a rejected target; propagates network
+    errors unchanged.
 
     Closes the guard against a crafted feed/submit URL that 302-redirects
     to internal targets (Ollama, Solr, the M1 at 192.168.1.185, AWS/GCE
@@ -1038,7 +1038,7 @@ def _get_with_ssrf_guard(session, url, timeout, max_redirects=5):
         parsed = urlparse(current)
         if parsed.scheme not in ('http', 'https'):
             raise _SSRFBlocked(f"non-http(s) scheme at hop {hop}: {parsed.scheme!r}")
-        if _resolves_to_private_ip(current):
+        if resolves_to_private_ip(current):
             raise _SSRFBlocked(f"private/loopback/reserved address at hop {hop}: {current}")
         resp = session.get(current, timeout=timeout, allow_redirects=False)
         loc = resp.headers.get('location')
@@ -1047,103 +1047,6 @@ def _get_with_ssrf_guard(session, url, timeout, max_redirects=5):
             continue
         return resp
     raise _SSRFBlocked(f"too many redirects (>{max_redirects})")
-
-
-def rehost_article_image(article_id, image_url):
-    """Fetch an external hero image, save two normalized outputs under
-    /uploads/scraped/ — idempotent per article. Returns the relative serving
-    path (the card), or None on any failure: callers must then fall back to
-    the site default image (never ship the failed hotlink); the article
-    publishes regardless.
-
-    Outputs:
-      {article_id}.jpg      — 1200x675 center-crop, the card derivative.
-                              Byte-for-byte the same as before the split;
-                              filename unchanged so imageUrl, the 480/800/
-                              1200 WebP variants, and Caddy's /uploads/*
-                              handler all keep pointing at this exact path.
-      {article_id}-orig.jpg — Preserved source, longest side ≤ 1920, no
-                              crop. Enables re-deriving the card (or new
-                              presentations) without a re-fetch of an
-                              upstream URL that may have rotted.
-    """
-    try:
-        if not image_url.startswith(('http://', 'https://')):
-            return None
-        if _resolves_to_private_ip(image_url):
-            logger.warning(f"🖼️  Rehost skipped (private address): {image_url[:80]}")
-            return None
-
-        resp = requests.get(image_url, timeout=10, stream=True, headers=REHOST_FETCH_HEADERS)
-        if resp.status_code != 200:
-            logger.info(f"🖼️  Rehost fetch HTTP {resp.status_code}: {image_url[:80]}")
-            return None
-        content_type = resp.headers.get('content-type', '')
-        if not content_type.startswith('image/'):
-            logger.info(f"🖼️  Rehost non-image content-type '{content_type[:30]}': {image_url[:80]}")
-            return None
-        raw = b''
-        for chunk in resp.iter_content(chunk_size=65536):
-            raw += chunk
-            if len(raw) > REHOST_MAX_BYTES:
-                logger.info(f"🖼️  Rehost over size cap: {image_url[:80]}")
-                return None
-
-        import io
-        from PIL import Image, ImageOps
-        img = Image.open(io.BytesIO(raw))
-        img = ImageOps.exif_transpose(img)
-        img = img.convert('RGB')  # flattens GIF/PNG alpha; animated GIFs keep first frame only
-        src_w, src_h = img.size
-        os.makedirs(SCRAPED_IMAGE_DIR, exist_ok=True)
-
-        # Preserved source. Resize only — longest side ≤ REHOST_ORIG_MAX,
-        # aspect kept, no crop. Copies main.py:_upload_image_inner's pattern
-        # so manual and scraped originals normalize identically. Both files
-        # exist because the card crop below is now non-destructive: the
-        # source survives, so future presentation changes (article-page
-        # full-image hero, dimensions-in-hash, saliency cropping) become a
-        # re-derivation off this file rather than a re-fetch of a URL that
-        # may have rotted. Cleanup: backend/cleanup.py:purge_scraped_images
-        # splits filename on '-' to extract the article_id, so
-        # `{id}-orig.jpg` sweeps under the same [retention].image_days rule
-        # as the card and its variants.
-        # TODO: dimensions-in-hash, article-page full-image hero, saliency
-        # cropping — deferred; this file is what makes them possible.
-        preserved = img.copy()
-        if max(preserved.size) > REHOST_ORIG_MAX:
-            preserved.thumbnail((REHOST_ORIG_MAX, REHOST_ORIG_MAX), Image.LANCZOS)
-        preserved.save(os.path.join(SCRAPED_IMAGE_DIR, f"{article_id}-orig.jpg"),
-                       format='JPEG', quality=88, optimize=True)
-
-        # Card derivative — 1200x675 center-crop. Byte-for-byte identical to
-        # pre-split output; filename intentionally unchanged.
-        scale = max(REHOST_W / src_w, REHOST_H / src_h)
-        new_w, new_h = round(src_w * scale), round(src_h * scale)
-        img = img.resize((new_w, new_h), Image.LANCZOS)
-        left = (new_w - REHOST_W) // 2
-        top = (new_h - REHOST_H) // 2
-        img = img.crop((left, top, left + REHOST_W, top + REHOST_H))
-
-        img.save(os.path.join(SCRAPED_IMAGE_DIR, f"{article_id}.jpg"),
-                 format='JPEG', quality=85, optimize=True)
-        logger.info(f"🖼️  Rehosted image for {article_id}: {src_w}x{src_h} → {REHOST_W}x{REHOST_H} + orig ({max(preserved.size)}px longest)")
-
-        # WebP variants for responsive srcset (see frontend IntelligenceCard <picture>).
-        # Non-fatal: any variant failure logs and continues; the JPEG serves as fallback.
-        for variant_w in (480, 800, 1200):
-            try:
-                variant = img.copy()
-                variant.thumbnail((variant_w, variant_w * 10), Image.LANCZOS)
-                variant.save(os.path.join(SCRAPED_IMAGE_DIR, f"{article_id}-{variant_w}.webp"),
-                             format='WEBP', quality=80, method=6)
-            except Exception as e:
-                logger.info(f"🖼️  Variant -{variant_w}.webp failed for {article_id}: {type(e).__name__}: {e}")
-
-        return f"/uploads/scraped/{article_id}.jpg"
-    except Exception as e:
-        logger.info(f"🖼️  Rehost failed ({type(e).__name__}) for {image_url[:80]}")
-        return None
 
 
 def assess_content_quality(article_text, html_content=None):
@@ -1162,6 +1065,21 @@ def assess_content_quality(article_text, html_content=None):
 
     if len(article_text) < MIN_ARTICLE_LENGTH:
         return (False, f"too_short ({len(article_text)} chars)")
+
+    # CAPTCHA-boilerplate gate: fires when the extract length pretends to
+    # be a real article but the HTML shows a Cloudflare/CAPTCHA challenge,
+    # or when the text itself carries checkpoint prose. See constants
+    # above the function. Two-tier by design — playwright_tier3.py has
+    # its own MIN_ARTICLE_CHARS_CAPTCHA gate at the fetch layer that
+    # saves the browser round-trip; this is the belt to that braces,
+    # covering the simple/stealth (non-Playwright) fetch paths whose
+    # entry point back into scribe is `article_data['html_content']`
+    # threaded to this call at the ingestion-loop site.
+    is_captcha, captcha_reason = _extracted_looks_like_captcha_boilerplate(
+        article_text, html_content
+    )
+    if is_captcha:
+        return (False, captcha_reason)
 
     listicle_pattern = r'\d+\s+(things|ways|reasons|facts|tips|tricks|secrets)\s+(?:you|that)'
     if re.search(listicle_pattern, text_lower) and len(article_text) < 800:
@@ -1361,6 +1279,40 @@ def _mark_dead_url(url, status_code):
         pass
 
 
+# 403 log-suppression key — separate from the dead_url negative cache on
+# purpose. dead_url is set only AFTER all three fetch tiers fail (see
+# _mark_dead_url call site in fetch_article_data), which preserves the
+# tier-fallback: a URL that 403s at tier-1 still gets tier-2 stealth and
+# tier-3 playwright next cycle. This key is set the first time we LOG an
+# INFO 403 for a URL; subsequent hits in its 3-day TTL downgrade to
+# DEBUG. Independent from tier-fallback — only touches log verbosity.
+#
+# Motivating case: 7-week audit found 4,566 "🚫 403" lines from DFRLab
+# alone (medium.com/dfrlab article URLs, source RSS at
+# medium.com/feed/dfrlab). Repeat URLs across weekly RSS refreshes
+# stack up; per-source suppression via a config list would over-
+# suppress medium.com (dozens of other sources on the same domain), so
+# per-URL dedup via this key was Ross's chosen shape. First failure
+# per URL still logs at INFO so a genuinely new 403 stays visible.
+_LOG_403_TTL_SECONDS = 3 * 86400
+
+
+def _log_403_key(url):
+    return f"scribe:403_logged:{hashlib.sha256(url.encode()).hexdigest()[:16]}"
+
+
+def _should_log_403_info(url):
+    """SET NX EX: True on the first call for this URL in the TTL window,
+    False on repeats. Redis-atomic — safe across concurrent fetchers.
+    Fail-open (returns True) if Redis is unavailable, so we don't hide
+    403s on a Redis outage."""
+    try:
+        # nx=True → set only if not present; returns True on success.
+        return bool(r.set(_log_403_key(url), "1", ex=_LOG_403_TTL_SECONDS, nx=True))
+    except Exception:
+        return True
+
+
 def _make_session(headers, referer=None):
     """Build a requests Session with appropriate headers."""
     session = requests.Session()
@@ -1405,7 +1357,19 @@ def fetch_with_requests(url, headers, stealth=False):
 
         if response.status_code == 403:
             _fetch_status.code = 403
-            logger.info(f"🚫 403 on {'stealth ' if stealth else ''}request for {url} — skipping")
+            tier = "stealth " if stealth else ""
+            # First 403 for this URL in the 3-day TTL logs at INFO
+            # (genuine new failure stays visible); repeats within the
+            # window silently downgrade to DEBUG. See _should_log_403_info
+            # above the function definitions in this file for the
+            # rationale — same TTL as the dead_url cache, but a separate
+            # key so tier-fallback logic stays untouched. Within a single
+            # fetch_article_data invocation this also collapses the
+            # simple+stealth log-line pair to one INFO + one DEBUG.
+            if _should_log_403_info(url):
+                logger.info(f"🚫 403 on {tier}request for {url} — skipping")
+            else:
+                logger.debug(f"🚫 403 on {tier}request for {url} (already logged in TTL)")
             return None
 
         response.raise_for_status()
@@ -1443,71 +1407,11 @@ def fetch_with_requests(url, headers, stealth=False):
 
 
 # --- YOUTUBE INGEST ---
-
-def is_youtube_url(url):
-    """Detect YouTube URLs including youtu.be short links."""
-    try:
-        netloc = urlparse(url).netloc.lower()
-        return netloc in (
-            'www.youtube.com', 'youtube.com',
-            'youtu.be', 'www.youtu.be',
-            'm.youtube.com',
-        )
-    except Exception:
-        return False
-
-
-def fetch_youtube_metadata(url):
-    """
-    Extract YouTube video metadata without downloading.
-    Uses yt-dlp in metadata-only mode.
-    Returns same dict shape as fetch_with_requests.
-    """
-    ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'skip_download': True,
-        'extract_flat': False,
-    }
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-
-        title       = info.get('title', 'Untitled')
-        channel     = info.get('channel') or info.get('uploader', 'Unknown')
-        description = (info.get('description') or '').strip()[:3000]
-        duration    = info.get('duration_string') or str(info.get('duration', ''))
-        upload_date = info.get('upload_date', '')   # YYYYMMDD
-        view_count  = info.get('view_count') or 0
-        thumbnail   = info.get('thumbnail') or DEFAULT_IMAGE_URL
-
-        if upload_date and len(upload_date) == 8:
-            upload_date = f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:]}"
-
-        # Build structured text — this is what the ARC pipeline will analyze
-        article_text = (
-            f"Title: {title}\n"
-            f"Channel: {channel}\n"
-            f"Published: {upload_date}\n"
-            f"Duration: {duration}\n"
-            f"Views: {view_count:,}\n\n"
-            f"Description:\n{description}"
-        ).strip()
-
-        if len(article_text) < MIN_ARTICLE_LENGTH:
-            logger.warning(f"▶️  YouTube metadata too sparse for {url} — skipping")
-            return None
-
-        logger.info(f"▶️  YouTube metadata extracted: '{title[:60]}' ({channel})")
-        return {
-            'text': article_text,
-            'image_url': thumbnail,
-            'html_content': '',
-        }
-
-    except Exception as e:
-        logger.error(f"▶️  YouTube metadata extraction failed for {url}: {e}")
-        return None
+# is_youtube_url / fetch_youtube_metadata moved to youtube_ingest.py
+# 2026-08-27 (scribe recon/cleanup — ops/RUNBOOK.md). Both were already
+# pure; imported below, called with this module's DEFAULT_IMAGE_URL and
+# MIN_ARTICLE_LENGTH since those are arc-codex.com/scribe values, not
+# YouTube-ingestion ones.
 
 
 # --- MAIN FETCH DISPATCHER ---
@@ -1526,7 +1430,7 @@ def fetch_article_data(url):
     """
     # YouTube fast path
     if is_youtube_url(url):
-        return fetch_youtube_metadata(url)
+        return fetch_youtube_metadata(url, DEFAULT_IMAGE_URL, MIN_ARTICLE_LENGTH)
 
     if _is_dead_url(url):
         return None
@@ -1578,32 +1482,10 @@ def fetch_article_data(url):
 
 
 # --- PROMPT-TO-ARTICLE ---
-
-def generate_article_from_prompt(prompt_text):
-    """
-    Call Ollama to write a full article from a user-supplied prompt.
-    Returns article text string, or None on failure.
-
-    The system instruction keeps the output clean and publication-ready:
-    no meta-commentary, no "here is your article", just the article itself.
-    """
-    system_instruction = (
-        "You are a professional writer for Arc Codex, an intelligence and analysis platform. "
-        "When given a writing prompt, produce a well-structured, publication-ready article. "
-        "Write only the article itself — no preamble, no 'here is your article', no meta-commentary. "
-        "Use clear prose, factual tone, and logical structure with an introduction, body, and conclusion."
-    )
-
-    full_prompt = f"{system_instruction}\n\nWriting prompt:\n{prompt_text}"
-
-    try:
-        logger.info(f"✍️  Generating article from prompt: '{prompt_text[:80]}...'")
-        article_text, duration, model_used = call_ollama_local_only(full_prompt, timeout=900)
-        logger.info(f"✍️  Article generated via {model_used} in {duration:.0f}ms ({len(article_text)} chars)")
-        return article_text.strip()
-    except Exception as e:
-        logger.error(f"✍️  Prompt-to-article generation failed: {e}")
-        return None
+# generate_article_from_prompt moved to prompt_to_article.py 2026-08-27
+# (scribe recon/cleanup — ops/RUNBOOK.md). Already pure, and its one real
+# dependency (call_ollama_local_only) was already a shared utility, not
+# scribe's own.
 
 
 # --- PRIORITY QUEUE CONSUMER ---
@@ -1809,28 +1691,11 @@ def process_priority_queue(api_client, recently_published):
 
 
 # --- API CLIENT ---
-
-class APIClient:
-    def __init__(self, base_url, secret_key):
-        self.base_url = base_url
-        self.secret_key = secret_key
-
-    def _post(self, endpoint, json_data, add_secret=True, timeout=90):
-        url = f"{self.base_url}/{endpoint}"
-        headers = {'X-Scribe-Secret': self.secret_key} if add_secret else {}
-        try:
-            response = requests.post(url, json=json_data, headers=headers, timeout=timeout)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            logger.error(f"API request failed for {endpoint}: {e}")
-            return None
-
-    def pre_analyze(self, text, article_id=''):
-        return self._post('pre_analyze', {'inputText': text, 'article_id': article_id}, add_secret=False)
-
-    def publish_article(self, article_payload):
-        return self._post('publish_article', article_payload)
+# class APIClient moved to api_client.py 2026-08-27 (scribe recon/cleanup —
+# ops/RUNBOOK.md). The cleanest seam of the four: no scribe.py state at
+# all. Note: manual_publisher.py has its own independent, drifted copy of
+# this class (its pre_analyze doesn't take article_id) — untouched here,
+# out of scope for this pass; flagged as a follow-up worth considering.
 
 
 # --- OLLAMA ANALYSIS FUNCTIONS ---
@@ -2162,7 +2027,7 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
     # renders broken client-side too. Publishing proceeds either way.
     hero_url = article.get('imageUrl', '')
     if hero_url.startswith(('http://', 'https://')) and 'arc-codex.com' not in hero_url:
-        local_path = rehost_article_image(article_id, hero_url)
+        local_path = rehost_article_image(article_id, hero_url, SCRAPED_IMAGE_DIR)
         if local_path:
             article['image_source_url'] = hero_url
             article['imageUrl'] = local_path
@@ -2267,9 +2132,10 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
 
     # Red/Blue/Purple deferred — fires on first article view via analyzer.py
 
-    # Audio deliberately does NOT fire here. The story is in the feed now,
-    # and the audio pass at the end of the cycle narrates it from there if
-    # the M1 has room — see run_audio_pass().
+    # Audio deliberately does NOT fire here, and scribe no longer runs an
+    # audio pass of its own at all (retired 2026-08-27 — see the note above
+    # synthesize_article_audio's definition). The story is in the feed now;
+    # audio_backfill.py's daemon narrates it from there on its own cadence.
 
     if directive.get('name'):
         recently_published.append(directive['name'])
@@ -2297,6 +2163,11 @@ def main():
     logger.info(f"   ✍️  Prompt-to-article: enabled")
     logger.info(f"   ⚡ Priority queue: {REDIS_PRIORITY_QUEUE_KEY} (processed each cycle)")
     logger.info(f"   📋 Red/Blue/Purple: deferred to analyzer.py (on-demand)")
+
+    # Fail-fast on a truncated sources.json — the 2026-09-01 incident
+    # (2310 → 30 records, 36 hours of silent partial sweeps) is why.
+    # No-op when [integrity] is disabled (both bounds 0).
+    _enforce_sources_floor()
 
     # Reap any orphan Playwright browsers left by a prior crashed scribe.
     # Match is on /proc/<pid>/environ ARC_TIER3_PLAYWRIGHT signature —
@@ -2509,14 +2380,9 @@ def main():
                     logger.warning(f"Retention pass failed (non-fatal): {e}")
                     scribe_ops.increment('errors_retention')
 
-            # --- ARTICLE AUDIO PASS ---
-            # Narrates one still-silent story per cycle, in the background and
-            # only when resolute has room for it. Anything it skips — a busy
-            # box, a story published a moment ago — is simply still silent
-            # when the next cycle looks, which is the whole retry mechanism.
-            # Deliberately not run on the priority-queue path above: that path
-            # exists to keep resolute free for the user's own submission.
-            run_audio_pass()
+            # Article audio: retired from scribe's own cycle 2026-08-27.
+            # audio_backfill.py's daemon is now the sole narrator — see the
+            # note above synthesize_article_audio's definition.
 
             logger.info(f"💤 Cycle complete. Sleeping {CYCLE_MINUTES} minutes ...")
             scribe_ops.mark_success()

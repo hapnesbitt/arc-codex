@@ -61,6 +61,12 @@ DEFAULTS = {
         "courtesy_delay_s": 2.5,
         "sources_file": "backend/sources.json",
     },
+    # sources.json floor guard — a truncated JSONL parses cleanly line by line,
+    # so nothing downstream complains when the file is clobbered from thousands
+    # of records to a handful (see 2026-09-01: arc dropped 2310→30, scribe kept
+    # sweeping the fragment for 36 hours before anyone noticed). Both bounds
+    # default to 0 = disabled; each site opts in via its own [integrity] block.
+    "integrity": {"min_sources": 0, "warn_sources": 0},
     "pipeline": {
         "sentinel_timeout_s": 900,
         "ca_timeout_s": 900,
@@ -90,29 +96,29 @@ DEFAULTS = {
     "branding": {},
     "services": {"enabled": []},
     "quiz": {"cycle_minutes": 300, "lock_ttl_s": 600},
-    # Peak-hour blackout for offline audio backfill runs — a courtesy fence
-    # so a catch-up pass on old silence doesn't drop a Kokoro subprocess on
-    # this box during the window Ross is reading. Half-open [start, end):
-    # 14 ≤ hour < 19 pauses; peak_weekdays_only leaves weekends unfenced.
-    # Backfill checks this between articles, never mid-synthesis — see
-    # backend/audio_backfill.py. Scribe's own audio pass ignores it: that
-    # path is already gated by the AUDIO_MIN_FREE_MB preflight and only
-    # ever narrates one article per sweep.
-    #
-    # scan_lookback_hours / scan_window_floor / scan_window_ceiling drive the
-    # scribe audio pass's live-derived scan window: window = clamp(floor,
-    # count of articles published in the last lookback_hours, ceiling). Same
-    # pattern as the mailer's liveness threshold — floor keeps the pass from
-    # going myopic on a slow hour, ceiling caps a publish-rate spike so the
-    # window can't run away. Fixed 50 (v52 and earlier) let bursty publishing
-    # push silent articles out of view before their turn.
+    # audio_backfill.py is the sole narrator (scribe's own audio pass was
+    # retired 2026-08-27 — it never took arc:audio:active, so it had no
+    # exclusion against the daemon and the two could double-synthesize the
+    # same article; see ops/RUNBOOK.md 2026-08-27). Peak-hour window ([start,
+    # end), half-open, 14 ≤ hour < 19 by default; peak_weekdays_only leaves
+    # weekends unfenced) no longer idles the daemon out entirely — it
+    # throttles it to roughly one acquire per peak_throttle_minutes, matching
+    # the cadence scribe's old per-cycle pass used to provide during that
+    # window, so Kokoro still doesn't hammer this box while Ross is reading
+    # but breaking news during the window doesn't go fully silent either.
     "audio": {
         "peak_start_hour": 14,
         "peak_end_hour": 19,
         "peak_weekdays_only": True,
-        "scan_lookback_hours": 6,
-        "scan_window_floor": 50,
-        "scan_window_ceiling": 500,
+        "peak_throttle_minutes": 95,
+        "backfill_window_hours": 2,
+        "backfill_window_floor_hours": 0.25,
+        "backfill_window_ceiling_hours": 6,
+        # Poison-pill guard — see arc.cfg [audio] for the full rationale.
+        # Observed median chars/s from 191 historical narrations; used to
+        # skip (not attempt) any article whose estimated synthesis time
+        # would exceed scribe.AUDIO_TIMEOUT_SECONDS.
+        "estimated_synthesis_cps": 15.0,
     },
     "monitoring": {"exporter_interval_s": 3600},
     "health": {
