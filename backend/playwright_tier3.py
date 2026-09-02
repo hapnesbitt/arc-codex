@@ -75,6 +75,19 @@ FETCH_TIMEOUT_SECONDS = 45
 # Chosen 50 to match the pre-retirement BROWSER_RECYCLE_INTERVAL doctrine.
 RESTART_EVERY = 50
 
+# CAPTCHA-boilerplate defense — see arc.cfg [extraction] and scribe.py
+# MIN_ARTICLE_CHARS_CAPTCHA. Keep this value in sync with
+# `[extraction].min_article_chars_captcha` in arc.cfg (and
+# huntaegis.cfg — Hunt has no tier-3 module today but if it grows one,
+# this value must match). Hardcoded here rather than threading through
+# from scribe/site_config so this module stays self-contained (imports
+# only fetch_utils, no cfg reader). scribe.py's own gate is the
+# authoritative one; this early-reject saves logging a misleading
+# "✅ Playwright stealth succeeded" for content that will be rejected
+# downstream, and skips the trafilatura result from becoming an
+# "article" record whose only next stop is the rejection log.
+MIN_ARTICLE_CHARS_CAPTCHA = 1800
+
 # Launch args — see docstring; --disable-gpu is the load-bearing arg.
 # --no-sandbox because chromium sandbox needs suid-root helpers we don't
 # have. --disable-dev-shm-usage avoids /dev/shm oom on smaller boxes.
@@ -131,11 +144,19 @@ _peak_rss_mb = 0.0                # highest RSS observed across the run
 # --- Zombie signature scan ---------------------------------------------------
 
 def _proc_has_signature(pid: int) -> bool:
-    """True iff /proc/<pid>/environ contains our SIGNATURE_ENV marker."""
+    """True iff /proc/<pid>/environ contains our SIGNATURE_ENV marker.
+
+    Any read failure -> False. A pid we can't read is by definition not a
+    zombie we need to kill. Catch OSError broadly — DO NOT narrow to
+    FileNotFoundError: on a dead pid, opening /proc/<pid>/environ raises
+    ProcessLookupError (ESRCH), not FileNotFoundError (ENOENT), which
+    crash-looped scribe startup on 2026-09-02. PermissionError also
+    subclasses OSError.
+    """
     try:
         with open(f"/proc/{pid}/environ", "rb") as f:
             environ = f.read()
-    except (FileNotFoundError, PermissionError):
+    except OSError:
         return False
     marker = f"{SIGNATURE_ENV}={SIGNATURE_VAL}".encode()
     # environ is NUL-separated KEY=VALUE pairs.
@@ -152,6 +173,8 @@ def startup_kill_zombies() -> int:
     """
     killed = 0
     for p in psutil.process_iter(["pid", "name"]):
+        # psutil.Error is NOT an OSError subclass — both must be named.
+        # A single unreadable pid must not take down startup (see 2026-09-02).
         try:
             if not _proc_has_signature(p.info["pid"]):
                 continue
@@ -165,7 +188,7 @@ def startup_kill_zombies() -> int:
                 "🧟 Killed orphan Playwright browser pid=%s name=%s",
                 p.info["pid"], p.info.get("name"),
             )
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+        except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
             continue
     if killed:
         logger.info("🧟 startup_kill_zombies: reaped %d orphan(s)", killed)
@@ -324,15 +347,31 @@ def _fetch_with_supervisor(headers: dict, url: str) -> Optional[dict]:
         if article_text and len(article_text) > MIN_ARTICLE_LENGTH:
             has_captcha = ("captcha" in html.lower()
                            or "cloudflare" in html.lower())
-            if has_captcha:
-                logger.warning("⚠️  CAPTCHA present but extracted %d chars from %s",
-                               len(article_text), url)
+            if has_captcha and len(article_text) < MIN_ARTICLE_CHARS_CAPTCHA:
+                # CAPTCHA-boilerplate gate — see the module constant. The
+                # log line still fires so a spike in these is visible; the
+                # difference is the extraction now REJECTS instead of
+                # passing 1,230-char checkpoint prose to the acceptance
+                # gate. Legitimate CAPTCHA+content pages (science.org's
+                # ~6,352-char medical coverage was the canonical keep-me
+                # case) clear the floor and pass unchanged.
+                logger.warning(
+                    "⚠️  Rejecting CAPTCHA-boilerplate extract (%d chars, floor=%d) from %s",
+                    len(article_text), MIN_ARTICLE_CHARS_CAPTCHA, url,
+                )
+                data = None
             else:
-                logger.info("✅ Playwright stealth succeeded for %s", url)
-            data = {
-                "text": article_text,
-                "image_url": extract_image_url(html) or DEFAULT_IMAGE_URL,
-            }
+                if has_captcha:
+                    logger.warning(
+                        "⚠️  CAPTCHA present but extracted %d chars — accepting from %s",
+                        len(article_text), url,
+                    )
+                else:
+                    logger.info("✅ Playwright stealth succeeded for %s", url)
+                data = {
+                    "text": article_text,
+                    "image_url": extract_image_url(html) or DEFAULT_IMAGE_URL,
+                }
         else:
             logger.warning("❌ Playwright stealth: no usable content from %s", url)
     except Exception as exc:
