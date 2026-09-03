@@ -312,20 +312,25 @@ def max_chars_for_budget(cfg_audio: dict) -> int:
     restart, burning a full 600s timeout each time before falling through
     to failed_this_run.
 
-    The default (15 chars/s) is the OBSERVED rate, not a best case — 191
-    historical narrations (audio_backfill_263*.log) ranged 11.0-16.9
-    chars/s, median 15.1, mean 14.8. Using the median rather than the
-    fastest-seen case means this doesn't reflexively skip articles that
-    would actually have finished in time; a corpus check the same day found
-    ~21% of articles over the resulting ~9,000-char threshold, and about
-    14% of those already had audio from before this guard existed — so the
-    estimate is deliberately not tightened further to catch every one of
-    them. Meaningful enough of the corpus sits over the line that chunked
-    synthesis (narrating in AUDIO_MAX_CHARS-sized pieces against a
-    per-chunk budget, not one shot against the whole article) is worth
-    considering later if that fraction matters more than skipping it does.
+    estimated_synthesis_cps is WALL-CLOCK chars/s, not the audio (speech)
+    rate — those are different numbers. Pre-spectre (through 2026-09-03)
+    the value was 15, derived from historical logs where Kokoro on
+    resolute was slow enough for wall and speech rates to coincide, and
+    the name masked the ambiguity. On spectre they diverge: 23
+    successful narrations 2026-09-03 morning ranged 12.5-32.9 chars/s
+    wall (median 23.7) while the audio rate was still ~15, so the old
+    9,000-char threshold was refusing about half of every pass on
+    articles synthesis could easily finish. The 18.34 default now
+    (~11,000-char budget) is a conservative bump that clears the
+    2026-09-03 near-misses without going to the median-derived ~14,200.
+    See arc.cfg [audio] for the full rationale.
+
+    The structural fix is per-chunk (not per-article) timeout — Kokoro
+    already splits and synthesizes sequentially, so a 600s cap per chunk
+    removes the length ceiling entirely. That's what to reach for next
+    if long articles keep hitting this guard.
     """
-    cps = float(cfg_audio.get("estimated_synthesis_cps", 15.0))
+    cps = float(cfg_audio.get("estimated_synthesis_cps", 18.34))
     return int(cps * scribe.AUDIO_TIMEOUT_SECONDS)
 
 
