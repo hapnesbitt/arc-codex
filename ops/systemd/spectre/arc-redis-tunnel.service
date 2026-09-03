@@ -1,0 +1,26 @@
+[Unit]
+Description=Arc Redis tunnel — spectre 127.0.0.1:6379 → resolute 127.0.0.1:6379 (ssh, dedicated key)
+Documentation=file:///home/www/arc_stack/TODO.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/ssh -N \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=30 \
+  -o ServerAliveCountMax=3 \
+  -o BatchMode=yes \
+  -o IdentitiesOnly=yes \
+  -o StrictHostKeyChecking=accept-new \
+  -i %h/.ssh/arc_redis_tunnel_ed25519 \
+  -L 127.0.0.1:6379:127.0.0.1:6379 \
+  ross@192.168.1.198
+Restart=always
+RestartSec=5s
+# hold-off spikes: after each restart, wait 5s, 10s, 20s, 40s, 60s cap
+RestartMaxDelaySec=60s
+RestartSteps=5
+
+[Install]
+WantedBy=default.target

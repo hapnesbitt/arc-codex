@@ -1,0 +1,31 @@
+[Unit]
+Description=Arc Codex audio narration (sliding-window daemon on spectre)
+Documentation=file:///home/www/arc_stack/TODO.md
+# The Redis tunnel must be up first — the daemon connects to
+# 127.0.0.1:6379 which is arc-redis-tunnel.service's forward.
+After=network-online.target arc-redis-tunnel.service
+Wants=network-online.target arc-redis-tunnel.service
+
+[Service]
+Type=exec
+WorkingDirectory=/home/www/arc_stack/backend
+# Push-per-file sync: each finished mp3 is rsync'd to resolute before
+# audio_url is committed on the article. rrsync -wo chroots the destination
+# to /home/www/arc_stack/frontend/public/uploads/audio; the dedicated key
+# has restrict + command="/usr/bin/rrsync -wo …" in resolute's authorized_keys.
+Environment=ARC_AUDIO_SYNC_DEST=ross@192.168.1.198:.
+Environment=ARC_AUDIO_SYNC_SSH_KEY=%h/.ssh/arc_audio_sync_ed25519
+ExecStart=/home/www/arc_stack/backend/venv/bin/python /home/www/arc_stack/backend/audio_backfill.py
+# Same restart discipline the resolute unit had:
+#   Restart=always because the daemon's docstring explicitly designs for it
+#   ("A process with no position to lose doesn't need to save one" — restart
+#   just re-reads Redis and continues), and RestartSteps for backoff against
+#   crash loops (a tight loop against Kokoro is worth damping harder than a
+#   watchdog poll loop).
+Restart=always
+RestartSec=5s
+RestartMaxDelaySec=60s
+RestartSteps=5
+
+[Install]
+WantedBy=default.target
