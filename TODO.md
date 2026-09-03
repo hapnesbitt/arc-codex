@@ -818,6 +818,68 @@ reason Phase 1 came first was so Phase 2's numbers wouldn't be fitted
 to a machine they won't run on — done, the 200 s figure above is the
 result.
 
+#### 2026-09-03 addendum — live data recalibrates per-chunk budget
+
+Phase 1's 200 s came from p50 wall 33.5 chars/s across 5 pre-picked
+articles. First pass after the 11004-char raise (see arc.cfg [audio]
+2026-09-03 comment) gave 8 live completions with a much slower spread:
+
+| stat | wall chars/s |
+|---|---|
+| min | 16.72 |
+| median | 22.36 |
+| max | 23.30 |
+| p95-ish (n=8) | ~23.2 |
+
+Plus one timeout at ≤ 16.56 chars/s wall (`656c30ce3e35`, 9940c hit
+600.4s and returned None — the exact per-article poison-pill guard
+scenario, reintroduced in a narrower band as the accepted cost of
+raising the budget). The Phase 1 numbers were optimistic: live
+traffic runs ~1.5× slower.
+
+**Recalibrate per-chunk budget from live data**: 3500-char chunk at
+the low tail (17 chars/s) needs ~206 s — the Phase 1 200 s figure is
+UNDER the low tail. Recommend **per_chunk_timeout_s = 300** (≈1.5×
+worst-observed chunk, ≈2× the low-tail estimate; catches a stalled
+Kokoro cleanly but doesn't false-positive on a slow-but-live chunk).
+That's the number to design Phase 2 against.
+
+#### 2026-09-03 addendum — enforcement mechanic decision
+
+The Phase 2 spec above leaves open HOW the per-chunk timeout is
+enforced against the current one-subprocess-per-article model
+(`scribe.py:573-579` docstring: "importing torch and loading the
+pipeline costs ~5s, and that is per-process, not per-chunk").
+Options considered:
+
+| Option | Mechanic | Startup cost | Complexity |
+|---|---|---|---|
+| **A** subprocess-per-chunk | parent loops, one `subprocess.run(synth.py, timeout=300)` per chunk, Redis committed between calls | ~5s × N chunks (30-chunk poison-pill ≈ 150 s = 5% overhead) | low; chunk-resume-across-restart is natural |
+| B one subprocess, parent watches PROGRESS on stderr via Popen, kills child if a chunk stalls | ~5s / article | custom parent/child protocol; kill-mid-chunk partial WAV handling; no cross-restart resume |
+| C child self-enforces per-chunk deadline via signal.alarm | ~5s / article | signals + torch is fragile (CUDA/MPS ops don't interrupt cleanly) |
+
+**Choose A.** The 5% startup overhead buys durable chunk-resume
+(parent's Redis commit after each `subprocess.run` returns IS the
+checkpoint — a daemon crash mid-article resumes at chunk N+1 next
+pass) and a small failure surface (each subprocess writes one chunk
+WAV; on TimeoutExpired the parent kills, marks the chunk failed in
+Redis, moves on). Modify `_KOKORO_SYNTH` to take a `chunk_idx` argv
+and write `chunk_{idx}.wav` instead of `article.wav`; parent
+orchestrates and concats via `build_wiki_show.py`'s ffmpeg `-c copy`
+pattern. Concurrency invariant preserved: exactly one Kokoro
+subprocess at any moment, still guarded by `arc:audio:active`.
+
+**Overall safety net**: no article-level timeout. Worst case is a
+truly pathological article where every chunk stalls to the 300s
+budget: 100k chars / 3500 = 29 chunks × 300s ≈ 145 min. Finite,
+per-chunk-abortable, and burns less than one full daemon-restart-loop
+of 600s all-or-nothing before returning something usable.
+
+**Ship behind an off switch** (`arc.cfg [audio] per_chunk_synthesis =
+true`) for one release so we can revert to the current per-article
+model if Phase 2 misbehaves overnight — the spectre cutover set the
+bar for cautious rollout and Phase 2 deserves the same posture.
+
 ### Phase 3 — backlog reindex (promoted from parenthetical)
 
 **Ross's addition, and the one that turns Phase 2 from "future coverage"

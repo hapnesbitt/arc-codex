@@ -329,6 +329,20 @@ def max_chars_for_budget(cfg_audio: dict) -> int:
     already splits and synthesizes sequentially, so a 600s cap per chunk
     removes the length ceiling entirely. That's what to reach for next
     if long articles keep hitting this guard.
+
+    KNOWN COST of the 11004 budget, observed 2026-09-03 first pass after
+    the raise: an article at 9940 chars ran the full 600.4s and got
+    killed on AUDIO_TIMEOUT_SECONDS (656c30ce3e35...). Its wall rate was
+    ≤ 16.56 chars/s — below the low tail of the 8 successful completions
+    in the same pass (min 16.72, median 22.36). So articles in the
+    9000-11004-char band at wall rates below ~16.5 will burn the full
+    600s before returning None from synthesize_article_audio; the next
+    pass then re-picks them and burns it again on every restart. This
+    is the exact failure the poison-pill guard was designed to prevent,
+    reintroduced in a narrower band as the deliberate cost of catching
+    articles that would otherwise stay silent. Accepted trade for now
+    (one 600s burn per ~5-8 recovered articles); Step 2 (per-chunk
+    timeout, see TODO.md Section 6 Phase 2) is what removes it properly.
     """
     cps = float(cfg_audio.get("estimated_synthesis_cps", 18.34))
     return int(cps * scribe.AUDIO_TIMEOUT_SECONDS)
