@@ -385,3 +385,121 @@ gemma4:31b cloud allowance in hours. Not touched here.
   gunicorn container (port 5005 conflict). Noted in the report.
 - Numbers: full-chain `/` 74.7 → 219 req/s (+2.9×), 622ms → 218ms avg (−65%).
   Node-direct SSR 76 → 1106 req/s (+14.5×), 636ms → 50ms (−92%).
+
+---
+
+# Session close 2026-09-03 — next steps (recorded, not built)
+
+Filed at session end. Nothing here was implemented today. Sections are
+ordered as they should be picked up, not by size.
+
+## 1. Faculty index for School of Chat
+
+34 characters exist as LDAP records with no public presence.
+`web_app.py` already renders `/faculty/<uid>` and builds faculty cards
+internally on port 8765 — the work is surfacing that at
+`soc.arc-codex.com` in SoC's design, not building the endpoint.
+
+**Ordering matters.** The faculty index comes before the About page
+(which would otherwise read as faculty appearing from nowhere) and
+before the reporter portfolio.
+
+**Open question to resolve first**, before writing any UI: how much of
+a faculty page is public, given most records have never been through
+the gates and Miriam's precedent is a public profile with a withheld
+class. This is a decision, not code — do not proceed to layout until
+Ross has answered it.
+
+---
+
+## 2. Practice the page template on `elias.grant`
+
+Once #1's shape is decided, `elias.grant` is the right first character
+to build against. Economics / Monetary Policy / Public Finance maps to
+`economic-policy-and-financial-markets` — newsradio's largest and
+best-populated directive, so the page won't be sparse.
+
+**Generalize** the `externalStation` field that was added for
+`af_heart` into **one station slot on the faculty template**, rather
+than shipping a second per-character special case. Any future faculty
+member with a radio presence points at that same slot.
+
+---
+
+## 3. Per-professor radio — shared voice, per-directive slice
+
+Mapping professors onto existing directives is nearly free; the
+newsradio builder already slices one corpus into 25 programs, so
+"Elias's program" is a filter on the existing pipeline. That part is
+cheap.
+
+**Per-professor voices are not cheap.** Record the arithmetic here so
+nobody plans a multi-voice rollout without seeing it:
+
+- Kokoro runs ~15 chars/s.
+- `audio_backfill.py` is the sole narrator, holding a single mutex,
+  one article at a time.
+- Throttled to one acquire per 95 minutes in the weekday peak window.
+- Coverage today is 74.9% against one station.
+- `validate_native_format` skips any directive whose source audio
+  doesn't match the configured voice — so introducing a second voice
+  doesn't just double the queue, it fragments validation.
+
+**Design conclusion**: shared voice, per-directive slice. One voice
+per language, always — this matches the existing
+[[audio-voice-one-per-language]] policy. Per-professor voice is
+off-the-table until the throughput/validation story changes.
+
+---
+
+## 4. Reporter portfolio
+
+Showcase demonstrating the framework as a **configurable agent
+harness** — reporters as (directives + sourceScope + threshold +
+cadence + escalation + outputs).
+
+**Current state**: only `miriam.vale` carries `reporter` in `roles`.
+Torchy doesn't, despite the byline. Fix the role tagging before
+building the portfolio page, or the portfolio will misrepresent what
+exists.
+
+**Blocked on**: the topic scorer fix (see "Still open" below). A
+portfolio pitching routing precision cannot ship on a scorer that puts
+finance stories in Mathematics — the demo would undercut the pitch on
+its first click.
+
+---
+
+## 5. American history since 1650 — for Ross's son
+
+Build as a **primer_engine** work with its own YAML config, alongside
+Beowulf / Holmes / Mark / Athena. This is the machine that has been
+proven four times.
+
+**Not newsradio.** Arc's corpus is news and has no history directive;
+this is the primer machine, not the radio pipeline.
+
+**Sources**: public-domain material for the 1650→present American
+period is abundant — no acquisition problem.
+
+**Optional later tie-in**: bookradio-style narration once the text
+work is stable. Don't design for it upfront; if Ross would rather
+listen than read, it layers on after.
+
+---
+
+## Still open from earlier sessions (unchanged, carried forward)
+
+Not re-explained here — each has its own section elsewhere in this
+file or its own commit history. Listed so this session-close block is
+a complete pickup point.
+
+- **Topic scorer fix** — confirmed, unfixed. **Highest value of any
+  item on the list**, and gates #4 above.
+- **`min_article_chars_captcha`** — designed, unlanded.
+- **`kasmir7` shared-utility pull** — pending.
+- **Alloy** — never installed. Also documented above in the
+  "monitoring/alloy: committed but NEVER DEPLOYED" section (2026-07-30)
+  and in `ops/REBOOT.md` known-gaps #1. Mentioned here only so the
+  pickup list is complete; the root record is those two.
+
