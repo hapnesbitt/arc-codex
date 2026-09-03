@@ -160,6 +160,87 @@ end
 # rebuilt fresh on every check.
 POLL_SECONDS = 30
 
+# --- Push-per-file sync (remote-synth mode) ----------------------------------
+# When narration runs on a host that isn't the serving host (spectre, currently),
+# every finished mp3 gets rsync'd to the serving host before audio_url is
+# committed. `audio_url` on the article hash is a promise that the file is
+# visible where Next.js serves it from — so the sync must complete before that
+# promise is written. On the serving host itself (resolute today, single-host
+# mode), leave ARC_AUDIO_SYNC_DEST unset and this code path is a no-op that
+# returns True immediately. Section 6 of TODO.md carries the rationale
+# (Option B1, push-per-file rsync — chosen over NFS to keep sync failures in
+# their own failure domain and to surface them via a Redis counter).
+#
+# The destination is expected to sit behind a restricted ssh key using rrsync
+# with -wo (write-only), chrooted to the audio directory: the client cannot
+# read from, delete on, or rsync outside that one directory even if this key
+# is exfiltrated. See TODO.md Section 6 "Push-per-file sync key" for the
+# concrete authorized_keys line.
+SYNC_DEST = os.environ.get("ARC_AUDIO_SYNC_DEST", "").strip()   # e.g. "arc-audio-sync@192.168.1.198:."
+SYNC_SSH_KEY = os.environ.get("ARC_AUDIO_SYNC_SSH_KEY", "").strip()  # optional; passed via -i if set
+SYNC_ATTEMPTS = 3                    # per-file attempts; 3 = ~14s worst-case (2s+4s backoff, plus timeouts)
+SYNC_TIMEOUT_S = 30                  # rsync's own --timeout, per attempt
+SYNC_OK_COUNTER = "arc:audio:sync_ok"
+SYNC_FAIL_COUNTER = "arc:audio:sync_fail"
+
+
+def push_to_destination(r: redis.Redis, article_id: str, local_path: str) -> bool:
+    """Push one just-written mp3 to SYNC_DEST via rsync. True on success.
+
+    Returns True immediately (no-op) when SYNC_DEST is unset — that's
+    single-host mode on the serving host, and no push is meaningful. This is
+    the shape that keeps the same audio_backfill.py running unchanged on
+    resolute while the spectre-side unit runs it with the env vars set.
+
+    Bounded retries (SYNC_ATTEMPTS), exponential backoff (2s, 4s, …) between
+    attempts. Each attempt has its own rsync timeout. On final failure the
+    caller does NOT commit audio_url; the article stays silent and enters
+    the next find_newest_silent pass as a candidate again — wasteful (the
+    synthesis is thrown away) but eventually convergent once the underlying
+    sync issue is resolved.
+
+    Every success increments SYNC_OK_COUNTER; every final failure increments
+    SYNC_FAIL_COUNTER. That gives corpus_exporter a signal for a silently
+    stopped syncer — the specific failure mode this counter exists for.
+    """
+    if not SYNC_DEST:
+        return True
+
+    ssh_bits = ["ssh", "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
+                "-o", "ServerAliveInterval=30",
+                "-o", "StrictHostKeyChecking=accept-new"]
+    if SYNC_SSH_KEY:
+        ssh_bits.extend(["-i", SYNC_SSH_KEY])
+    ssh_e = " ".join(ssh_bits)
+
+    for attempt in range(1, SYNC_ATTEMPTS + 1):
+        try:
+            proc = subprocess.run(
+                ["rsync", "-a", "--partial", f"--timeout={SYNC_TIMEOUT_S}",
+                 "-e", ssh_e, local_path, f"{SYNC_DEST}/"],
+                capture_output=True, text=True,
+                timeout=SYNC_TIMEOUT_S + 15)
+            if proc.returncode == 0:
+                r.incr(SYNC_OK_COUNTER)
+                return True
+            logger.warning(
+                f"🔊 {article_id} rsync attempt {attempt}/{SYNC_ATTEMPTS} "
+                f"rc={proc.returncode}: {(proc.stderr or '').strip()[:300]}")
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                f"🔊 {article_id} rsync attempt {attempt}/{SYNC_ATTEMPTS} "
+                f"timed out after {SYNC_TIMEOUT_S + 15}s wall")
+        except FileNotFoundError:
+            # rsync binary not installed — no point retrying
+            logger.error("🔊 rsync binary not on PATH; sync cannot proceed")
+            break
+
+        if attempt < SYNC_ATTEMPTS:
+            time.sleep(2 ** attempt)
+
+    r.incr(SYNC_FAIL_COUNTER)
+    return False
+
 
 def in_peak_window(cfg_audio: dict) -> bool:
     """True if now is inside the [start, end) peak-hour window.
@@ -398,11 +479,23 @@ def narrate_one(r: redis.Redis, article_id: str, body: str) -> bool:
             f"{article_id} — synthesis returned None after {wall:.1f}s")
         return False
 
-    r.hset(f"article:{article_id}", 'audio_url', audio_url)
-
     audio_path = os.path.join(
         os.path.dirname(_HERE), 'frontend', 'public',
         'uploads', 'audio', f"{article_id}.mp3")
+
+    # Remote-synth mode: push to the serving host BEFORE committing
+    # audio_url. audio_url promises the file is visible where Next.js
+    # serves it; a hset that beats the sync is a broken promise. No-op on
+    # the serving host itself (SYNC_DEST unset). See push_to_destination.
+    if not push_to_destination(r, article_id, audio_path):
+        logger.warning(
+            f"{article_id} — synthesized OK but sync to {SYNC_DEST} failed "
+            f"after {SYNC_ATTEMPTS} attempts; article stays silent, "
+            f"will re-enter candidacy next pass")
+        return False
+
+    r.hset(f"article:{article_id}", 'audio_url', audio_url)
+
     dur = probe_duration_seconds(audio_path)
     if dur is None:
         logger.info(f"{article_id} ✓ {len(body)} chars → {audio_url} "
