@@ -581,8 +581,10 @@ protects newsradio's ffprobe from ever seeing a partial file today.
    (`ffmpeg -version` on resolute first; libmp3lame framing at 64 kbps
    is inside newsradio's ±4 kbps validator tolerance but only if the
    encoder produces the same CBR structure).
-4. Verify Redis reachability from spectre to resolute:6379 with the
-   real password. `arc:audio:active` mutex, `POLL_SECONDS = 30`,
+4. Reach Redis from spectre. **Design changed 2026-09-03: use an SSH
+   tunnel, not a LAN bind of Redis** — see the "Redis reachability —
+   SSH tunnel" subsection below for the landed shape and why. Behavior
+   remains: `arc:audio:active` mutex, `POLL_SECONDS = 30`,
    `redis_db = 0`, peak throttling — all host-agnostic by design and
    unchanged.
 5. Stand up ssh key from spectre → resolute (arc-audio-syncer user,
@@ -660,6 +662,117 @@ splitter, produced 785 s (~13 min) of valid af_heart audio. The
 synthesis path already handles it end-to-end; Phase 2's remaining work
 is the per-chunk timeout accounting and Redis chunk-state resume, not
 new synthesis code.
+
+### Redis reachability — SSH tunnel (landed 2026-09-03)
+
+**Design change from the original plan.** The Phase 1 pre-flight
+called for binding resolute's Redis to the LAN interface so spectre
+could reach it directly. Recon killed that plan:
+
+- `ufw status` on resolute returned `inactive` — no host firewall at
+  all. A LAN bind would put Redis on `192.168.1.0/24` behind only the
+  40-char `requirepass`, with nothing else in front of it.
+- Redis is currently correctly configured: `bind 127.0.0.1 -::1`,
+  `protected-mode yes`, `requirepass` set. That posture is worth
+  preserving, not loosening.
+- A LAN bind means restarting a Redis that Arc, Hunt, DLB, SoC and
+  plants all depend on, in the same window that the audio-tunnel goes
+  live — coupling two unrelated blast radii for no gain.
+
+**Landed shape.** An SSH tunnel from spectre forwards its own
+`127.0.0.1:6379` to resolute's loopback Redis. `audio_backfill.py`
+needs zero config change — it connects to `127.0.0.1:6379` exactly as
+it does today, on whichever host it runs. Redis on resolute stays
+bound to loopback only.
+
+**Dedicated key** (not ross's general SSH key):
+`~/.ssh/arc_redis_tunnel_ed25519` on spectre, mode 600. Pubkey
+comment `arc-redis-tunnel@spectre`.
+
+**Restricted `authorized_keys` entry on resolute** (`/home/ross/.ssh/authorized_keys`):
+```
+restrict,port-forwarding,permitopen="127.0.0.1:6379",command="/bin/false" ssh-ed25519 <pubkey> arc-redis-tunnel@spectre
+```
+`restrict` disables everything by default (no pty, no shell, no
+agent-fwd, no X11-fwd, no user-rc); `port-forwarding` re-enables that
+one class; `permitopen="127.0.0.1:6379"` locks the forward target so
+sshd refuses any other `-L`; `command="/bin/false"` is
+belt-and-suspenders if `restrict` is ever relaxed.
+
+**Systemd user unit on spectre**, `~/.config/systemd/user/arc-redis-tunnel.service`:
+
+```
+[Unit]
+Description=Arc Redis tunnel — spectre 127.0.0.1:6379 → resolute 127.0.0.1:6379 (ssh, dedicated key)
+Documentation=file:///home/www/arc_stack/TODO.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/ssh -N \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=30 \
+  -o ServerAliveCountMax=3 \
+  -o BatchMode=yes -o IdentitiesOnly=yes \
+  -o StrictHostKeyChecking=accept-new \
+  -i %h/.ssh/arc_redis_tunnel_ed25519 \
+  -L 127.0.0.1:6379:127.0.0.1:6379 \
+  ross@192.168.1.198
+Restart=always
+RestartSec=5s
+RestartMaxDelaySec=60s
+RestartSteps=5
+
+[Install]
+WantedBy=default.target
+```
+
+Notes on the choices:
+- `Type=exec` is stricter than `simple` — systemd waits for successful
+  `exec()` before marking active, catching a broken keypath faster.
+- `ExitOnForwardFailure=yes` means a failed port bind on spectre exits
+  ssh and lets systemd restart it, rather than silently running with
+  no tunnel. This is the specific case the option exists for.
+- `ServerAliveInterval=30`, `ServerAliveCountMax=3` — a dead tunnel
+  is detected within ~90 s and the service restarts.
+- No `autossh` — not installed on spectre; plain `ssh + Restart=always`
+  covers the same ground with one fewer dependency.
+- Backoff spikes to 60 s (`RestartMaxDelaySec=60s`, `RestartSteps=5`)
+  so a persistent outage doesn't hammer resolute.
+- `WantedBy=default.target` — user-session equivalent of
+  `multi-user.target` for system units.
+
+**Linger** was already enabled on spectre (`loginctl show-user ross`
+reported `Linger=yes`), so the user's systemd survives across reboot
+and starts the tunnel without a login session. Explicitly named here
+because that's the specific thing that makes user units come back at
+boot — noted so no one wonders later why this "just worked."
+
+**Verification, both pre- and post-reboot**:
+
+| | pre-reboot | post-reboot (fresh boot 2026-09-03 06:29 MDT) |
+|---|---|---|
+| `systemctl --user is-enabled arc-redis-tunnel.service` | `enabled` | **`enabled`** |
+| `systemctl --user is-active arc-redis-tunnel.service` | `active` | **`active`** |
+| `NRestarts` | 0 | **0** |
+| Listening on `127.0.0.1:6379` on spectre | ✓ | ✓ |
+| RESP `AUTH` reply | `+OK` | `+OK` |
+| RESP `PING` reply | `+PONG` | `+PONG` |
+| DBSIZE arc (db 0) | 54,243 | (same value) |
+| DBSIZE hunt (db 1) | 23,002 | (same value) |
+
+The `enabled` (not `linked`) result is the specific state
+[[ops/REBOOT.md]] flagged for `school-of-chat-directory.service` — a
+`linked` unit doesn't auto-start at boot even though it looks fine to
+`systemctl status`. This one is genuinely `enabled` and proven so by
+the fresh boot's `NRestarts=0` + auto-start.
+
+**What `audio_backfill.py` doesn't need to change**: nothing. Its
+`redis.Redis(host="127.0.0.1", port=6379, ...)` call works identically
+on either host through the tunnel. Same mutex key
+(`arc:audio:active`), same DB (`redis_db=0`), same poll cadence — the
+daemon is host-agnostic exactly as designed.
 
 ### Phase 2 — chunked synthesis, remove the 9,000-char ceiling
 
@@ -757,12 +870,14 @@ because those articles hit the same 9,000-char wall. They're a pair.
    ffmpeg 8.0.1 installed; venv rebuilt from pins with `uv` (rsync was
    inert because spectre's stock Python is 3.14 and the venv's
    interpreter path was dead); HF cache rsynced and af_heart sha
-   verified. Redis LAN reachability is **not** done — deferred to its
-   own window before Phase 2 wiring (see below). Measurement results in
-   the "Phase 1 measurement" subsection above.
-3. Phase 1 cutover, quiet overnight. **Depends on Redis LAN binding.**
-   Disable resolute's audio-backfill.service; enable spectre's.
-   `arc:audio:sync_ok` counter live.
+   verified. Redis reachability landed via **SSH tunnel** rather than
+   the originally-planned LAN bind — see the dedicated subsection
+   above; systemd user unit is `enabled` and reboot-survival proven.
+   Measurement results in the "Phase 1 measurement" subsection above.
+3. Phase 1 cutover, quiet overnight. Disable resolute's
+   audio-backfill.service; enable spectre's. `arc:audio:sync_ok`
+   counter live. (Redis path is already in place via the tunnel — no
+   longer a blocker for this step.)
 4. Phase 1 burn-in: one full peak-window weekday, current 9,000-char
    threshold still in place. Confirm zero validator skips on the
    af_heart directive, zero sync counter divergence.
@@ -810,6 +925,38 @@ tokens/sec question, but not blocked on memory sizing.
 Do the bench and the redirect decision **before Phase 1 is finalized**
 only if we're seriously considering pointing `ollama_url` at spectre;
 otherwise it's parallel work with its own timeline.
+
+### Requirepass rotation — deferred maintenance (flagged 2026-09-03)
+
+**Trigger**: during the tunnel-build session, the 40-char Redis
+`requirepass` was in this shell's environment while I ran RESP-protocol
+tests and earlier recon. Concretely: expanded into subprocess argv
+(momentarily visible in `ps` on both hosts), written into `bash -c`
+strings ssh'd to spectre, and present in this session's context on
+Anthropic's side. It was **not** printed to any tool output visible to
+the user, and the committed TODO/commits carry only `$REDIS_PASSWORD`
+references — never the value. But the exposure surface widened, and
+Ross called the rotation. Recording it here.
+
+**Rotation is a coordinated change, not a snap decision**:
+
+1. Pick a new 40-char secret (openssl rand -base64 32 | tr -d '=+/' | cut -c1-40).
+2. Update `.env` in every stack that connects — arc_stack,
+   huntaegis_stack, deliberation_stack, primer_academy_directory
+   (SoC), claude_stack (plants). Grep for `REDIS_PASSWORD=` to catch
+   any I miss.
+3. Update `/etc/redis/redis.conf`'s `requirepass` line (needs root)
+   and `systemctl restart redis-server`.
+4. Roll every daemon in every stack (each `./<stack>.sh restart`, or
+   individual services). Watchdogs will bounce cleanly; manual
+   restarts are safer for the sequencing.
+5. Re-run the tunnel PING check (`AUTH` reply should be `+OK` with
+   the new secret).
+6. Sanity-check each stack's checkup endpoint is green afterward.
+
+**Scope note**: this touches every stack on the box. Do it in a real
+window, not as a side effect of another change. Independent of any
+Phase 1/2/3 work above.
 
 ### Future optimization — startup-cost amortization (not for Phase 1/2/3)
 
