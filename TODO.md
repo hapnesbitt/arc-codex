@@ -448,7 +448,9 @@ nobody plans a multi-voice rollout without seeing it:
 **Design conclusion**: shared voice, per-directive slice. One voice
 per language, always — this matches the existing
 [[audio-voice-one-per-language]] policy. Per-professor voice is
-off-the-table until the throughput/validation story changes.
+off-the-table until the throughput/validation story changes. **The
+Kokoro-move + chunked-synthesis work in Section 6 below is
+exactly that story changing** — cross-reference forward.
 
 ---
 
@@ -502,4 +504,342 @@ a complete pickup point.
   "monitoring/alloy: committed but NEVER DEPLOYED" section (2026-07-30)
   and in `ops/REBOOT.md` known-gaps #1. Mentioned here only so the
   pickup list is complete; the root record is those two.
+
+---
+
+## 6. Move Kokoro to spectre; then chunked synthesis to remove the 9,000-char ceiling
+
+**Status at filing (2026-09-03)**: plan and decisions locked with Ross;
+nothing built. This is a three-phase piece of work, sequenced
+deliberately so each phase measures against the surface the next phase
+runs on. Cross-linked from Section 3.
+
+### The problem, restated with measured numbers
+
+Resolute (Z230) is saturated: load 7.28 / 6.39 / 6.27 at the time of
+scoping, 614 MB free of 31 GB (16 GB available including buff/cache).
+Kokoro synthesis at PID 498047 was **328% CPU, 2.2 GB RSS** —
+the single largest consumer, 3.3× the runner-up. Kokoro is CPU-bound
+and lives inside `audio_backfill.py` in this stack only because that's
+where the module was originally written, not because the Z230 was ever
+chosen for it. The Z230 also carries gunicorn, scribe, analyzer, the
+frontend, Caddy, Redis, Solr, and the monitoring stack.
+
+Spectre (192.168.1.189) is bare: base Ubuntu, 8 cores, 14 GB RAM
+(6.4 GB available after Ollama holds ~8 GB resident despite receiving
+zero traffic), no Docker, no `/home/www`. Ollama is **active** with
+only `gemma4:e2b` (7.2 GB) on disk locally, plus `gemma4:31b-cloud`
+and `gpt-oss:20b-cloud` shims — the resident ~8 GB is that one local
+model. ffmpeg is **absent** — install before anything else. Python is
+**3.14.4** (system).
+
+### Decisions locked (2026-09-03 exchange)
+
+| Question | Decision | Rationale |
+|---|---|---|
+| Audio path | **Option B1 — push-per-file rsync** | Failure domains stay separate. Today a synthesis failure is a Kokoro failure; Option A (NFS) folds mount unreachability, stale handles, and server-side hangs into the same code path — you'd be debugging "is this Kokoro or the mount" at 3am. B1 keeps "did rsync succeed for this file" as one boolean, surfaced as a Redis counter so a silently-stopped syncer is visible. Option A also puts nfsd on the box we're trying to relieve. |
+| Python on spectre | **Install 3.12 alongside 3.14** | Kokoro + misaki + torch on 3.14 is untested here; the failure mode is subtle — it might import fine and produce audio with different characteristics. Not worth finding out. |
+| Voice provisioning | **rsync the `.kokoro-venv/` from resolute wholesale; record sha256 of `af_heart.pt`** | If weights differ even slightly, `validate_native_format` starts skipping the af_heart directive the moment the first spectre file lands — silently, every show, no error. Reinstall-from-PyPI is the failure path here. |
+| Cutover window | **Quiet overnight** | No reason to do it under any load. Peak-throttle window (14:00–19:00 weekdays) narrates once per 95 min, so overnight is not distinguishable from that in throughput anyway. |
+
+### Phase 1 — the move
+
+**Goal**: Kokoro synthesis executes on spectre; the finished mp3 lands
+in `arc_stack/frontend/public/uploads/audio/` on resolute; newsradio's
+`build_wiki_show.py` reads the same directory it does today, unchanged.
+
+**Write-path facts** (from source read, not assumption):
+`scribe.synthesize_article_audio` (`backend/scribe.py:665-748`) creates
+`workdir = /tmp/arc-audio-{article_id[:12]}-XXXX`, invokes
+`AUDIO_KOKORO_PYTHON` (hard-coded `/home/www/lecture_pipeline/.kokoro-venv/bin/python`
+at `scribe.py:993`), Kokoro renders wav → ffmpeg encodes to 64 kbps
+mono 24 kHz mp3 in workdir, then **`os.replace(temp_path, final_path)`**
+at `scribe.py:741`. Same-filesystem atomic rename — that's what
+protects newsradio's ffprobe from ever seeing a partial file today.
+
+**Under B1, the invariant is preserved on both ends:**
+- On spectre: `os.replace` is local (workdir in `/tmp`, `final_path` on
+  `/var/lib/arc-audio/`, both on the same ext4 root). Atomic.
+- Push-per-file: after `os.replace` succeeds, invoke rsync (over ssh,
+  keyed) for that single file to resolute. rsync without `--inplace`
+  writes `.<name>.XXXXXX` in the destination dir then renames — also
+  atomic on the destination filesystem. newsradio ffprobes only the
+  post-rename path.
+
+**Pre-flight, all before wiring any daemon on spectre:**
+
+1. Install Python 3.12 alongside 3.14 on spectre (`apt install
+   python3.12` + venv path pinning); mirror the venv location so
+   `AUDIO_KOKORO_PYTHON = "/home/www/lecture_pipeline/.kokoro-venv/bin/python"`
+   resolves. Symlink the directory tree rather than editing scribe.py's
+   hard-coded path.
+2. rsync `/home/www/lecture_pipeline/.kokoro-venv/` from resolute to
+   spectre wholesale. `sha256sum` every file in the voice weights
+   (`af_heart`, whatever `.pt`/`.bin` files misaki 0.9.4 uses); store
+   the reference file alongside so future drift is checkable.
+3. Install ffmpeg on spectre matching the major version resolute has
+   (`ffmpeg -version` on resolute first; libmp3lame framing at 64 kbps
+   is inside newsradio's ±4 kbps validator tolerance but only if the
+   encoder produces the same CBR structure).
+4. Verify Redis reachability from spectre to resolute:6379 with the
+   real password. `arc:audio:active` mutex, `POLL_SECONDS = 30`,
+   `redis_db = 0`, peak throttling — all host-agnostic by design and
+   unchanged.
+5. Stand up ssh key from spectre → resolute (arc-audio-syncer user,
+   restricted to `rsync --server` in `authorized_keys` command=).
+
+**Then a standalone measurement pass on spectre** — 5 known articles
+of varying length pushed through the installed Kokoro without the
+daemon in the loop. Record wall-clock, chars/s p50 and p95. Derive
+`AUDIO_TIMEOUT_SECONDS = p95 × 1.5` (same safety multiple the current
+600s implies against the 15 chars/s median observed on resolute). This
+number **feeds Phase 2 directly**; do not skip it.
+
+**Daemon wiring**: `audio_backfill.py`'s systemd unit moves to spectre;
+resolute's copy is disabled. Add a Redis counter — call it
+`arc:audio:sync_ok` / `arc:audio:sync_fail` — incremented from the
+push-per-file wrapper so the corpus_exporter can chart it. A silent
+syncer failure is the specific thing this counter exists to catch.
+
+### Phase 1 measurement — 2026-09-03 (executed)
+
+Standalone Kokoro on spectre against 5 pre-picked article bodies
+spanning 400 → 10,993 chars. Provisioning was Python 3.12 (patch-level
+3.12.14 vs resolute's 3.12.13 — pip-freeze-rehydrated via `uv`, all 91
+packages including torch 2.13.0+cpu, kokoro/misaki 0.9.4 matching),
+stock Ubuntu ffmpeg `8.0.1-3ubuntu2+esm1` with libmp3lame, and the
+byte-identical HF Kokoro cache (af_heart.pt sha
+`0ab5709b8ffab19bfd849cd11d98f75b60af7733253ad0d67b12382a102cb4ff`,
+revision `f3ff3571791e39611d31c381e3a41a3af07b4987`).
+
+**Wall-clock results:**
+
+| Chars | Chunks | Wall (s) | chars/s | mp3 duration | bit_rate | valid |
+|---:|---:|---:|---:|---:|---:|:---:|
+| 400 | 1 | 17.5 | 23.1 | 27.25s | 64,214 | ✓ |
+| 1,721 | 1 | 56.0 | 31.0 | 120.85s | 64,048 | ✓ |
+| 5,036 | 2 | 151.7 | 33.5 | 339.27s | 64,017 | ✓ |
+| 7,957 | 3 | 224.0 | 35.9 | 519.80s | 64,011 | ✓ |
+| **10,993** | 4 | **331.0** | **33.6** | 785.35s | 64,006 | ✓ |
+
+- **p50 wall = 151.7s, p95 wall = 331.0s**
+- **p50 chars/s = 33.5** — **2.24× resolute's 15 chars/s median**
+- **Derived AUDIO_TIMEOUT_SECONDS on spectre = p95 × 1.5 = 496s** (down
+  from 600s used on resolute). For Phase 1's wrapper-style budget if we
+  keep one; Phase 2 removes the wrapper.
+- 5/5 mp3s pass `validate_native_format` (sample_rate 24000, channels 1,
+  bitrate inside ±4 kbps of 64,000).
+
+**Identity check — spectre-produced vs resolute-reference for
+`0ae71d41ef63c0bc56eb816f20ac3ed9`** (Ross's step 4):
+
+| | resolute | spectre |
+|---|---:|---:|
+| File size | 4,159,148 bytes | **4,159,148 bytes** |
+| Duration | 519.800000s | **519.800000s** |
+| PCM sample count @ 24 kHz | 12,475,200 | **12,475,200** |
+| Overall RMS | −26.28 dBFS | **−26.28 dBFS** |
+| 20 ms-window envelope Pearson r | — | **r = 0.999689** |
+
+**PASS on every objective metric.** Same file size to the byte, same
+PCM length to the sample, same overall energy to the hundredth of a
+dB, same speech envelope to r ≈ 1. Fine-detail PCM diverges at
+~17 dB SNR in speech and ~11 dB in silence — well below what "different
+speech" would produce and consistent with torch CPU float-op drift
+across microarchitectures (the SNR is high enough to rule out gross
+divergence and low enough that a pure encoder-quantization difference
+alone probably wouldn't explain it). Ross's subjective listen accepted
+the result — **option A (stock Ubuntu ffmpeg) is confirmed; the
+ffmpeg-source-build question is closed.**
+
+**The 10,993-char article is the Phase 2 proof-of-concept.** On
+resolute today (`AUDIO_TIMEOUT_SECONDS × 15 chars/s = 9,000` ceiling)
+it would be poison-pilled and never narrated. On spectre it ran in
+331s wall, 33.6 chars/s, 4 chunks through the existing sentence
+splitter, produced 785 s (~13 min) of valid af_heart audio. The
+synthesis path already handles it end-to-end; Phase 2's remaining work
+is the per-chunk timeout accounting and Redis chunk-state resume, not
+new synthesis code.
+
+### Phase 2 — chunked synthesis, remove the 9,000-char ceiling
+
+**Reframe from the original spec, based on source read**: scribe.py
+**already** sentence-chunks Kokoro calls at `AUDIO_MAX_CHARS = 3500`
+(`scribe.py:637-654`). The 9,000-char article ceiling is not a Kokoro
+request-size limit — it's a **wrapper wall-clock budget**:
+`AUDIO_TIMEOUT_SECONDS = 600` × 15 chars/s = 9,000. Kokoro is called
+with chunks; the timeout bounds the sum.
+
+So Phase 2 is smaller than it sounded. The chunking primitive exists.
+What's missing:
+
+1. **Per-chunk timeout accounting** — each Kokoro invocation gets its
+   own `per_chunk_timeout`. **Decided from the Phase 1 measurement:
+   200s per chunk.** A max-size 3,500-char chunk runs ~104 s at
+   spectre's observed 33.5 chars/s p50, so 200 s is ~2× cushion. The
+   timeout exists to catch a hung Kokoro process, not to accommodate
+   slow-but-working synthesis — that's what the cushion sizes for. The
+   article no longer has a whole-of-corpus timeout; the poison-pill
+   guard becomes per-chunk. A single chunk that estimates over its own
+   budget is still unrecoverable — the guard doesn't go away, its
+   scope narrows.
+2. **Chunk persistence + resume** — a failure on chunk 7 of 12 must
+   not discard chunks 1–6. Persist chunk state in Redis:
+   `arc:audio:chunks:{article_id}` HASH storing `chunk_idx →
+   {path, sha256, chars, wall_s}`. On resume, skip completed chunks
+   and pick up at the first missing index. Redis (not disk) because it
+   composes with the existing mutex and survives a spectre reboot
+   without a boot-time cleanup pass.
+3. **Concat step** — use `build_wiki_show.py`'s pattern verbatim
+   (`build_wiki_show.py:870` `write_concat_file` + the `ffmpeg -c copy`
+   invocation at ~line 950). All chunks are same-codec/rate/channels/
+   bitrate by construction, so it's a bit-identical stream copy — no
+   re-encode, orders of magnitude faster than lame'ing again, and
+   `validate_native_format` continues to pass.
+4. **Final atomic rename** unchanged: concat lands in workdir, then
+   `os.replace` to `final_local`, then push-per-file rsync to resolute
+   as in Phase 1.
+
+**Per-chunk budget was derived on spectre, not resolute.** The whole
+reason Phase 1 came first was so Phase 2's numbers wouldn't be fitted
+to a machine they won't run on — done, the 200 s figure above is the
+result.
+
+### Phase 3 — backlog reindex (promoted from parenthetical)
+
+**Ross's addition, and the one that turns Phase 2 from "future coverage"
+into "actual coverage gain."** ~21% of articles were skipped by the
+9,000-char threshold. After Phase 2 ships, chunking removes that
+gate — but a new article > 9,000 chars is the only case that benefits
+automatically. Existing skipped articles stay silent forever unless
+something scans them.
+
+**Concrete because there is no cache to invalidate.** Verified by
+source and Redis scan (2026-09-03): the poison-pill exclusion is
+applied at query time in `find_newest_silent(..., max_chars)`
+(`audio_backfill.py:440`), and `failed_this_run` is a process-local set
+that resets on each `run()`. Redis has **no** `audio:skip:*` /
+`audio:poison:*` keys — the SCAN came back empty. So "reindex" here is
+not a cache clear.
+
+**The real gate is `backfill_window_hours = 2` (ceiling 6h).** The
+daemon deliberately narrates breaking news, not history — see the long
+comment at `arc.cfg:222`. Anything skipped a week ago is out-of-window
+forever from the daemon's perspective, even after Phase 2 makes it
+technically eligible.
+
+**What Phase 3 actually is**: a one-shot backlog script — call it
+`scripts/audio_backfill_history.py` — that scans the full feed ZSET
+(not just the trailing window), filters `audio_url` unset AND
+`len(body) > 9000`, and enqueues them through the same
+Phase-2-hardened `synthesize_article_audio` path, respecting the
+mutex, off-peak only. Idempotent (re-runs skip already-narrated
+articles). Rate-limited to not swamp the newly-relieved spectre.
+
+Deliberately a **separate script from the daemon**, not a config
+knob — the trailing-window discipline is a live design constraint and
+we don't want a wide `backfill_window_hours` to accidentally reactivate
+the old batch-backfill pattern the 2026-08-27 redesign replaced (that
+concern is already documented in `arc.cfg`'s ceiling clamp).
+
+**This is the payoff.** Chunking without Phase 3 ships a capability
+change with no coverage change; Phase 3 without chunking can't run
+because those articles hit the same 9,000-char wall. They're a pair.
+
+### Sequencing
+
+1. Redo the ollama-url benchmark from a moment the M1 is known-healthy
+   (see "Deferred" below). Result gates nothing in Phase 1, but the
+   memory-conflict finding may reshape Phase 1's headroom math.
+2. ~~Phase 1 pre-flight (Python 3.12, venv rebuild w/ sha256, ffmpeg,
+   Redis reachability, standalone Kokoro measurement of 5 articles →
+   `AUDIO_TIMEOUT_SECONDS`).~~ **Done 2026-09-03** — Python 3.12.14 +
+   ffmpeg 8.0.1 installed; venv rebuilt from pins with `uv` (rsync was
+   inert because spectre's stock Python is 3.14 and the venv's
+   interpreter path was dead); HF cache rsynced and af_heart sha
+   verified. Redis LAN reachability is **not** done — deferred to its
+   own window before Phase 2 wiring (see below). Measurement results in
+   the "Phase 1 measurement" subsection above.
+3. Phase 1 cutover, quiet overnight. **Depends on Redis LAN binding.**
+   Disable resolute's audio-backfill.service; enable spectre's.
+   `arc:audio:sync_ok` counter live.
+4. Phase 1 burn-in: one full peak-window weekday, current 9,000-char
+   threshold still in place. Confirm zero validator skips on the
+   af_heart directive, zero sync counter divergence.
+5. Phase 2 build: per-chunk timeout, Redis-persisted chunk state,
+   ffmpeg `-c copy` concat mirroring `build_wiki_show.py`. Per-chunk
+   budget derived from Phase 1's measured cps.
+6. Phase 2 cutover, quiet overnight. `AUDIO_TIMEOUT_SECONDS` becomes
+   per-chunk; article-level threshold removed.
+7. Phase 3: run `audio_backfill_history.py` off-peak, watch it drain
+   through the ~21% backlog over however many days the mutex + rate
+   limit dictates. This is the visible coverage improvement.
+
+### Deferred: Ollama bench + memory conflict, tracked separately
+
+Not blocking any of the above. Attempted 2026-09-03: both hosts hung
+past 60s and 120s respectively on a `gemma4:e2b` `POST /api/generate`.
+The M1 side is consistent with historical daemon flakiness
+([[m1-filevault-two-tier-gate]] and TODO.md's "M1 Ollama daemon down"
+entry). Redo when M1 is confirmed responsive:
+
+```bash
+for host in 192.168.1.185 192.168.1.189; do
+  curl -sS -m 30 "http://$host:11434/api/generate" \
+    -d '{"model":"gemma4:e2b","prompt":"hi","stream":false,"options":{"num_predict":1}}' >/dev/null
+done
+# then bench at num_predict=200 and read eval_count / eval_duration
+```
+
+**Memory arithmetic, corrected 2026-09-03**: spectre has 14.9 GB total,
+6.4 GB available at scoping. `gemma4:e4b` (9.6 GB) was on the initial
+`ollama list` output but Ross has since deleted it — **it is not
+present on spectre**. The only local model is `gemma4:e2b` (7.2 GB);
+the `31b-cloud` and `gpt-oss:20b-cloud` entries are cloud shims that
+consume no local RAM. Ollama's current ~8 GB resident is `e2b` fully
+loaded. Kokoro adds ~2.2 GB RSS.
+
+So if `ollama_url` gets pointed at spectre: local Ollama traffic
+lands on the already-resident `e2b` (no new memory pressure), cloud
+traffic goes upstream (no local memory), Kokoro's 2.2 GB fits in the
+remaining ~6.4 GB with room. Redirecting `ollama_url` looks
+**memory-safe** under the corrected inventory — very different from
+the reading I filed the first time. Still worth benching for the
+tokens/sec question, but not blocked on memory sizing.
+
+Do the bench and the redirect decision **before Phase 1 is finalized**
+only if we're seriously considering pointing `ollama_url` at spectre;
+otherwise it's parallel work with its own timeline.
+
+### Future optimization — startup-cost amortization (not for Phase 1/2/3)
+
+Phase 1's measurement surfaced a scaling pattern worth recording,
+though nothing here changes on the current path:
+
+| Article chars | chars/s |
+|---:|---:|
+| 400 | 23.1 |
+| 1,721 | 31.0 |
+| 5,036 | 33.5 |
+| 7,957 | 35.9 |
+| 10,993 | 33.6 |
+
+The rate climbs sharply from ~23 → ~34 chars/s over the first
+~2,000 chars and then flattens. That shape is fixed per-invocation
+startup cost — model load, spaCy init, `KPipeline` construction —
+amortizing over longer text. Short articles pay disproportionately
+because startup is spent again for every one of them.
+
+**Recover it with a persistent worker** rather than per-article
+process spawn: instead of `subprocess.run([AUDIO_KOKORO_PYTHON,
+"synth.py", ...])` per article, keep one long-lived Kokoro process
+around and feed it chunks over a pipe. Bench math against Phase 1
+numbers: if the amortized ceiling is ~35 chars/s and the amortized
+floor (long articles only) is ~34 chars/s, then a persistent worker
+would move the ~1,700-char article from ~55 s wall to ~50 s and the
+~400-char article from ~17 s to closer to ~12 s. Modest gains for a
+non-trivial rewrite of `scribe.synthesize_article_audio`'s subprocess
+model. **Not for now** — worth revisiting only if the daemon's
+throughput becomes a real ceiling, which it isn't at spectre's ~2×
+resolute rate.
 
