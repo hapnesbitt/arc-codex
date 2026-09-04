@@ -134,6 +134,7 @@ Newest first. Deep detail in the dated entry of the same date.
 
 | Date | Change | Note |
 |------|--------|------|
+| 2026-09-04 | Orphan sweep parity: `cleanup.py`/`kasmir7.py` `purge_redis_orphans()` now clear satellites | Was the one deletion path that skipped `purge_article_satellites()`. See [[dead-article-id-holders]] and `ops/ARTICLE_LIFECYCLE.md`. Full detail in the incident journal entry below. |
 | 2026-08-20 | Kokoro synthesis relocated: M1 (ssh) → resolute (local) | `scribe.py` — removes `_audio_ssh`/`AUDIO_HOST`/`AUDIO_VENV`; preflight now `psutil.virtual_memory().available`. Spectre benched ~20% faster but ruled out (ssh/scp coupling + Python 3.14 + OOM'd Hunt's ollama mid-bench). Live verification caught a real [[council-ollama-host-misrouted]] collision. Full detail in the incident journal entry below. |
 | 2026-08-19 | M1 Ollama → system LaunchDaemon (`com.arc.ollama`); `OLLAMA_KEEP_ALIVE=-1`; `OLLAMA_HOST=0.0.0.0:11434` | Starts at boot without login; model pinned (no idle eviction). Retires brew LaunchAgent. Behavioural proof: `/api/ps` `expires_at` in year 2318 (Go max-duration = -1). |
 | 2026-08-19 | `/Applications/Ollama.app` moved to Trash | Was holding `:11434` at daemon install, starving `com.arc.ollama` into a KeepAlive restart-loop. The 2026-07-18 "GUI login-item disabled" note was stale — the app self-reinstalled or auto-updated back. **Not a brew cask** (there is no cask; only the `ollama` formula). App removed manually. See M1 Ollama box for the "must not come back" list. |
@@ -156,6 +157,44 @@ Newest first. Deep detail in the dated entry of the same date.
 ---
 
 # Incident journal (append-only)
+
+## 2026-09-04 — Dead-article-id trace → orphan sweep parity (arc only, commit 1 of 2)
+
+### Trace
+A multi-day dead-id investigation (`analyzer.log` "not found in Redis —
+skipping", both stacks) established: `kasmir7.py`'s per-story delete flows
+and `retention.py`'s `trim_by_hours` are fully symmetric (hash + `feed` +
+`processed_hashes` + `purge_article_satellites` — comments, translations,
+grade, `characters:*`, images, audio — all together). `cleanup.py`'s
+automated `purge_redis_orphans()` and `kasmir7.py`'s interactive twin
+(`[8]`) were the one deletion path that skipped `purge_article_satellites`
+entirely — an "orphan" there (hash present, no `feed` entry) turned out not
+to always mean "never fully published"; some carry real satellite state.
+Full write-up: `ops/ARTICLE_LIFECYCLE.md`. (Second finding from the same
+trace — the social posted-sets — is its own commit, entry below.)
+
+### Fix
+- `cleanup.py::purge_redis_orphans()` — now calls `retention.purge_article_
+  satellites()` per orphan id (imported at module scope so a missing
+  `retention.py` fails loudly at startup, not mid-run). Added
+  `_count_satellites()` (read-only, pre-delete) so the log line reports what
+  was actually cleared, not just the hash count.
+- `kasmir7.py::purge_redis_orphans()` (`[8]`) — same call, same commit; it's
+  the interactive twin of the identical gap.
+- **Deliberately did not**: add the social `*:posted` sets to
+  `purge_article_satellites()` (see the entry below — different risk
+  profile, needs age-bounding not id-keyed deletion), or touch
+  `characters:posted:*` behaviour (already cleared immediately by
+  `purge_article_satellites`, unchanged, flagged as a known lower-stakes
+  version of the same tradeoff in `ops/ARTICLE_LIFECYCLE.md` rather than
+  silently changed here).
+- **First run, post-fix** (manual, out-of-cycle — next scheduled Sunday
+  1am cron will pick up the code path normally): `0` orphan hashes, `0`
+  satellite items. Production Redis currently has zero hash/feed
+  desync (1,471 `feed` entries == 1,471 `article:*` keys) — the fix is
+  real and will fire the next time an orphan-with-satellites actually
+  accumulates, but there was no existing backlog to demonstrate it on
+  today. Logged to `logs/cleanup.log`.
 
 ## 2026-07-15 — Playwright Tier-3 restored (arc only for now)
 

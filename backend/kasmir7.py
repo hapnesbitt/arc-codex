@@ -1247,6 +1247,9 @@ def purge_solr_orphans(r, solr):
 def purge_redis_orphans(r, solr):
     print(colored("\n--- [8] Purge Redis Orphans ---", "cyan"))
     print("Finds article: hashes in Redis with no matching feed entry and removes them.")
+    print("Also clears each orphan's satellite state (comments, translations, grade,")
+    print("character state, images, audio) — the same purge_article_satellites call")
+    print("cleanup.py's automated sweep and every other delete flow here already make.")
 
     feed_ids = set(r.zrange("feed", 0, -1))
     all_keys = r.keys("article:*")
@@ -1275,10 +1278,12 @@ def purge_redis_orphans(r, solr):
         return
 
     deleted = 0
+    char_state_keys = _character_state_keys(r)
     for key in orphan_keys:
         aid = key.replace("article:", "")
         r.delete(key)
         r.srem("processed_hashes", aid)
+        purge_article_satellites(r, aid, char_state_keys)
         if solr:
             try:
                 solr.delete(id=aid)
@@ -1292,7 +1297,7 @@ def purge_redis_orphans(r, solr):
         except Exception:
             pass
 
-    print(colored(f"✅ Purged {deleted} orphaned Redis hash(es).", "green"))
+    print(colored(f"✅ Purged {deleted} orphaned Redis hash(es) and their satellite state.", "green"))
 
 
 # ==============================================================================

@@ -22,6 +22,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# purge_article_satellites / _character_state_keys are the same helpers
+# retention.py's trim_by_hours and every kasmir7.py delete flow already run
+# after removing an article's hash — comments, cached translations, the
+# grade cache, per-persona character state, rehosted images, and narrated
+# audio. purge_redis_orphans below was the one deletion path that skipped
+# them (see ops/RUNBOOK.md — orphan-hash sweep parity, 2026-09-04): an
+# orphan here is only "no feed entry", not "never fully published", so it
+# can carry real satellite state, not just a stray hash from a failed
+# publish. Import deferred to module scope (not inside main()) so a
+# missing retention.py fails loudly at startup rather than mid-run.
+from retention import purge_article_satellites, _character_state_keys
+
 # --- LOGGING ---
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +51,13 @@ SOLR_URL       = os.environ.get('SCRIBE_SOLR_URL', 'http://localhost:8983/solr/f
 _BACKEND_DIR      = os.path.dirname(os.path.abspath(__file__))
 SCRAPED_IMAGE_DIR = os.path.join(os.path.dirname(_BACKEND_DIR),
                                  'frontend', 'public', 'uploads', 'scraped')
+
+# Narrated audio dir, for _count_satellites' preview only — the actual
+# removal is purge_article_satellites' job (retention.AUDIO_DIR). Kept as
+# a separate read here rather than importing retention.AUDIO_DIR so this
+# count never silently drifts if a future retention.py reshapes that path.
+AUDIO_DIR = os.path.join(os.path.dirname(_BACKEND_DIR),
+                         'frontend', 'public', 'uploads', 'audio')
 
 
 def get_image_retention_days():
@@ -68,11 +87,51 @@ def get_solr():
     return solr
 
 
-def purge_redis_orphans(r) -> int:
+def _count_satellites(r, article_id, char_state_keys) -> int:
+    """Best-effort, read-only count of satellite state purge_article_satellites
+    is about to remove for one article id — comments, cached translations,
+    the grade cache, per-persona character state, rehosted images, and any
+    narrated audio. Sized before the delete so the log line below can say
+    what the sweep actually cleared, not just how many hashes it touched."""
+    count = 0
+    count += r.llen(f"comments:{article_id}")
+    langs = r.smembers(f"translation:langs:{article_id}")
+    if langs:
+        count += len(langs) + 1  # each translation:{id}:{lang} + the langs set itself
+    if r.exists(f"grade:{article_id}"):
+        count += 1
+    for k in char_state_keys:
+        if k.startswith("characters:skip_attempts:"):
+            if r.hexists(k, article_id):
+                count += 1
+        elif k.startswith("characters:skipped:"):
+            if r.zscore(k, article_id) is not None:
+                count += 1
+        else:  # characters:pending: / characters:posted: — SETs
+            if r.sismember(k, article_id):
+                count += 1
+    try:
+        count += len([n for n in os.listdir(SCRAPED_IMAGE_DIR)
+                      if n.split('-', 1)[0].split('.', 1)[0] == article_id]) \
+            if os.path.isdir(SCRAPED_IMAGE_DIR) else 0
+    except OSError:
+        pass
+    if os.path.exists(os.path.join(AUDIO_DIR, f"{article_id}.mp3")):
+        count += 1
+    return count
+
+
+def purge_redis_orphans(r) -> tuple[int, int]:
     """
-    Remove article:{id} hashes that have no entry in the feed sorted set.
-    These accumulate from failed publishes, deduped submissions, etc.
-    Returns count of purged hashes.
+    Remove article:{id} hashes that have no entry in the feed sorted set,
+    plus every satellite key/file still hanging off them (purge_article_
+    satellites — the same call retention.py's age-based trim and every
+    kasmir7.py delete flow already make; this was the one deletion path
+    that skipped it). These orphans accumulate from failed publishes,
+    deduped submissions, etc. — but also, it turns out, from articles that
+    fell out of `feed` some other way while still fully published (see
+    ops/RUNBOOK.md), so satellite state is not a rare case here.
+    Returns (hashes purged, satellite items cleared).
     """
     feed_ids = set(r.zrange('feed', 0, -1))
     logger.info(f"Feed articles : {len(feed_ids)}")
@@ -96,16 +155,25 @@ def purge_redis_orphans(r) -> int:
 
     if not orphans:
         logger.info("✅ Redis clean — no orphans found")
-        return 0
+        return 0, 0
 
-    # Delete in batches
+    char_state_keys = _character_state_keys(r)
+    satellites_cleared = 0
+    for key in orphans:
+        article_id = key.split(':', 1)[1]
+        satellites_cleared += _count_satellites(r, article_id, char_state_keys)
+        purge_article_satellites(r, article_id, char_state_keys)
+
+    # Delete the hashes themselves in a batch, same as before.
     pipe = r.pipeline()
     for key in orphans:
         pipe.delete(key)
     pipe.execute()
 
     logger.info(f"✅ Purged {len(orphans)} orphaned Redis hash(es)")
-    return len(orphans)
+    logger.info(f"✅ Cleared {satellites_cleared} orphaned satellite item(s) "
+                f"(comments, translations, grade, character state, images, audio)")
+    return len(orphans), satellites_cleared
 
 
 def purge_solr_orphans(r, solr) -> int:
@@ -257,7 +325,7 @@ def main():
     logger.info(f"Feed size: {feed_size} articles")
 
     # --- Run purges ---
-    redis_purged  = purge_redis_orphans(r)
+    redis_purged, satellites_cleared = purge_redis_orphans(r)
     solr_purged   = purge_solr_orphans(r, solr) if solr else 0
     hashes_purged = purge_processed_hashes(r)
 
@@ -268,6 +336,7 @@ def main():
     elapsed = (datetime.now(timezone.utc) - start).total_seconds()
     logger.info("-" * 60)
     logger.info(f"Redis orphans purged  : {redis_purged}")
+    logger.info(f"Orphaned satellites   : {satellites_cleared}")
     logger.info(f"Solr orphans purged   : {solr_purged}")
     logger.info(f"Stale hashes removed  : {hashes_purged}")
     logger.info(f"Scraped images purged : {images_purged}")
