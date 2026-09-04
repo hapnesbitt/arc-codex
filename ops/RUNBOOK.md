@@ -196,6 +196,66 @@ trace — the social posted-sets — is its own commit, entry below.)
   accumulates, but there was no existing backlog to demonstrate it on
   today. Logged to `logs/cleanup.log`.
 
+## 2026-09-04 — Social posted-set age-bounding (arc only, commit 2 of 2)
+
+### Trace
+Second finding from the same dead-id investigation as the entry above: the
+four social posters' only anti-duplicate-repost guard (`facebook:posted` /
+`bluesky:posted` / `mastodon:posted` / `threads:posted` SETs) is written on
+every successful post and was never pruned by anything — confirmed
+unbounded (29,730 / 33,320 / 33,192 members respectively, pre-migration)
+and holding ids for articles deleted months prior.
+
+### Fix
+- `ops/migrate_posted_sets_to_zset.py` (new, one-shot, idempotent) —
+  converts each `*:posted` key from SET to ZSET (member = article id, score
+  = post unix ts). Existing members scored at migration run time (not
+  backdated — the real post time isn't recoverable from a bare SET member),
+  so none is anywhere near a prune window immediately after running. Run
+  2026-09-04 13:32 UTC: `facebook:posted` 29,730 members, `bluesky:posted`
+  33,320, `mastodon:posted` 33,192, `threads:posted` absent (created as a
+  ZSET on first write).
+- All four posters (`facebook_poster.py`, `bluesky_poster.py`,
+  `mastodon_poster.py`, `threads_poster.py`): `SADD` → `ZADD ... NX` (NX so
+  the unconditional-on-startup `seed_posted_set()` re-seed can't clobber a
+  real post timestamp back to "now" on every restart); the bulk read
+  (`current_ids - posted_ids`) changed from `SMEMBERS` to
+  `set(ZRANGE(key, 0, -1))` — confirmed a drop-in: `ZRANGE` with no
+  `WITHSCORES` returns the same bare member strings `SMEMBERS` did, so the
+  downstream set-difference is unchanged. Verified live post-migration
+  (`ZRANGE`/`ZSCORE` spot-check against real migrated data).
+- `cleanup.py::purge_stale_posted_entries()` (new) — `ZREMRANGEBYSCORE` on
+  all four keys, called from `main()` alongside the other weekly purges.
+  Window: `[retention].posted_set_days` in `arc.cfg`, **not hardcoded**.
+- **Window chosen: 60 days.** The 9-day `image_days` precedent is a floor
+  ("how long could a duplicate realistically resurface"), not the answer —
+  it bounds unreferenced *files*, not the sole guard against a live
+  re-post. Derivation instead ties to `[retention].article_hours` (720h =
+  30d, the age at which `retention.trim_by_hours` first becomes *able* to
+  delete an original article and open a same-hash-id re-ingestion window):
+  60d = 30d for the original article's full natural life + a 30d buffer
+  past that for a duplicate to surface and still be caught. Pruning a
+  `:posted` entry any earlier than the original article could even be gone
+  reopens the repost window before there's anything to repost yet.
+- **Re-post risk is real, not hypothetical** — flagged explicitly per Ross's
+  ask, not glossed over: article ids are `md5(title + text_snippet)`
+  (`manual_publisher.get_article_hash`), so a re-scraped *identical* source
+  story (wire re-serve, RSS republish-on-edit, manual resubmit) reproduces
+  the same id. `*:posted` is the *only* thing stopping that from posting
+  twice. This is exactly why the fix is age-bounded ZSET pruning and not
+  id-keyed deletion the moment an article's hash disappears (which is what
+  `characters:posted:*` still does, unchanged, today — see commit 1's
+  scope note).
+
+### Verification
+- `purge_stale_posted_entries(r, 60)` run immediately post-migration: `0`
+  pruned (expected — every member was just scored at "now").
+- Syntax-checked all six changed files (`cleanup.py`, `kasmir7.py`, four
+  posters) before running anything against production Redis.
+- `TYPE` confirmed `zset` on all three populated keys post-migration;
+  `threads:posted` confirmed absent (will be created correctly on next
+  post via the now-ZSET `ZADD ... NX` path).
+
 ## 2026-07-15 — Playwright Tier-3 restored (arc only for now)
 
 Restored after March 2026 retirement (commit 0abc395). New module
