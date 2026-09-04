@@ -4,9 +4,7 @@ facebook_poster.py — Arc Codex auto-poster for Facebook Pages
 v1.3 — 368 rate-limit cooldown; Page token re-derived via /me/accounts
 
 On/off:  redis-cli set facebook:autopost 1|0
-Posted set: facebook:posted (ZSET, member=article ID score=post unix ts,
-  prevents duplicates; age-pruned by cleanup.py's weekly run — see
-  [retention] posted_set_days in arc.cfg and ops/RUNBOOK.md)
+Posted set: facebook:posted (SET of article IDs, prevents duplicates)
 Rate-limit cooldown: facebook:rate_limit_cooldown (STRING, TTL) — when set,
   the main loop skips all posting until it expires. Set on OAuthException 368
   ("We limit how often you can post..."). Prevents burning a photo upload
@@ -413,9 +411,8 @@ def seed_posted_set():
         keys = r.zrange("feed", 0, -1)
         if keys:
             pipe = r.pipeline()
-            now = time.time()
             for article_id in keys:
-                pipe.zadd(POSTED_SET, {article_id: now}, nx=True)
+                pipe.sadd(POSTED_SET, article_id)
             pipe.execute()
             log.info("First-run seed of facebook:posted with %d existing articles", len(keys))
         r.set(SEEDED_KEY, "1")
@@ -516,18 +513,13 @@ def main():
                 continue
 
             current_ids = set(all_article_ids())
-            # POSTED_SET is a ZSET (member=article_id, score=post unix ts) so
-            # cleanup.py can age-prune it — see retention.py's purge below.
-            # Membership is unchanged: zrange with no scores is still just
-            # the member strings, so this set-difference is a drop-in for
-            # the old SMEMBERS-based one.
-            posted_ids  = set(r.zrange(POSTED_SET, 0, -1))
+            posted_ids  = r.smembers(POSTED_SET)
             new_ids     = current_ids - posted_ids
 
             for article_id in new_ids:
                 article = get_article(article_id)
                 if not article:
-                    r.zadd(POSTED_SET, {article_id: time.time()}, nx=True)
+                    r.sadd(POSTED_SET, article_id)
                     continue
 
                 jitter = random.randint(JITTER_MIN, JITTER_MAX)
@@ -548,7 +540,7 @@ def main():
 
                 if success:
                     log.info("Posted article %s to Facebook", article_id)
-                    r.zadd(POSTED_SET, {article_id: time.time()}, nx=True)
+                    r.sadd(POSTED_SET, article_id)
                 elif rate_limit_active():
                     # 368 tripped inside post_to_page — stop processing new_ids
                     # this cycle; the outer-loop cooldown gate handles the wait.

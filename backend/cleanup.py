@@ -73,19 +73,6 @@ def get_image_retention_days():
         return None
 
 
-def get_posted_set_retention_days():
-    """[retention].posted_set_days from the site cfg, or None (with a loud
-    log) if missing/unloadable — in which case the posted-set prune is
-    skipped while every other purge still runs."""
-    try:
-        from site_config import load_site_config
-        return int(load_site_config()["retention"]["posted_set_days"])
-    except Exception as e:
-        logger.warning(f"⚠️  [retention].posted_set_days unavailable ({e}) — "
-                       f"skipping posted-set prune")
-        return None
-
-
 def get_redis():
     import redis
     r = redis.Redis(decode_responses=True, password=REDIS_PASSWORD)
@@ -314,38 +301,6 @@ def purge_scraped_images(r, solr, max_age_days: int) -> int:
     return deleted
 
 
-def purge_stale_posted_entries(r, max_age_days: int) -> int:
-    """Age-prune the facebook/bluesky/mastodon/threads :posted ZSETs.
-
-    These are the posters' only anti-duplicate-repost guard (member=article
-    id, score=post unix ts since the 2026-09-04 SET→ZSET migration — see
-    ops/migrate_posted_sets_to_zset.py). Pruned by AGE from the post event,
-    not tied to the article's own deletion: an id can be re-ingested (same
-    md5(title+snippet) hash) any time up to and past when retention.py
-    trims the original article out of `feed`, so clearing a :posted entry
-    the instant its article disappears would reopen the repost window
-    while a duplicate could still realistically surface. See
-    [retention].posted_set_days in arc.cfg for the window and its
-    derivation. Returns total entries removed across all four sets.
-    """
-    cutoff = time.time() - max_age_days * 86400
-    total = 0
-    for key in ("facebook:posted", "bluesky:posted", "mastodon:posted", "threads:posted"):
-        try:
-            removed = r.zremrangebyscore(key, "-inf", cutoff)
-        except Exception as e:
-            logger.warning(f"  ⚠️  could not prune {key}: {e}")
-            continue
-        if removed:
-            logger.info(f"  {key}: pruned {removed} entr{'y' if removed == 1 else 'ies'} "
-                        f"older than {max_age_days}d")
-        total += removed
-
-    logger.info(f"✅ Pruned {total} stale posted-set entr{'y' if total == 1 else 'ies'} "
-                f"(> {max_age_days}d old)")
-    return total
-
-
 def main():
     start = datetime.now(timezone.utc)
     logger.info("=" * 60)
@@ -377,9 +332,6 @@ def main():
     image_days = get_image_retention_days()
     images_purged = purge_scraped_images(r, solr, image_days) if image_days else 0
 
-    posted_set_days = get_posted_set_retention_days()
-    posted_pruned = purge_stale_posted_entries(r, posted_set_days) if posted_set_days else 0
-
     # --- Summary ---
     elapsed = (datetime.now(timezone.utc) - start).total_seconds()
     logger.info("-" * 60)
@@ -388,7 +340,6 @@ def main():
     logger.info(f"Solr orphans purged   : {solr_purged}")
     logger.info(f"Stale hashes removed  : {hashes_purged}")
     logger.info(f"Scraped images purged : {images_purged}")
-    logger.info(f"Posted-set entries pruned : {posted_pruned}")
     logger.info(f"Completed in {elapsed:.1f}s")
     logger.info("=" * 60)
 

@@ -193,9 +193,8 @@ def seed_posted_set():
         if not keys:
             return
         pipe = r.pipeline()
-        now = time.time()
         for article_id in keys:
-            pipe.zadd(POSTED_SET, {article_id: now}, nx=True)
+            pipe.sadd(POSTED_SET, article_id)
         pipe.execute()
         log.info("Seeded mastodon:posted with %d existing articles", len(keys))
     except Exception as exc:
@@ -225,17 +224,13 @@ def main():
                 continue
 
             current_ids = set(all_article_ids())
-            # POSTED_SET is a ZSET (member=article_id, score=post unix ts) so
-            # cleanup.py can age-prune it. zrange with no scores still
-            # returns just member strings, so this is a drop-in for the
-            # old SMEMBERS-based set difference.
-            posted_ids  = set(r.zrange(POSTED_SET, 0, -1))
+            posted_ids  = r.smembers(POSTED_SET)
             new_ids     = current_ids - posted_ids
 
             for article_id in new_ids:
                 article = get_article(article_id)
                 if not article:
-                    r.zadd(POSTED_SET, {article_id: time.time()}, nx=True)
+                    r.sadd(POSTED_SET, article_id)
                     continue
 
                 comment = get_counter_analyst_comment(r, article_id, wait_seconds=CA_WAIT)
@@ -256,7 +251,7 @@ def main():
                     log.error("Failed to post article %s — will retry next cycle", article_id)
                     continue
 
-                r.zadd(POSTED_SET, {article_id: time.time()}, nx=True)
+                r.sadd(POSTED_SET, article_id)
 
         except Exception as exc:
             log.exception("Outer loop error: %s", exc)
