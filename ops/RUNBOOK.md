@@ -134,6 +134,8 @@ Newest first. Deep detail in the dated entry of the same date.
 
 | Date | Change | Note |
 |------|--------|------|
+| 2026-09-04 | `/uploads/audio/*` CORS for newsradio — **prepared, NOT applied, needs Ross's sudo** | `ops/caddy-uploads-audio-cors.conf`. Scoped to that one path and `https://newsradio.arc-codex.com` only — not site-wide, not `*`. Full detail in the incident journal entry below. |
+| 2026-09-04 | Social posted-sets SET → ZSET, age-pruned (`[retention].posted_set_days = 60`) | Were unbounded forever. See the entry below. |
 | 2026-09-04 | Orphan sweep parity: `cleanup.py`/`kasmir7.py` `purge_redis_orphans()` now clear satellites | Was the one deletion path that skipped `purge_article_satellites()`. See [[dead-article-id-holders]] and `ops/ARTICLE_LIFECYCLE.md`. Full detail in the incident journal entry below. |
 | 2026-08-20 | Kokoro synthesis relocated: M1 (ssh) → resolute (local) | `scribe.py` — removes `_audio_ssh`/`AUDIO_HOST`/`AUDIO_VENV`; preflight now `psutil.virtual_memory().available`. Spectre benched ~20% faster but ruled out (ssh/scp coupling + Python 3.14 + OOM'd Hunt's ollama mid-bench). Live verification caught a real [[council-ollama-host-misrouted]] collision. Full detail in the incident journal entry below. |
 | 2026-08-19 | M1 Ollama → system LaunchDaemon (`com.arc.ollama`); `OLLAMA_KEEP_ALIVE=-1`; `OLLAMA_HOST=0.0.0.0:11434` | Starts at boot without login; model pinned (no idle eviction). Retires brew LaunchAgent. Behavioural proof: `/api/ps` `expires_at` in year 2318 (Go max-duration = -1). |
@@ -157,6 +159,57 @@ Newest first. Deep detail in the dated entry of the same date.
 ---
 
 # Incident journal (append-only)
+
+## 2026-09-04 — /uploads/audio/ CORS for newsradio — snippet prepared, NOT applied
+
+### Trace
+newsradio_stack's player (newsradio.arc-codex.com) added a "Latest" story
+control whose src is an absolute cross-origin URL under arc-codex.com's
+`/uploads/audio/` (see newsradio_stack's own RUNBOOK/commit for the
+build_recent.py side). Reported symptom: the progress ring advances, no
+audible output, on both desktop and phone.
+
+Root-caused, not guessed — confirmed each link before proposing a fix:
+- The mp3 itself: fetched directly, `ffmpeg -v error … -f null -` 0 errors,
+  valid file. Ross independently confirmed the same URL plays fine direct
+  in a browser. Not a file or serving problem.
+- `Access-Control-Allow-Origin` on `/uploads/audio/`: absent — checked
+  plain and with `Origin: https://newsradio.arc-codex.com`, zero
+  `access-control-*` headers either way.
+- The player's own code: `ShowPlayer.svelte`'s `setupAudioContext()` calls
+  `createMediaElementSource(audioElement)` (once, ever, on first playback)
+  and permanently routes that element's output through
+  `analyser → destination` for the equalizer. Per spec, a cross-origin
+  source with no CORS grant fed into that graph plays silently — loading,
+  decoding, `currentTime`/`duration`, `canplay`/`playing` all fire
+  completely normally (that's why the ring genuinely advances — it reads
+  the real element, not a JSON field), only the audible samples are
+  zeroed. No `crossorigin` attribute was set anywhere. This is a WebAudio
+  touch, not a plain `<audio src>` — a plain `<audio src>` genuinely
+  wouldn't need CORS here, but this player does more than that.
+- Same-origin category tracks (newsradio's own copied mp3s, from
+  `build_wiki_show.py`) go through the identical graph and play fine —
+  confirms the asymmetry is specifically the origin boundary, not
+  something wrong with the graph itself.
+
+### Fix (this commit) — prepared, NOT applied
+`ops/caddy-uploads-audio-cors.conf` (new) — a `handle /uploads/audio/*`
+block for `/etc/caddy/Caddyfile`'s `arc-codex.com` site, adding
+`Access-Control-Allow-Origin: https://newsradio.arc-codex.com` (fixed
+value, not a reflected `$request.header.Origin` — every other origin gets
+nothing) plus `Vary: Origin` (defensive, not load-bearing: the response
+never actually differs by Origin today). Scoped to exactly this one path
+and exactly this one origin — not site-wide, not `*`. Placed before the
+existing generic `/uploads/*` handler, same pattern `/uploads/scraped/*`
+already uses right above it.
+
+**Requires Ross's sudo to apply** — `caddy validate` + `systemctl reload`
+touch a live production edge; not something to run unattended. Install
+and verify steps are in the snippet file itself. The companion fix
+(`crossorigin="anonymous"` on newsradio's `<audio>` element) is a separate
+commit in newsradio_stack's own repo — that half needs this header in
+place to actually pass CORS, so neither half alone restores sound; both
+are needed together.
 
 ## 2026-09-04 — Dead-article-id trace → orphan sweep parity (arc only, commit 1 of 2)
 
