@@ -112,8 +112,9 @@ export default function DeveloperPage() {
             crash, distinguishing a deliberately-stopped service from a failed one.
           </p>
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            What runs: RSS ingestion and the full A.R.C. analysis pipeline (the <em>Scribe</em>);
-            on-demand and manual publishing of user submissions; background analysis workers;
+            What runs: RSS ingestion (the <em>Scribe</em>); the on-demand analysis worker
+            (the <em>Analyzer</em>) that produces the three A.R.C. passes lazily on an
+            article&rsquo;s first view; on-demand and manual publishing of user submissions;
             automated posting to Bluesky, Mastodon, and Facebook (each toggleable at runtime with
             no restart); an email digest; and the Next.js frontend.
           </p>
@@ -305,14 +306,43 @@ export default function DeveloperPage() {
           <div className="space-y-3">
             <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">Future roadmap</div>
             <ul className="font-serif text-base text-slate-300 leading-relaxed space-y-2 list-disc ml-6">
-              <li>A dedicated listening interface for the rolling audio bulletin.</li>
-              <li>Backfill narration for articles published before the audio pipeline existed.</li>
               <li>Auto-translate on the single-article page (safe — one article at a time).</li>
               <li>Topic / category preferences per user.</li>
               <li>Article deduplication (SimHash / MinHash).</li>
-              <li>Model auto-switching on cloud-credit exhaustion.</li>
             </ul>
           </div>
+        </SectionShell>
+
+        {/* Peer-to-peer vision */}
+        <SectionShell id="network" eyebrow="XIII" heading="A Network, Not a Feed">
+          <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
+            Direction · Not yet built
+          </div>
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            Today, Arc Codex is one instance reading the world alone. The RSS ingestion is
+            cheap; the analysis is the expensive part — the three A.R.C. passes, the sentinel
+            verdict, the counter-analyst comment — and every instance that runs the pipeline
+            re-derives conclusions its peers have already computed.
+          </p>
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            The direction is a network of instances that share their analyses rather than each
+            re-computing them. An operator standing up their own node would contribute what
+            their instance analyzes and draw on what others have already analyzed — a corpus
+            larger than any one machine&rsquo;s ingest, with cross-verification implicit in the
+            moments several independent nodes reach the same read on the same story.
+          </p>
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            Trust would be per-node. An operator decides which peers they read; a peer&rsquo;s
+            consensus becomes visible without becoming binding — annotation, never authority,
+            consistent with the editorial principle applied to the feed itself.
+          </p>
+          <Warn>
+            <span><strong className="not-italic">Nothing here is live.</strong> The pieces that
+            would need to land first — a stable identifier for each analysis independent of
+            the article&rsquo;s local ID, a signature scheme so a shared analysis carries its
+            provenance, and a peer-discovery layer that survives an operator leaving — are
+            named to give the direction a shape, not to promise a date.</span>
+          </Warn>
         </SectionShell>
 
         {/* Project context + repo */}
