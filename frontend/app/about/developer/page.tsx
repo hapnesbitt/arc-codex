@@ -345,6 +345,47 @@ export default function DeveloperPage() {
           </Warn>
         </SectionShell>
 
+        {/* Cluster-from-cold-boot vision */}
+        <SectionShell id="cluster" eyebrow="XIV" heading="A Cluster from a Cold Boot">
+          <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
+            Direction · Not yet built
+          </div>
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            An operator with a spare PC on the same LAN as an Arc instance should be able
+            to boot it from a USB stick and have a new analyst node come up reachable,
+            cloud-off, and ready to be named in <Code>arc.cfg</Code>. No manual OS install,
+            no per-machine configuration, no key exchange after the fact — the appliance
+            is the whole setup.
+          </p>
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            Two of the pieces exist. A bootable image brings a cold machine up to a
+            reachable inference host in one boot — it carries Ollama, the local model,
+            network config, and a systemd unit that binds the service to the LAN behind
+            the host firewall. An Ansible role covers the same territory for machines
+            that already have an operating system installed. Both are working inputs to
+            a cluster; neither is a cluster on their own.
+          </p>
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            What isn&rsquo;t there yet is the connective tissue that would turn one working
+            node into a member of a cluster: a way for a booted node to announce itself
+            to an arc instance rather than the operator hand-copying an IP; a nodes
+            section in <Code>arc.cfg</Code> that enumerates the fleet; and dispatch
+            inside the Analyzer that spreads work across the named nodes instead of
+            pinning to a single <Code>OLLAMA_URL</Code>. The image and the role that
+            already exist live in private trees while a secrets split completes — the
+            built USB currently bakes an operator SSH key, and the Ansible tree names
+            hosts by their LAN address — so publication follows that work, not this
+            section.
+          </p>
+          <Warn>
+            <span><strong className="not-italic">Nothing here is live.</strong> The pieces
+            that would need to land first — node self-announcement, a nodes section in
+            arc.cfg, a multi-analyst dispatcher inside the Analyzer, and the secrets
+            split that makes the image and the role safe to ship — are named to give the
+            direction a shape, not to promise a date.</span>
+          </Warn>
+        </SectionShell>
+
         {/* Project context + repo */}
         <section className="py-10 border-b border-slate-800/60 text-center space-y-3 font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
           <p>© {new Date().getFullYear()} Arc Codex</p>
