@@ -1,11 +1,16 @@
 // Filename: /frontend/app/about/layout.tsx
-// A.R.C. Codex v4.0 metadata — converted from .js to .tsx
+// A.R.C. Codex about-section metadata.
+//
+// The title no longer carries a version. The framework version lives in every
+// page footer (via ARC_FRAMEWORK_VERSION); duplicating it here — even
+// dynamically — is one stale import away from the same drift the hardcoded
+// "v4.0" was.
 
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
-  title: 'The A.R.C. Codex v4.0 | Arc Codex',
+  title: 'The A.R.C. Codex | Arc Codex',
   description: 'Argumentative Resilience Codex: AI content detection, multi-perspective analysis, cognitive pattern recognition, and tools for independent thinking.',
   keywords: [
     'A.R.C. Codex',
@@ -13,7 +18,6 @@ export const metadata: Metadata = {
     'AI content detection',
     'sentinel',
     'cognitive patterns',
-    'Watchline Operator',
     'Arc Codex',
     'media literacy',
     'civil discourse',
@@ -28,7 +32,7 @@ export const metadata: Metadata = {
   ],
   robots: 'index, follow',
   openGraph: {
-    title: 'The A.R.C. Codex v4.0 | Arc Codex',
+    title: 'The A.R.C. Codex | Arc Codex',
     description: 'AI forensics, multi-perspective analysis, and 48 patterns for cognitive resilience.',
     type: 'website',
   },

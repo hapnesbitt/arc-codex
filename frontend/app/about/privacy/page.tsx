@@ -28,7 +28,7 @@ export default function PrivacyPage() {
             Your Privacy. Our Commitment.
           </h1>
           <p className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500 pt-2">
-            Last Updated · March 7, 2026
+            Last Updated · September 6, 2026
           </p>
         </header>
 
@@ -107,7 +107,7 @@ export default function PrivacyPage() {
           <ul className="list-disc ml-6 space-y-2 font-serif text-base text-slate-200 leading-relaxed">
             <li><strong>Google OAuth</strong> — optional sign-in. Google may log authentication requests per their standard policies.</li>
             <li><strong>GitHub OAuth</strong> — optional sign-in. GitHub may log authentication requests per their standard policies.</li>
-            <li><strong>Google Fonts</strong> — Ubuntu font served via fonts.googleapis.com. Google may log this request per their standard infrastructure logging.</li>
+            <li><strong>Web fonts</strong> — Literata (serif) and Public Sans (sans). Downloaded once at build time from Google Fonts and served self-hosted from arc-codex.com; your browser does not contact Google to render this site.</li>
             <li><strong>External article links</strong> — clicking links takes you to third-party news sites with their own privacy policies.</li>
           </ul>
           <p className="font-serif text-sm text-slate-300 italic leading-relaxed pt-2">

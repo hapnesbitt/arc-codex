@@ -236,7 +236,7 @@ export default function SupportCodex() {
                 <li><strong>Keep Private 🔒</strong> — article is visible only to you when signed in. Nobody else can see it.</li>
               </ul>
               <p className="text-sm text-slate-400">
-                Private articles appear in your feed with a lock icon. Use the admin console to manage your publications.
+                Private articles appear in your feed with a lock icon, visible only to you when signed in.
               </p>
             </Panel>
           </div>
@@ -280,7 +280,6 @@ export default function SupportCodex() {
                 <li>Set a preferred translation language (auto-fires on foreign articles).</li>
                 <li>Publish articles to the feed (public or private).</li>
                 <li>See your private articles in the feed.</li>
-                <li>Your publications tracked in the admin console.</li>
               </ul>
             </Panel>
             <Panel label="Privacy">

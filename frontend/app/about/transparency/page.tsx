@@ -137,10 +137,37 @@ export default function TransparencyPage() {
           </p>
         </section>
 
-        {/* IV · Don't trust us — read the code */}
+        {/* IV · The narration is synthetic */}
+        <section id="voice" className="py-10 border-b border-slate-800/60 space-y-4">
+          <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
+            IV · Provenance
+          </div>
+          <h2 className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-slate-300">
+            The narration is synthetic
+          </h2>
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            Every published article on Arc Codex is also spoken. The voice is not a person.
+          </p>
+          <blockquote className="border-l border-slate-700 pl-4 font-serif text-base italic text-slate-100 leading-relaxed">
+            The reader is code. The reading is code.
+          </blockquote>
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            A neural text-to-speech model renders the article body on the same hardware
+            that runs the rest of the pipeline. No byline on the site implies a human
+            narrator, and no line of copy anywhere on Arc Codex is spoken by one. This
+            holds for every narrated article and for the rolling audio stream that
+            concatenates recent narrations into a continuous feed.
+          </p>
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            A synthetic voice that doesn&apos;t say so is a small, quiet claim to be a
+            person. We&apos;d rather tell you.
+          </p>
+        </section>
+
+        {/* V · Don't trust us — read the code */}
         <section className="py-10 border-b border-slate-800/60 space-y-4">
           <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-500">
-            IV · Verification
+            V · Verification
           </div>
           <h2 className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-slate-300">
             Don&apos;t trust us — read the code
