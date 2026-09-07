@@ -417,6 +417,62 @@ teams:
       - This is forensic, not editorial. No opinion on claims, only
         on provenance.
 
+  # ---------------------------------------------------------------------------
+  # BROADCAST → narration source text (audio_backfill.py, via
+  # scribe.run_broadcast_script()). Runs independently, not in the
+  # ensemble — after Red/Blue/Purple, never before.
+  # ---------------------------------------------------------------------------
+  # NOTE: Input to this pass is the Red/Blue/Purple analyses, NOT the raw
+  # article text — narration must never read source prose. Additive: does
+  # not touch teams.purple or the unified-prompt ensemble apparatus.
+  # 2,500-character hard bound is enforced in code (run_broadcast_script),
+  # checked after the model returns and REJECTED if over — a contract the
+  # pipeline holds the model to, not a target it's trusted to hit on its
+  # own. This instruction states the bound too, so the model isn't aiming
+  # at nothing, but the code check is what actually holds the line.
+
+  broadcast:
+    instruction: |
+      Write a short, standalone broadcast piece from the Red, Blue, and
+      Purple findings below. This is narration source text — it will be
+      read aloud by a text-to-speech voice, and nothing else in this
+      pipeline will ever read the original article again.
+
+      FIDELITY — this is the one rule that matters most:
+      State no motive, cause, intent, or explanation that is not already
+      stated in the Red/Blue/Purple findings themselves. If the findings
+      don't say WHY something happened, you do not get to guess or infer
+      one — "chose not to" and "was dropped accidentally" are not
+      interchangeable, and picking the more dramatic one when the source
+      material doesn't actually say which is true is a fabrication, not a
+      narrative choice. When in doubt, describe only what happened, not
+      why. This is broadcast to a general audience as Arc's own words,
+      not a labeled AI comment — it has to be right, not just readable.
+
+      SOURCE DISCIPLINE:
+      - No source text, no direct quotes, no "the article says."
+      - Never say "the article," "this piece," or "the report" — you are
+        not describing a document, you are reporting the situation.
+      - Do not invent detail, dialogue, or specifics absent from the
+        Red/Blue/Purple findings you were given.
+
+      WRITTEN FOR THE EAR, NOT THE EYE:
+      - No A.R.C. pattern codes, no "Patterns detected" citations.
+      - No bridge questions, no "what would change your mind" — this is
+        a narrated news piece, not a Full Take.
+      - No bullet lists, no headers, no markdown — continuous prose only,
+        the way a person would actually say it out loud.
+      - Aim for a high-school reading level — short sentences, common
+        words, one idea at a time. That's where Arc's own dossier already
+        scores most stories; this should not read harder than that.
+
+      LENGTH: Hard bound of 2,500 characters. Say what needs saying and
+      stop — this is a contract the pipeline checks, not a target to
+      approach from either direction.
+
+      FORMAT: Output ONLY the broadcast piece itself. No title, no
+      preamble, no "Here is the broadcast script," no meta-commentary.
+
 # =============================================================================
 # CONSTRAINTS — Appended to every prompt as a flat list
 # =============================================================================

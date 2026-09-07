@@ -3,13 +3,31 @@
 # Arc Codex Analyzer v1.0 - On-Demand Red/Blue/Purple Analysis Worker
 #
 # Watches Redis queue 'analyzer:queue' for article IDs.
-# When triggered (by article view or scribe publish), runs the full
-# ensemble or single-model analysis pipeline and publishes results
-# via stream_utils → stream_consumer.
+# When triggered, runs the full ensemble or single-model analysis
+# pipeline and publishes results via stream_utils → stream_consumer.
 #
 # This decouples analysis from ingestion: scribe.py publishes articles
-# instantly with sentinel + counter-analyst, then queues them here.
-# Analysis only runs when someone actually looks at the article.
+# instantly with sentinel + counter-analyst and never touches this
+# queue itself. Three things enqueue into it today:
+#   - main.py's ingest-time dispatch (/api/publish_article, 2026-07-19),
+#     which pushes to the TAIL for every ingest route — scribe,
+#     manual_publisher, priority uploads, /api/submit* — the moment an
+#     article lands, if it isn't already analyzed. This is the main
+#     source: most articles are analyzed within one queue cycle of
+#     publish, never waiting on a reader at all.
+#   - main.py's article-view handler (get_single_article), which pushes
+#     to the HEAD so a live reader's article jumps the ingest backlog.
+#     Bot/scraper user-agents are excluded, so this path tracks real
+#     reader activity specifically.
+#   - audio_backfill.py, eagerly, to the HEAD, for a narration candidate
+#     that isn't fully analyzed yet (2026-09-06) — narration needs
+#     Red/Blue/Purple to write a broadcast script from, and can't wait
+#     on a reader who may never come; see its own comments for why that
+#     trigger lives there and not here.
+# All three share one SET NX EX 21600 dedup lock (analyzer:queued:{id})
+# so none of them can double-enqueue the same article. An article none
+# of the three ever reaches stays unanalyzed — this file itself has no
+# opinion on that, it only drains whatever lands in the queue.
 #
 # Usage: python3 analyzer.py
 # Ctrl+C to stop gracefully.

@@ -998,6 +998,14 @@ AUDIO_MIN_CHARS = 100                   # matches the sentinel/counter-analyst s
 AUDIO_MAX_CHARS = 3500                  # per-request bound; chunks split on sentence boundaries
 AUDIO_TIMEOUT_SECONDS = 600             # a long feature piece still finishes well inside this
 
+# Broadcast script pass (2026-09-06) — a contract, not a target. Checked
+# after the model returns; a response over this is REJECTED, never
+# truncated (see run_broadcast_script). A truncated broadcast script can
+# cut off mid-sentence on-air; a rejected one just doesn't narrate this
+# pass, same as any other narration failure.
+BROADCAST_MAX_CHARS = 2500
+BROADCAST_TIMEOUT_SECONDS = 900
+
 # Preflight budget. Superseded history: this floor used to gate the M1's
 # free memory over ssh (3584 MB, then 1024 MB post-KEEP_ALIVE=-1 — see git
 # blame on this line from before 2026-08-20 for that saga). None of it
@@ -1763,6 +1771,96 @@ def _repair_sentinel_json(raw: str) -> dict | None:
             "summary": "Sentinel analysis incomplete — fallback model returned prose instead of JSON."
         }
     return None
+
+def run_broadcast_script(
+    article_id: str,
+    red: str,
+    blue: str,
+    purple: str,
+    timeout: int = BROADCAST_TIMEOUT_SECONDS,
+) -> str | None:
+    """Write a standalone narration script from an article's Red/Blue/Purple
+    findings — never from the source text itself; the caller passes the
+    three analyses, not original_text, and that's deliberate: narration
+    must never read source prose again once this pass exists.
+
+    Returns the script text on success, or None on any failure — same
+    contract as synthesize_article_audio: a missing broadcast script means
+    this pass of narration doesn't happen, not that anything falls back to
+    reading the raw article.
+
+    The 2,500-char bound (BROADCAST_MAX_CHARS) is enforced HERE, after the
+    model returns, and is a rejection, not a truncation — see the constant's
+    own comment for why. A model that drifts past it fails this pass the
+    same way an oversized source article already fails analysis's own
+    ANALYSIS_MAX_CHARS/ANALYSIS_GARBAGE_CHARS checks: loud, in the log,
+    with nothing partial written anywhere.
+    """
+    if not PROMPTS:
+        logger.warning("📻 Broadcast script skipped — prompts.yaml not loaded")
+        return None
+
+    broadcast_instruction = (
+        PROMPTS.get('teams', {})
+        .get('broadcast', {})
+        .get('instruction', '')
+    )
+    if not broadcast_instruction:
+        logger.warning("📻 Broadcast script skipped — no broadcast instruction in prompts.yaml")
+        return None
+
+    red = (red or '').strip()
+    blue = (blue or '').strip()
+    purple = (purple or '').strip()
+    if not (red or blue or purple):
+        logger.warning(f"📻 Broadcast script skipped for {article_id} — no Red/Blue/Purple findings to write from")
+        return None
+
+    mission = PROMPTS.get('mission', '')
+    constraints = PROMPTS.get('constraints', [])
+    constraints_text = '\n'.join(f"- {c}" for c in constraints) if isinstance(constraints, list) else str(constraints)
+
+    broadcast_prompt = f"""{mission}
+
+BROADCAST SCRIPT INSTRUCTIONS:
+{broadcast_instruction}
+
+CONSTRAINTS:
+{constraints_text}
+
+--- RED TEAM FINDINGS (facts) ---
+{red}
+
+--- BLUE TEAM FINDINGS (summary) ---
+{blue}
+
+--- PURPLE TEAM FINDINGS (analysis) ---
+{purple}"""
+
+    try:
+        logger.info(f"📻 Writing broadcast script for {article_id}...")
+        raw_response, duration, model_used = call_ollama_local_only(broadcast_prompt, timeout=timeout)
+        script = (raw_response or '').strip()
+
+        if not script:
+            logger.warning(f"📻 Broadcast script came back empty for {article_id}")
+            return None
+
+        if len(script) > BROADCAST_MAX_CHARS:
+            logger.warning(
+                f"📻 Broadcast script REJECTED for {article_id}: "
+                f"{len(script)} chars > {BROADCAST_MAX_CHARS} bound "
+                f"(via {model_used} in {duration:.0f}ms) — not truncated, not narrated this pass"
+            )
+            return None
+
+        logger.info(f"📻 Broadcast script complete for {article_id}: {len(script)} chars via {model_used} in {duration:.0f}ms")
+        return script
+
+    except Exception as e:
+        logger.warning(f"📻 Broadcast script failed for {article_id}: {e}")
+        return None
+
 
 def run_sentinel_analysis(article_text: str, timeout: int = 900) -> dict | None:
     """Run the Sentinel forensic pass independently of the ensemble pipeline."""
