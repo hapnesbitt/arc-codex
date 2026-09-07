@@ -105,6 +105,7 @@ load_dotenv(os.path.join(_HERE, '.env'))
 
 import redis                                                                  # noqa: E402
 from site_config import load_site_config                                      # noqa: E402
+from operational_state import enqueue_analysis                                # noqa: E402
 # Import scribe LAST — it constructs an audio ThreadPoolExecutor at import
 # time. That's cheap (max_workers=1, no threads spawned until submit) but it
 # means we're taking on scribe's full module footprint here. Acceptable: the
@@ -348,9 +349,47 @@ def max_chars_for_budget(cfg_audio: dict) -> int:
     return int(cps * scribe.AUDIO_TIMEOUT_SECONDS)
 
 
+_ANALYSIS_FIELDS = ('red_team_analysis', 'blue_team_analysis', 'purple_team_analysis')
+
+
+def _is_analyzed(red: str | None, blue: str | None, purple: str | None) -> bool:
+    return len(red or '') > 10 and len(blue or '') > 10 and len(purple or '') > 10
+
+
+def _ensure_analysis_queued(r: redis.Redis, article_id: str) -> None:
+    """Eager, non-blocking enqueue for a narration candidate that isn't
+    analyzed yet (2026-09-06). Reuses the exact dedup key main.py's two
+    producers already share (SET NX EX 21600) so this can never
+    double-enqueue against a concurrent view or ingest-time dispatch.
+
+    Deliberately does not wait: pushes and returns immediately. This
+    candidate is skipped THIS pass (see find_newest_silent) and picked up
+    again on a future pass once analysis has landed — analyzer.py is a
+    single-consumer, minutes-scale worker, and blocking this daemon's loop
+    on it would stall every other candidate behind this one.
+
+    'left' (head of queue), matching the view-handler's priority — a
+    narration-bound article is a live consumer waiting on this the same
+    way a reader is, not backlog the way ingest-time dispatch's 'right'
+    push is.
+    """
+    try:
+        if r.set(f"analyzer:queued:{article_id}", '1', ex=21600, nx=True):
+            enqueue_analysis(r, article_id, 'left')
+            logger.info(f"📋 {article_id} — queued for analysis (narration is waiting on it)")
+    except Exception as e:
+        # Same non-fatal handling as main.py's ingest-time dispatch: a
+        # queueing error here must not take down the narration daemon.
+        logger.warning(f"⚠️  Analysis dispatch failed for {article_id}: {e}")
+
+
 def find_newest_silent(r: redis.Redis, hours: float, skip: set,
-                        max_chars: int) -> tuple[str, str] | None:
-    """Newest silent article published within the last `hours`, or None.
+                        max_chars: int) -> tuple[str, str, str, str, str] | None:
+    """Newest silent, analyzed article published within the last `hours`,
+    or None. Returns (article_id, body, red, blue, purple) — body is still
+    the candidacy gate (is there enough real source content here at all),
+    but the caller narrates from red/blue/purple via
+    scribe.run_broadcast_script(), never from body directly.
 
     Rebuilt fresh from Redis on every call — this function body IS the
     trailing window, not a cache of one. `skip` is the process-local
@@ -360,6 +399,11 @@ def find_newest_silent(r: redis.Redis, hours: float, skip: set,
     `skip` right here rather than being returned and later failing — its
     length won't change, so unlike a real synthesis failure this verdict is
     good for the rest of the run, no retry ever worth attempting.
+
+    An unanalyzed candidate is NOT added to `skip` — it's eager-enqueued
+    (if not already) and passed over for this pass only; a future pass
+    picks it up once analysis lands, same as any other article that just
+    hasn't reached the front of the window's attention yet.
     """
     cutoff = time.time() - hours * 3600
     ids = r.zrevrangebyscore('feed', '+inf', cutoff)
@@ -373,10 +417,10 @@ def find_newest_silent(r: redis.Redis, hours: float, skip: set,
     pipe = r.pipeline()
     for aid in ids:
         pipe.hmget(f"article:{aid}",
-                   ['audio_url', 'source_lang', 'original_text'])
+                   ['audio_url', 'source_lang', 'original_text', *_ANALYSIS_FIELDS])
     rows = pipe.execute()
 
-    for aid, (audio_url, lang, body) in zip(ids, rows):
+    for aid, (audio_url, lang, body, red, blue, purple) in zip(ids, rows):
         if audio_url:
             continue
         if (lang or 'English') != 'English':
@@ -390,7 +434,10 @@ def find_newest_silent(r: redis.Redis, hours: float, skip: set,
                         f"never retried this run")
             skip.add(aid)
             continue
-        return aid, body
+        if not _is_analyzed(red, blue, purple):
+            _ensure_analysis_queued(r, aid)
+            continue
+        return aid, body, red or '', blue or '', purple or ''
     return None
 
 
@@ -487,10 +534,24 @@ def probe_duration_seconds(path: str) -> float | None:
         return None
 
 
-def narrate_one(r: redis.Redis, article_id: str, body: str) -> bool:
-    """Synthesize and store audio for one article. True on success."""
+def narrate_one(r: redis.Redis, article_id: str, red: str, blue: str, purple: str) -> bool:
+    """Write a broadcast script from this article's analysis, then
+    synthesize and store audio from THAT — never from the source text.
+    True on success.
+
+    The caller (find_newest_silent) has already confirmed red/blue/purple
+    are all present; a broadcast script that comes back None here (empty
+    response, over the 2,500-char bound, or an API failure) is a narration
+    failure for this pass, same as any other synthesis failure — the
+    article stays silent and re-enters candidacy on a future pass.
+    """
     started = time.perf_counter()
-    audio_url = scribe.synthesize_article_audio(article_id, body)
+    script = scribe.run_broadcast_script(article_id, red, blue, purple)
+    if not script:
+        logger.warning(f"{article_id} — no broadcast script; narration skipped this pass")
+        return False
+
+    audio_url = scribe.synthesize_article_audio(article_id, script)
     wall = time.perf_counter() - started
 
     if not audio_url:
@@ -517,12 +578,12 @@ def narrate_one(r: redis.Redis, article_id: str, body: str) -> bool:
 
     dur = probe_duration_seconds(audio_path)
     if dur is None:
-        logger.info(f"{article_id} ✓ {len(body)} chars → {audio_url} "
+        logger.info(f"{article_id} ✓ {len(script)} script chars → {audio_url} "
                     f"({wall:.1f}s wall, duration unknown)")
     else:
-        cps = len(body) / dur if dur > 0 else 0
+        cps = len(script) / dur if dur > 0 else 0
         flag = " ⚠ suspicious" if not (5 < cps < 40) else ""
-        logger.info(f"{article_id} ✓ {len(body)} chars → {dur:.1f}s mp3 "
+        logger.info(f"{article_id} ✓ {len(script)} script chars → {dur:.1f}s mp3 "
                     f"({cps:.1f} chars/s, {wall:.1f}s wall){flag}")
     return True
 
@@ -551,10 +612,10 @@ def run(once: bool, dry_run: bool, ignore_peak: bool) -> int:
     if dry_run:
         candidate = find_newest_silent(r, hours, set(), max_chars)
         if candidate:
-            aid, body = candidate
-            logger.info(f"would narrate: {aid} ({len(body)} chars)")
+            aid, body, red, blue, purple = candidate
+            logger.info(f"would narrate: {aid} ({len(body)} source chars, analyzed)")
         else:
-            logger.info("window is empty — nothing silent in range")
+            logger.info("window is empty — nothing silent+analyzed in range")
         return 0
 
     failed_this_run: set[str] = set()
@@ -595,7 +656,7 @@ def run(once: bool, dry_run: bool, ignore_peak: bool) -> int:
                 return 0
             continue
         idle_logged = False
-        article_id, body = candidate
+        article_id, body, red, blue, purple = candidate
 
         pf = scribe.kokoro_preflight()
         if pf is not None:
@@ -613,7 +674,7 @@ def run(once: bool, dry_run: bool, ignore_peak: bool) -> int:
 
         last_acquire_ts = time.time()
         try:
-            ok = narrate_one(r, article_id, body)
+            ok = narrate_one(r, article_id, red, blue, purple)
             if not ok:
                 failed_this_run.add(article_id)
         finally:
