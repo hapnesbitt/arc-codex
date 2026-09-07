@@ -999,12 +999,23 @@ AUDIO_MIN_CHARS = 100                   # matches the sentinel/counter-analyst s
 AUDIO_MAX_CHARS = 3500                  # per-request bound; chunks split on sentence boundaries
 AUDIO_TIMEOUT_SECONDS = 600             # a long feature piece still finishes well inside this
 
-# Broadcast script pass (2026-09-06) — a contract, not a target. Checked
-# after the model returns; a response over this is REJECTED, never
-# truncated (see run_broadcast_script). A truncated broadcast script can
-# cut off mid-sentence on-air; a rejected one just doesn't narrate this
-# pass, same as any other narration failure.
-BROADCAST_MAX_CHARS = 2500
+# Broadcast script pass (2026-09-06, retuned same day) — a contract, not
+# a target. Checked after the model returns; a response over this is
+# REJECTED, never truncated (see run_broadcast_script). A truncated
+# broadcast script can cut off mid-sentence on-air; a rejected one just
+# doesn't narrate this pass, same as any other narration failure.
+#
+# Retune: launched at 2500 with no target below it, on the theory that
+# stating the ceiling would keep the model off the ceiling. Live data
+# said otherwise — 7 real attempts, 3 articles, 71% REJECTED
+# (2597-3194 chars, same article swinging >1000 chars run to run), and
+# the one accept that got synthesized ran 4:43 against a ~2-minute
+# target. The model was aiming AT 2500, not under it. Bound is now
+# 1400 — not raised, LOWERED — paired with prompts.yaml's
+# teams.broadcast instruction asking for ~1,100 as the actual target,
+# so there's daylight between what the model is aiming for and what
+# fails it, instead of one number doing both jobs.
+BROADCAST_MAX_CHARS = 1400
 BROADCAST_TIMEOUT_SECONDS = 900
 
 # Preflight budget. Superseded history: this floor used to gate the M1's
@@ -1790,8 +1801,8 @@ def run_broadcast_script(
     this pass of narration doesn't happen, not that anything falls back to
     reading the raw article.
 
-    The 2,500-char bound (BROADCAST_MAX_CHARS) is enforced HERE, after the
-    model returns, and is a rejection, not a truncation — see the constant's
+    The BROADCAST_MAX_CHARS bound is enforced HERE, after the model
+    returns, and is a rejection, not a truncation — see the constant's
     own comment for why. A model that drifts past it fails this pass the
     same way an oversized source article already fails analysis's own
     ANALYSIS_MAX_CHARS/ANALYSIS_GARBAGE_CHARS checks: loud, in the log,

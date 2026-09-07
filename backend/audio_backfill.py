@@ -541,9 +541,9 @@ def narrate_one(r: redis.Redis, article_id: str, red: str, blue: str, purple: st
 
     The caller (find_newest_silent) has already confirmed red/blue/purple
     are all present; a broadcast script that comes back None here (empty
-    response, over the 2,500-char bound, or an API failure) is a narration
-    failure for this pass, same as any other synthesis failure — the
-    article stays silent and re-enters candidacy on a future pass.
+    response, over the BROADCAST_MAX_CHARS bound, or an API failure) is a
+    narration failure for this pass, same as any other synthesis failure —
+    the article stays silent and re-enters candidacy on a future pass.
     """
     started = time.perf_counter()
     script = scribe.run_broadcast_script(article_id, red, blue, purple)

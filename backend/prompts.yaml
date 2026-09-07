@@ -425,11 +425,20 @@ teams:
   # NOTE: Input to this pass is the Red/Blue/Purple analyses, NOT the raw
   # article text — narration must never read source prose. Additive: does
   # not touch teams.purple or the unified-prompt ensemble apparatus.
-  # 2,500-character hard bound is enforced in code (run_broadcast_script),
-  # checked after the model returns and REJECTED if over — a contract the
-  # pipeline holds the model to, not a target it's trusted to hit on its
-  # own. This instruction states the bound too, so the model isn't aiming
-  # at nothing, but the code check is what actually holds the line.
+  #
+  # LENGTH (2026-09-06 retune). The original shape gave the model one
+  # number — a 2,500-char hard bound — and nothing else, on the theory
+  # that stating the ceiling would keep it away from the ceiling. Live
+  # data said otherwise: 7 real attempts, 3 articles, 71% REJECTED
+  # (2597-3194 chars, same article swinging >1000 chars run to run) —
+  # the model was aiming AT the bound, not under it, so it cleared it
+  # about as often as it didn't. The one accepted script that got
+  # synthesized ran 4:43 of audio against a ~2-minute target — 2.4x over.
+  # Fix is a target well below the ceiling, not a bigger ceiling:
+  # ~1,100 chars is what the instruction below asks for,
+  # BROADCAST_MAX_CHARS = 1,400 (scribe.py) is the hard reject. Still
+  # enforced in code, after the model returns, REJECTED not truncated —
+  # that part of the contract is unchanged, only the numbers moved.
 
   broadcast:
     instruction: |
@@ -466,9 +475,13 @@ teams:
         words, one idea at a time. That's where Arc's own dossier already
         scores most stories; this should not read harder than that.
 
-      LENGTH: Hard bound of 2,500 characters. Say what needs saying and
-      stop — this is a contract the pipeline checks, not a target to
-      approach from either direction.
+      LENGTH: Aim for about 1,100 characters — that is a two-paragraph
+      radio item, roughly a minute and a half spoken aloud. That is the
+      TARGET, not a floor to pad up to and not a ceiling to approach:
+      say what needs saying and stop, even if that lands shorter.
+      1,400 characters is a hard reject, checked after you finish, so
+      treat 1,100 as where you're actually trying to land, not as room
+      to use before the real limit shows up.
 
       FORMAT: Output ONLY the broadcast piece itself. No title, no
       preamble, no "Here is the broadcast script," no meta-commentary.
