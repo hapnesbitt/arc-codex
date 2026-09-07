@@ -97,7 +97,8 @@ REDIS_PRIORITY_QUEUE_KEY = site.redis_key("priority_uploads")
 # of the M1's analysis capacity at ANY cadence (utilisation = ingest_rate x
 # seconds_per_article, independent of how often we sweep). 30m is therefore
 # chosen for freshness, not budget — there is ~96% headroom either way.
-# Arc runs against the M1; Hunt runs against Spectre (192.168.1.189), so the
+# Arc runs against the M1; Hunt runs against warden (192.168.1.190 — moved
+# from Spectre .189 on 2026-09-05, see huntaegis_stack/backend/.env), so the
 # two stacks no longer contend for the same inference host and cadence
 # collision is not a concern. See ops/RUNBOOK.md → "scribe cloud-budget knobs".
 CYCLE_MINUTES = _ingestion["cycle_minutes"]
