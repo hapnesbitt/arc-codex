@@ -1561,6 +1561,18 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
     );
 };
 
+// TRAP: this comparator checks prev.card.id === next.card.id, not the
+// contents of `card` — a parent that ever replaces a card object in place
+// with the SAME id but new field values (audio_url newly populated after
+// narration finishes, red/blue/purple_team_analysis filled in after a lazy
+// analysis completes, a comment's text edited/redacted without the list's
+// length changing) will silently skip re-rendering. Nothing in this file
+// does that today (FeedClient.tsx only appends new cards, it doesn't splice
+// updates into existing ones), but a future "poll for analysis completion"
+// or "poll for narration" feature built the natural way — refetch the card,
+// splice it back into the list by id — will hit this wall. If that lands,
+// this comparator needs a real content check (or a version/updated_at field
+// on Article to compare cheaply), not just the id.
 export default React.memo(IntelligenceCard, (prev, next) =>
     prev.card.id === next.card.id &&
     prev.comments.length === next.comments.length &&
