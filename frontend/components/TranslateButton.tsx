@@ -58,7 +58,7 @@ export default function TranslateButton({
   onReset,
   onLangChange,
 }: TranslateButtonProps) {
-  const { prefs } = useUserPrefs();
+  const { prefs, loading: prefsLoading } = useUserPrefs();
   const [isOpen, setIsOpen]             = useState(false);
   const [loadingLang, setLoadingLang]   = useState<string | null>(null);
   const [activeLang, setActiveLang]     = useState<string | null>(null);
@@ -182,6 +182,12 @@ export default function TranslateButton({
   };
 
   const toggleDropdown = () => {
+    // prefsLoading guards the window before /api/user/prefs resolves —
+    // prefs is null in that window exactly the same as "no preference set,"
+    // and without this the trigger button below is disabled instead of
+    // reachable, so this is a defensive backstop, not the primary gate.
+    if (prefsLoading) return;
+
     const pref = prefs?.preferred_lang;
 
     // Smart fire: if user has a preferred lang AND article is in a different language,
@@ -204,7 +210,9 @@ export default function TranslateButton({
   };
 
   // Compute accessible label for the trigger button
-  const triggerLabel = loadingLang
+  const triggerLabel = prefsLoading
+    ? "Loading language preference"
+    : loadingLang
     ? `Translating to ${loadingLang}`
     : activeLang
     ? `Translated to ${activeLang}. Click to change language`
@@ -239,7 +247,7 @@ export default function TranslateButton({
         aria-controls={dropdownId}
         aria-label={triggerLabel}
         data-tooltip="Translate this article and its A.R.C. analysis into another language — cached translations load instantly, new ones take a moment."
-        disabled={!!loadingLang}
+        disabled={!!loadingLang || prefsLoading}
         className={cn(
           "inline-flex items-center justify-center h-10 w-10 rounded-sm transition-colors ring-focus disabled:cursor-wait",
           activeLang || loadingLang
