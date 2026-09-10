@@ -1235,3 +1235,39 @@ session: just check the journal for the first `✓` lines and compare
 wall time to the 149s median / 166s mean baseline** — that's the
 only thing this handoff still owes you.
 
+---
+
+## Session ending 2026-09-10 — IntelligenceCard wish list + today's landed items
+
+Recorded verbatim from Ross at session end (CC restart for an update); nothing
+in this section was independently verified by the session that wrote it down.
+
+**Done today, committed — verify before relying on them:** prefs-not-loaded
+race fix, `source_lang` captured at ingest on both stacks (Arc + Hunt),
+inline audio with one-player-at-a-time, a memo comparator comment.
+
+**IntelligenceCard wish list — none of the four below started:**
+
+1. **Rename the two score components.** Currently "objectivity" and a
+   college/reading-level label → should be "objectivity" and "difficulty".
+   Do this in the same pass as reconciling a real inconsistency: Arc's
+   scoring page and support page describe the same scale differently —
+   support lists ten bands, the scoring UI shows five. Fixing the label
+   without reconciling band count leaves three descriptions of one metric
+   instead of two.
+2. **Auto-translate non-English articles to English at ingest**, rather than
+   on demand as today. ~6% of the corpus, so volume is manageable. Narration
+   should key off the translated text once this lands — touches the audio
+   pass too, not just ingest.
+3. **A watch control next to the headphones control** — same expand-in-place
+   pattern — launching a viewer for an mp4 built from the reporter's profile
+   images plus the existing narration audio. Generate lazily on first watch,
+   not for every article. Note: `card.origin === 'video'` is already a
+   separate early-return branch in `IntelligenceCard.tsx` — do not conflate
+   this new control with that existing path.
+4. **Desktop left-nav restructure**: home, audio, video, publish, search,
+   more — with wiki, library, and sources moved under "more". Blocked on one
+   decision: what "audio" points at — `newsradio.arc-codex.com`, or a new
+   in-Arc page listing narrated articles. Don't start building until that's
+   settled.
+
