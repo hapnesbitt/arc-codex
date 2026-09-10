@@ -1128,3 +1128,86 @@ Worth a cleanup pass — delete or properly re-scope the two stale
 YAML copies, fix the four display strings — but nothing here is
 live-wrong the way the port defaults were, so it can wait.
 
+## Session handoff — 2026-09-10, resume here
+
+Ran out of session budget mid-thread. Nothing left running, nothing
+pushed. State and resume sequence below.
+
+**Spectre's 6h-window first pass FINISHED this session** — don't
+re-derive "still running" from an earlier estimate in this file's own
+history if one exists above. Final: 13 narrated, 6 permanently
+skipped (poison-pill, over the 11,004-char budget), window reported
+idle at 11:30:24. Took ~36 minutes end to end, faster than the
+mid-run estimate suggested — nothing wrong, the early estimate of
+candidate count was just loose.
+
+**Resume sequence, in order:**
+1. `git push` resolute's `arc_stack` `main` (7 commits ahead of
+   `origin/main`, all individually secret-audited clean today —
+   the original 6 plus `dad74a2`, audited the same way, also clean).
+2. On spectre: `git pull` (`arc_stack` clone at `backend/`'s parent)
+   to bring it from `0088c86` to HEAD — this is what actually lands
+   `cbe904b`'s TTL lease fix, which spectre has NOT been running
+   yet despite being the host that's actually narrating.
+3. Restart `arc-audio-backfill.service` (user unit, `systemctl --user
+   restart`) on spectre to pick up the pull — config/code is only
+   read at process start, not live-reloaded.
+4. Watch the first hour after, three things:
+   - `grep '📻'` in the journal — broadcast-script rejection rate.
+     Healthy is occasional, not a wall of them (see `b0aae68`'s own
+     commit data: 71% before its retune).
+   - `LLEN analyzer:queue` on Redis — currently 0 (single-consumer
+     analyzer keeping up). A growing, non-draining number means the
+     new eager-enqueue from narration is outpacing the analyzer.
+   - Wall time on the `✓` log lines against **this morning's
+     baseline: 149s median / 166s mean** (n=579, measured before the
+     pull, on raw article text up to 11,004 chars). Post-pull,
+     narration synthesizes from ~1,100–1,400-char generated scripts
+     instead — wall time should drop substantially. **This number is
+     the actual decision point for whether warden as a second Kokoro
+     worker is still worth building** — if narration is already fast
+     post-pull, the throughput case for a second worker weakens; if
+     it isn't, the case holds.
+
+**Other things worth knowing, not yet acted on:**
+
+- The 6h window is live on **spectre only** — spectre's own copy of
+  `arc_stack/arc.cfg`, `backfill_window_hours: 2 → 6`, an uncommitted
+  local edit on that host. Resolute's own `arc_stack/arc.cfg` still
+  says `2` and
+  separately carries its own unrelated local edits (`[ingestion]`
+  `cycle_minutes`/`sources_per_sweep` — Ross's operator-owned live
+  tuning, per this repo's CLAUDE.md; do not touch or "fix" those).
+  These are two different hosts' copies of the same filename, not
+  one shared file drifting — don't try to reconcile them into one.
+- The poison-pill count grew 4 → 6 as the window reached further
+  back mid-pass (up to 33,551 chars). Those specific articles are
+  permanently silent under the *current* 11,004-char budget — but
+  worth knowing that budget stops mattering at all once spectre
+  pulls: `d8875c5` generates narration from Red/Blue/Purple analysis
+  (a ~1,100–1,400-char broadcast script), never from raw article
+  text, so source-article length stops gating narration entirely
+  post-pull. The 6 skipped-today articles aren't necessarily doomed
+  — they'd need to re-enter the window while still within whatever
+  `backfill_window_hours` is active, but length itself won't be why
+  they fail once the pull lands.
+- Ollama Cloud billing observation is already recorded above (see
+  "Ollama Cloud billing went monthly" section, same date) — 9.5%
+  used, 264 requests, "resets in 3 weeks," $0 balance. Check the
+  dashboard the day it flips; that's what the escalation-counter
+  redesign is waiting on, not touched this session.
+- Warden-as-second-Kokoro-worker design (reported, not built): the
+  `cbe904b` TTL lease gives cross-host **safety** (never two
+  synthesis subprocesses on the same article), not **parallelism** —
+  it's one global key, one holder, anywhere. Real throughput needs
+  two things together: worker-scoped lease keys (`arc:audio:active:
+  {worker_id}`, trivial — reuses the proven lease code verbatim, just
+  parameterized) and a per-article claim (`arc:audio:claimed:
+  {article_id}`) that's atomic *with selection itself*, not a
+  check-then-set after `find_newest_silent` returns — otherwise two
+  workers converge on the same newest candidate every ~30s poll.
+  Warden itself is still bare (no `/home/www`, no `uv`) and was mid
+  kernel-compile as of this session's end — leave it alone until
+  told otherwise, and don't start on this build until the wall-time
+  number above says it's still worth it.
+
