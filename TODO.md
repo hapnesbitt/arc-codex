@@ -1052,3 +1052,79 @@ model. **Not for now** — worth revisiting only if the daemon's
 throughput becomes a real ceiling, which it isn't at spectre's ~2×
 resolute rate.
 
+## Ollama Cloud billing went monthly — escalation.py's weekly counter is now the wrong window (observation only, 2026-09-10)
+
+`escalation.py`'s `weekly_cap` gate (`arc_config.yaml [escalation]`,
+live value 1500, HEAD value 400) keys its Redis counter to the ISO
+week (`arc:cloud_calls:weekly:{isoyear}-W{isoweek}`, 8-day TTL,
+self-rolling every Monday). Ollama Cloud switched from a weekly
+allowance to monthly included usage — a single cumulative pool with
+a ~4-week reset, not a per-week one. A counter that resets every
+Monday regardless of month-to-date usage can't back-stop a monthly
+pool at any value: up to four full weekly allowances can be spent
+before the real ceiling is ever consulted. `weekly_cap` is decorative
+until the accounting window itself changes from ISO-week to
+whatever Ollama's actual cycle is.
+
+**Data point, recorded before it's lost**: 2026-09-10 — 9.5% of the
+monthly pool used, 264 requests so far this month, dashboard reads
+"resets in 3 weeks," credit balance $0 (no funded overage once the
+pool is exhausted — Ollama's own 429 is still the hard stop beneath
+this gate, per the existing weekly_cap comment, that part is
+unaffected). Implied full-month pool ≈ 264 / 0.095 ≈ 2,780 requests.
+
+**Why this isn't fixed yet**: the right fix (key the counter to the
+real billing cycle instead of the calendar) depends on one fact this
+single data point can't establish — whether the reset is calendar-
+month-anchored (same day each month, so `relativedelta(months=+1)`
+from a confirmed anchor date is correct) or a flat rolling window
+(fixed N days after the last reset, so `timedelta(days=N)` is
+correct instead). "9.5% used, 3 weeks to reset" is consistent with
+either model this early in one cycle.
+
+**Next step**: check ollama.com/settings the day this cycle actually
+flips to 0%. The exact reset date (does it land on the same day-of-
+month as whatever day the 9.5%-used reading above corresponds to, or
+land some fixed number of days later regardless of month length)
+tells you which model it is — the fix is a one-line change either
+way once known: swap `_weekly_key()`'s `isocalendar()` derivation for
+a `_cycle_key()` anchored to that reset date, using whichever of the
+two step functions the observation confirms. `python-dateutil` is
+already a pinned dependency (`requirements.txt`) for the
+`relativedelta` case. Not touching `weekly_cap` or the counter until
+then — implementing either step function now would be guessing.
+
+## Cleanup, not urgent — vestigial Arc files sitting in huntaegis_stack
+
+Found while sweeping both stacks for the 5005/5006 port-default bug
+(2026-09-10 — see the three port-default commits on huntaegis_stack's
+`fix/translate-failure-visibility` branch, same session). Three
+leftover copies of Arc's own files never adapted when Huntaegis was
+forked, all inert (nothing depends on their wrong values) but all
+confusing to a future reader:
+
+- `huntaegis_stack/arc_config.yaml` — a stale copy of Arc's own
+  config (`stack.root: "/home/www/arc_stack"`, `stack.backend_port:
+  5005`), undated since 2026-07-15 (predates Arc's own 07-18
+  retention-hours change, so it's drifted from Arc's copy too).
+  `mailer.py` reads only its `mailer:` sub-block, which is correct
+  and unaffected — the wrong `stack:` block is never read by
+  anything, confirmed by grep.
+- `huntaegis_stack/backend/project_context.yaml` — same situation,
+  a full stale copy of Arc's project doc (still describing Arc's
+  Caddy config, Arc's port 5005 throughout). Referenced only in a
+  comment at the top of Hunt's `scribe.py`; never actually loaded by
+  any code (no `open()`/`yaml.safe_load` against it anywhere) — dead
+  weight. Hunt has its own accurate `huntaegis_project_context.yaml`
+  alongside it, which is presumably what's meant to be read instead.
+- `huntaegis_stack/frontend/app/about/developer/page.tsx` — four
+  `5005` mentions (lines 187, 233, 266, 271) in the public
+  about/developer page's display text, describing Hunt's own backend
+  port incorrectly to visitors. Cosmetic (UI copy, not networking
+  code) but visibly wrong to anyone who opens that page and knows
+  the real port is 5006.
+
+Worth a cleanup pass — delete or properly re-scope the two stale
+YAML copies, fix the four display strings — but nothing here is
+live-wrong the way the port defaults were, so it can wait.
+
