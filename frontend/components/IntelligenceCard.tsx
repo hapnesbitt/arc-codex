@@ -6,7 +6,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useId, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useId, useMemo, useRef, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -36,6 +36,7 @@ import TranslateButton, { TranslatedFields } from '@/components/TranslateButton'
 import { useUserPrefs } from '@/components/UserPrefsContext';
 import { linkifyText } from '@/lib/textUtils';
 import { cardConfig } from '@/lib/cardConfig';
+import { cn } from '@/lib/utils';
 import type { Article, Comment, Dossier } from '@/lib/types';
 
 // --- TYPE DEFINITIONS (local only) ---
@@ -869,6 +870,31 @@ const ShareMenu: React.FC<{ title: string; articleId: string; blurb?: string; la
     );
 };
 
+// --- Inline audio: one card plays at a time ────────────────────────────────
+// A feed of many independently-toggleable cards is exactly where two
+// simultaneous narrations would surprise someone, so "now playing" is a
+// single module-scoped value shared by every card instance, not per-card
+// state — opening one card's player collapses whichever other one was open.
+// A plain external store (subscribed via useSyncExternalStore) rather than a
+// React Context: no provider to wire into the tree, and every mounted card
+// already re-renders through the same module instance in one page's bundle.
+let nowPlayingArticleId: string | null = null;
+const nowPlayingListeners = new Set<() => void>();
+
+function getNowPlayingArticleId(): string | null {
+    return nowPlayingArticleId;
+}
+
+function setNowPlayingArticleId(id: string | null): void {
+    nowPlayingArticleId = id;
+    nowPlayingListeners.forEach((fn) => fn());
+}
+
+function subscribeNowPlaying(onChange: () => void): () => void {
+    nowPlayingListeners.add(onChange);
+    return () => { nowPlayingListeners.delete(onChange); };
+}
+
 // --- The Main Intelligence Card Component ---
 const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
     card,
@@ -992,6 +1018,16 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
 
     const toggleSection = (section: keyof ExpandedSections) => {
         setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+    };
+
+    // Inline audio — see subscribeNowPlaying above. showAudio derives from
+    // the shared store rather than local state so a second card's toggle
+    // collapsing this one is a natural consequence of both reading the same
+    // value, not something either card has to know about the other to do.
+    const showAudio = useSyncExternalStore(subscribeNowPlaying, getNowPlayingArticleId, () => null) === card.id;
+    const toggleAudio = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        setNowPlayingArticleId(showAudio ? null : card.id);
     };
 
     // Score sources — SEMANTIC fields only. NEVER read chimera_score: it is a
@@ -1274,16 +1310,19 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 <LinkIcon className="h-5 w-5" aria-hidden="true" />
                             </Link>
                             {card.audio_url && (
-                                <a
-                                    href={card.audio_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    aria-label="Listen to this article"
-                                    data-tooltip="Play a Kokoro narration of this article — opens the audio in a new tab."
-                                    className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 text-nb-400 hover:text-icaccent hover:bg-nb-800/40 ring-focus"
+                                <button
+                                    type="button"
+                                    onClick={toggleAudio}
+                                    aria-expanded={showAudio}
+                                    aria-label={showAudio ? "Hide narration audio" : "Listen to this article"}
+                                    data-tooltip="Play a Kokoro narration of this article, inline — opening this collapses any other card's player."
+                                    className={cn(
+                                        "inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors h-10 w-10 hover:bg-nb-800/40 ring-focus",
+                                        showAudio ? "text-icaccent" : "text-nb-400 hover:text-icaccent"
+                                    )}
                                 >
                                     <Headphones className="h-5 w-5" aria-hidden="true" />
-                                </a>
+                                </button>
                             )}
                             <Button
                                 variant="ghost"
@@ -1345,6 +1384,26 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                 </Button>
                             )}
                         </div>
+
+                        {/* Row 3 — inline narration audio, on its own full-width line,
+                            only when toggled open. Native <audio controls> only — no
+                            custom player. preload="none" so opening-then-not-playing
+                            never pulls the mp3 for nothing. Unmounting on collapse
+                            (rather than hiding) stops playback for free — a removed
+                            media element halts on its own, no explicit pause needed. */}
+                        {showAudio && card.audio_url && (
+                            <div className="mt-2 print:hidden">
+                                <audio
+                                    controls
+                                    preload="none"
+                                    src={card.audio_url}
+                                    className="w-full"
+                                >
+                                    Your browser does not support inline audio playback.
+                                    <a href={card.audio_url}>Download the narration</a> instead.
+                                </audio>
+                            </div>
+                        )}
                     </header>
 
                     {/* Article Text */}
