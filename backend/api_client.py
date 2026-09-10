@@ -44,7 +44,7 @@ class APIClient:
             return response.json()
         except requests.exceptions.RequestException as e:
             self.logger.error(f"API request failed for {endpoint}: {e}")
-            return None
+            raise
 
     def pre_analyze(self, text, article_id=''):
         return self._post('pre_analyze', {'inputText': text, 'article_id': article_id}, add_secret=False)

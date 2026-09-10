@@ -426,7 +426,11 @@ def process_manual_upload(filepath, api_client):
         
         # Analyze the content
         logger.info(f"  🔍 Analyzing content...")
-        dossier = api_client.pre_analyze(article_text, article_hash)
+        try:
+            dossier = api_client.pre_analyze(article_text, article_hash)
+        except Exception as e:
+            dossier = None
+            logger.warning(f"  Analysis request failed: {e}")
         if not dossier:
             dossier = {'sentiment': 0.0, 'civility': 0.5, 'chimera_score': 0.0}
             logger.warning(f"  Analysis failed, using default scores")
