@@ -92,7 +92,10 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 import time
+import uuid
+from contextlib import contextmanager
 from datetime import datetime
 
 # --- Path setup: run from anywhere under the repo ---------------------------
@@ -135,20 +138,41 @@ logger.setLevel(logging.INFO)
 # stale-mutex stall happened (2026-08-27 — a prior audio-backfill.service
 # restart killed a process holding this mutex, and with no way to tell a
 # dead holder from a live one, the new instance just waited out the full
-# TTL). AUDIO_MUTEX_TTL is still the safety net for whatever the liveness
-# check below can't resolve, but it should rarely be the thing that clears
-# it now.
+# TTL — up to AUDIO_TIMEOUT_SECONDS + 60, i.e. eleven minutes).
+#
+# REDESIGNED (this pass): a bare-PID liveness check (os.kill(pid, 0)) is not
+# fixable — it can only ever answer "is some process on THIS host running
+# with that PID," which false-positives on ordinary PID recycling (observed
+# twice against run-cupsd) and is flatly meaningless once the holder may be
+# on a different host (see push_to_destination / remote-synth mode above).
+# So there is no liveness check any more, on this host or any other: this is
+# now a plain heartbeat lease. A short TTL (AUDIO_MUTEX_LEASE_TTL) is the
+# ONLY staleness signal — "stale" means "expired," full stop, nothing to
+# prove. A live holder keeps its lease alive by actively renewing it (see
+# _lease_heartbeat below) for as long as it's actually working; a dead one
+# just stops renewing and the key falls off on its own within one TTL.
 AUDIO_MUTEX_KEY = "arc:audio:active"
-AUDIO_MUTEX_TTL = scribe.AUDIO_TIMEOUT_SECONDS + 60   # a stuck synth expires
+AUDIO_MUTEX_LEASE_TTL = 45          # seconds — short on purpose, see above
+_LEASE_REFRESH_INTERVAL = AUDIO_MUTEX_LEASE_TTL / 3   # renew well before expiry
 
 # Atomic compare-and-delete: only clear the key if it still holds the value
-# we expect. Used both to release our own lock (never delete a mutex some
-# other holder has since taken — the old release_mutex() deleted
-# unconditionally) and to clear a confirmed-dead holder's stale entry
-# without racing another waiter doing the same thing at once.
+# we expect. Used to release our own lock — never delete a mutex some other
+# holder has since taken (the old release_mutex() deleted unconditionally).
 _CAS_DELETE_LUA = """
 if redis.call("GET", KEYS[1]) == ARGV[1] then
     return redis.call("DEL", KEYS[1])
+else
+    return 0
+end
+"""
+
+# Atomic compare-and-refresh: only extend the TTL if the key still holds the
+# value we expect — a heartbeat that's late enough to run after our lease
+# already expired and was picked up by someone else must not resurrect it
+# out from under them.
+_CAS_REFRESH_LUA = """
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+    return redis.call("PEXPIRE", KEYS[1], ARGV[2])
 else
     return 0
 end
@@ -442,76 +466,92 @@ def find_newest_silent(r: redis.Redis, hours: float, skip: set,
 
 
 def _holder_id() -> str:
-    """This process's identity as stored in the mutex value: its PID.
+    """A fresh, effectively-unique identity for one lease acquisition.
 
-    Single host, so a bare PID is enough to both log a meaningful holder
-    and check liveness (_holder_is_alive below) — no hostname needed.
+    No longer a bare PID — the lease is validated purely by TTL expiry now
+    (see the "Coordination primitives" note above), so this value is never
+    interpreted, only ever compared for exact equality (CAS ownership
+    checks) or printed in a log line. The PID prefix is kept as a debugging
+    aid only; the random suffix is what actually makes each acquisition's
+    token unique, including across hosts, so two different processes can
+    never be mistaken for the same lease holder.
     """
-    return str(os.getpid())
+    return f"{os.getpid()}:{uuid.uuid4().hex[:8]}"
 
 
-def _holder_is_alive(value: str) -> bool | None:
-    """True/False if `value` names a live/dead PID, None if we can't tell.
-
-    None covers anything unparseable (e.g. the pre-2026-08-27 literal
-    "backfill", or a value from some future format change) — those are left
-    alone rather than guessed at; AUDIO_MUTEX_TTL is what eventually clears
-    them.
-    """
-    try:
-        pid = int(value)
-    except (TypeError, ValueError):
-        return None
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True  # alive, just not ours to signal
-    except OSError:
-        return None
-
-
-def acquire_mutex(r: redis.Redis, cas_delete) -> tuple[bool, str | None]:
+def acquire_mutex(r: redis.Redis) -> tuple[bool, str | None]:
     """Try to take arc:audio:active.
 
-    Returns (True, None) on success, or (False, holder) on failure — holder
-    is the PID string seen holding it (for the caller's log line), or None
-    if it changed hands between our failed SET and the follow-up GET.
+    Returns (True, my_token) on success — the caller must hold onto that
+    token and pass it to _lease_heartbeat/release_mutex, not recompute it —
+    or (False, holder) on failure, where holder is the token seen holding
+    it (for the caller's log line), or None if it changed hands between our
+    failed SET and the follow-up GET.
 
-    A holder we can prove is dead (_holder_is_alive → False) is cleared via
-    an atomic compare-and-delete and retried immediately, rather than left
-    to sit for the full AUDIO_MUTEX_TTL — that TTL-only wait is exactly
-    what turned a killed instance into a ~7-minute stall for the next one
-    on 2026-08-27. The CAS check (only delete if the value still matches
-    what we just read) means a second waiter doing the same check at the
-    same moment can't both "clear" it and double up the retry.
+    No liveness check, no stale-clear branch: a short AUDIO_MUTEX_LEASE_TTL
+    is the only staleness signal now. If the holder is real and working,
+    _lease_heartbeat keeps it renewed; if not, it simply expires and the
+    next poll (at most one POLL_SECONDS + AUDIO_MUTEX_LEASE_TTL later)
+    succeeds on its own — no proactive clearing needed.
     """
     me = _holder_id()
-    if r.set(AUDIO_MUTEX_KEY, me, nx=True, ex=AUDIO_MUTEX_TTL):
-        return True, None
-
-    current = r.get(AUDIO_MUTEX_KEY)
-    if current is not None and _holder_is_alive(current) is False:
-        if cas_delete(keys=[AUDIO_MUTEX_KEY], args=[current]):
-            logger.warning(f"cleared stale mutex — holder pid {current} no longer exists")
-            if r.set(AUDIO_MUTEX_KEY, me, nx=True, ex=AUDIO_MUTEX_TTL):
-                return True, None
-            current = r.get(AUDIO_MUTEX_KEY)
-    return False, current
+    if r.set(AUDIO_MUTEX_KEY, me, nx=True, ex=AUDIO_MUTEX_LEASE_TTL):
+        return True, me
+    return False, r.get(AUDIO_MUTEX_KEY)
 
 
-def release_mutex(r: redis.Redis, cas_delete) -> None:
-    """Drop the mutex — but only if it's still ours.
+@contextmanager
+def _lease_heartbeat(r: redis.Redis, cas_refresh, token: str):
+    """Keep `token`'s lease alive for as long as the `with` body runs.
 
-    Compare-and-delete against our own holder id, not an unconditional
-    DEL: if our TTL already lapsed and someone else has since acquired it,
-    an unconditional delete would drop their lock instead of ours. Best-
-    effort beyond that — the TTL is the safety net if this fails outright.
+    Renews AUDIO_MUTEX_KEY's TTL every _LEASE_REFRESH_INTERVAL seconds via a
+    CAS-guarded PEXPIRE (only refreshes while the key still holds `token` —
+    a late heartbeat can never resurrect a lease that already expired and
+    was picked up by someone else).
+
+    The renew loop runs on a daemon thread, so it cannot outlive the
+    process: a SIGKILL or an unhandled SIGTERM ends the whole process,
+    thread included, in the same instant — there is no separate cleanup
+    step for the thread to skip in that case, because there's no process
+    left to skip it in. What this context manager guarantees is narrower
+    and is the part that's actually ours to guarantee: the thread never
+    outlives the *lease hold* while the process keeps running. The `finally`
+    below always fires — on a normal return from the body, and on an
+    exception raised inside it (e.g. narrate_one blowing up mid-synthesis)
+    — stopping and joining the thread before this function returns, so the
+    caller's own release_mutex() never races a heartbeat that's still in
+    flight.
+    """
+    stop = threading.Event()
+
+    def _run() -> None:
+        while not stop.wait(_LEASE_REFRESH_INTERVAL):
+            try:
+                cas_refresh(keys=[AUDIO_MUTEX_KEY],
+                            args=[token, AUDIO_MUTEX_LEASE_TTL * 1000])
+            except Exception as e:
+                logger.warning(f"lease refresh failed for {token}: {e}")
+
+    t = threading.Thread(target=_run, daemon=True, name="audio-mutex-heartbeat")
+    t.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        t.join(timeout=5)
+
+
+def release_mutex(r: redis.Redis, cas_delete, token: str) -> None:
+    """Drop the mutex — but only if it still holds `token`.
+
+    Compare-and-delete against the token this hold actually acquired, not
+    an unconditional DEL: if our lease already lapsed and someone else has
+    since acquired it, an unconditional delete would drop their lock
+    instead of ours. Best-effort beyond that — the lease TTL is the safety
+    net if this fails outright.
     """
     try:
-        cas_delete(keys=[AUDIO_MUTEX_KEY], args=[_holder_id()])
+        cas_delete(keys=[AUDIO_MUTEX_KEY], args=[token])
     except Exception as e:
         logger.warning(f"could not release {AUDIO_MUTEX_KEY}: {e}")
 
@@ -603,6 +643,7 @@ def run(once: bool, dry_run: bool, ignore_peak: bool) -> int:
     from redis_readiness import wait_for_redis
     wait_for_redis(r, log=logger)
     cas_delete = r.register_script(_CAS_DELETE_LUA)
+    cas_refresh = r.register_script(_CAS_REFRESH_LUA)
 
     hours = window_hours(cfg_audio)
     max_chars = max_chars_for_budget(cfg_audio)
@@ -665,20 +706,21 @@ def run(once: bool, dry_run: bool, ignore_peak: bool) -> int:
             time.sleep(POLL_SECONDS)
             continue
 
-        acquired, holder = acquire_mutex(r, cas_delete)
+        acquired, token = acquire_mutex(r)
         if not acquired:
-            who = f"pid {holder}" if holder else "contention (holder changed mid-check)"
+            who = f"holder {token}" if token else "contention (holder changed mid-check)"
             logger.info(f"⏸  yielding {POLL_SECONDS}s — mutex held by {who}")
             time.sleep(POLL_SECONDS)
             continue
 
         last_acquire_ts = time.time()
         try:
-            ok = narrate_one(r, article_id, red, blue, purple)
-            if not ok:
-                failed_this_run.add(article_id)
+            with _lease_heartbeat(r, cas_refresh, token):
+                ok = narrate_one(r, article_id, red, blue, purple)
+                if not ok:
+                    failed_this_run.add(article_id)
         finally:
-            release_mutex(r, cas_delete)
+            release_mutex(r, cas_delete, token)
 
         if once:
             return 0 if ok else 1
