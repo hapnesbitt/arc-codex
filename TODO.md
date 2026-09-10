@@ -1211,3 +1211,27 @@ candidate count was just loose.
   told otherwise, and don't start on this build until the wall-time
   number above says it's still worth it.
 
+**UPDATE, same session, after the pass drained: push and pull both
+done.** `origin/main` is at `fa26b40`. Spectre is pulled to the same
+commit and running it — restart sequence above is complete, not
+still pending. One real snag along the way, now fixed: spectre's
+`arc_stack` checkout was on a stray branch (`fix/translate-failure-
+visibility`, zero divergence from main, just never switched back —
+apparently from whenever the clone was first set up) rather than
+`main`; local `main` there was separately 93 commits stale (old,
+unrelated to today). Fixed by checking out `main`, fast-forwarding,
+and re-applying the local `backfill_window_hours=6` edit via
+stash/pop — clean, no conflicts, verified intact after. Spectre now
+correctly tracks `main` going forward.
+
+**What's still open: the actual watch-list numbers.** 20 minutes
+post-restart, the window stayed idle the whole time — no new
+article went silent, so there's been no narration yet under the new
+code. `analyzer:queue` LLEN is still 0 (consistent — nothing to
+enqueue if nothing's narrating). No `📻` lines either way. This isn't
+a problem, just quiet traffic; the daemon is confirmed running
+correctly (dry-run + restart + idle-polling all verified). **Next
+session: just check the journal for the first `✓` lines and compare
+wall time to the 149s median / 166s mean baseline** — that's the
+only thing this handoff still owes you.
+
