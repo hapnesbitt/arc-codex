@@ -21,11 +21,13 @@ from stream_utils import publish_analysis, get_redis_connection, ensure_stream_g
 from ollama_utils import call_ollama_with_fallback, OLLAMA_CLOUD_MODEL, OLLAMA_LOCAL_FALLBACK
 from fetch_utils import sanitize_active_content
 from api_client import APIClient
+from langdetect import detect, DetectorFactory, LangDetectException
 import yaml
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
+DetectorFactory.seed = 0  # deterministic
 
 # --- CONFIGURATION ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -51,6 +53,35 @@ CATEGORY_IMAGES = {
     'general':             'https://arc-codex.com/manual-upload.jpg',
 }
 DEFAULT_IMAGE_URL = CATEGORY_IMAGES['general']
+
+# Language detection: ISO code -> English name. Duplicated from scribe.py
+# rather than imported from it (see this file's own isolation header comment
+# above) — same languages.json, same normalization, kept independently so a
+# scribe.py break can't take manual_publisher.py down with it. Was the one
+# field manual uploads never carried: source_lang was omitted from
+# article_data entirely, so every manually-published article's language
+# defaulted to "English" wherever the frontend reads a missing source_lang
+# (see IntelligenceCard.tsx / TranslateButton.tsx) — a foreign-language
+# manual upload would silently skip the reader's translate-on-load path.
+_ISO_TO_NAME_PATH = os.path.join(BASE_DIR, 'languages.json')
+with open(_ISO_TO_NAME_PATH, 'r', encoding='utf-8') as _f:
+    _LANG_LIST = json.load(_f)
+ISO_TO_NAME = {entry['code'].lower(): entry['name'] for entry in _LANG_LIST}
+ISO_TO_NAME['zh-cn'] = ISO_TO_NAME.get('zh', 'Chinese')
+ISO_TO_NAME['zh-tw'] = ISO_TO_NAME.get('zh', 'Chinese')
+
+
+def detect_language(text: str) -> str:
+    """Detect language of article text. Returns full English name from
+    languages.json. Falls back to 'Unknown' if detection fails or text
+    is too short."""
+    if not text or len(text.strip()) < 50:
+        return 'Unknown'
+    try:
+        code = detect(text[:1000]).lower()
+        return ISO_TO_NAME.get(code, ISO_TO_NAME.get(code.split('-')[0], 'Unknown'))
+    except LangDetectException:
+        return 'Unknown'
 
 CHECK_INTERVAL = 5  # Check for new files every 5 seconds
 
@@ -465,6 +496,7 @@ def process_manual_upload(filepath, api_client):
             "imageUrl": image_url,
             "dossier": json.dumps(dossier),
             "original_text": sanitize_active_content(article_text),
+            "source_lang": detect_language(article_text),
             "directive": metadata.get('category', 'Manual Publish'),
             "category": category,
             "blue_team_analysis": "",
