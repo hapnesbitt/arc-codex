@@ -1433,3 +1433,46 @@ check whether it already reported (it notifies on completion) or read
     updating, the new watchdog check is blind regardless of whether
     narration itself is working.
 
+**429 TOO MANY REQUESTS, scribe against Arc's own `/api/pre_analyze` —
+mechanism identified, not yet decided.** Ross caught this in `arc
+checkup` output: two 429s in the same second at 03:06 today,
+self-inflicted (scribe calling Arc's own backend), not external traffic.
+Chased far enough to name the exact mechanism, stopping short of the
+actual decision:
+
+- **Not Flask-Limiter** (that's the per-IP `arc:auth:limiter` state in
+  Redis DB5, a different thing entirely) — this is a bare
+  `threading.Semaphore(2)` in `main.py` (`_pre_analyze_sem`, line 1088),
+  capping `/api/pre_analyze` at 2 concurrent requests. A request that
+  can't get a slot within 1s (`.acquire(timeout=1)`) gets a 429
+  (`main.py:1204`).
+- **Scribe's own concurrency deliberately exceeds it, by design** — not
+  a misconfiguration discovered by accident. `scribe.py:428-434`:
+  `MAX_CONCURRENT_ANALYZERS = _ingestion["concurrent_preproc"]` (10 in
+  `arc.cfg` today) with a comment already on record: *"Flask semaphore
+  caps actual parallelism at 2 — extra threads hit 429 (1s wait) then
+  fallback. No cloud impact."* Scribe submits preprocessing work via
+  `executor.submit(api_client.pre_analyze, ...)` (`scribe.py:2480`); on a
+  429/failure it logs `errors_pre_analyze` and falls back to a default
+  dossier (confirmed at `scribe.py:1685`, "using fallback dossier" — this
+  is where a silent score-quality loss actually happens, same failure
+  shape as a priority-item pre_analyze failure a few lines earlier).
+- **Observed frequency, for what it's worth**: `arc:ops:scribe:counters`
+  shows `errors_pre_analyze = 2` against `poll_success = 262465` right
+  now — i.e. maybe *only* today's two events, ever, on this counter (didn't
+  chase when the counter itself was created/reset, so "only ever twice"
+  isn't fully verified, just what the cumulative number shows as of this
+  check). If accurate, the 10-vs-2 mismatch mostly doesn't collide in
+  practice — most of scribe's 10-way concurrency is presumably spent on
+  I/O (fetching/scraping), not on the CPU-bound spaCy/VADER step, so
+  simultaneous arrival at the semaphore specifically is rare even though
+  the ceilings themselves are structurally mismatched.
+- **What's still open, for next session**: whether "rare, by design,
+  falls back gracefully" is actually fine as accepted behavior, or
+  whether it's worth raising `_pre_analyze_sem` above 2 (the "No cloud
+  impact" comment suggests 2 was chosen for a local-resource reason, not
+  a cloud-cost one — worth confirming what that reason actually was
+  before just raising the number) to close the gap between it and
+  `concurrent_preproc`'s 10 rather than relying on collisions staying
+  rare. Not decided or touched this session.
+
