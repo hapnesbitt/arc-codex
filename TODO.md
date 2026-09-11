@@ -1271,3 +1271,92 @@ inline audio with one-player-at-a-time, a memo comparator comment.
    in-Arc page listing narrated articles. Don't start building until that's
    settled.
 
+---
+
+## Session 2026-09-11 — narration wall-time regression, JIM_TAILSCALE_IP,
+## broadcast-script rejection rate, narration-liveness monitoring
+
+**Correction to this session's own early read**: a narration gap was first
+reported as ~19h (newest mp3 read as 13:44 the previous day). That was a
+misread of `ls` output — the actual newest file at the time was 01:12 the
+same morning, a 4h45m gap, not 19h. Nothing was down for 19 hours; the
+daemon, its Redis mutex (`arc:audio:active`), and the spectre-resolute
+Redis tunnel were all confirmed healthy throughout the real 4h45m gap too
+— it was an unlucky streak of the rejection-rate issue below (4 losses in
+a row at an 81% base rate is a ~43% probability event), not a fault.
+
+**`JIM_TAILSCALE_IP` was live in production, unconditionally, on spectre.**
+`ollama_client.py`'s `DEFAULT_PRIMARY` is a literal placeholder string —
+resolute's own `.env` overrides it (`OLLAMA_PRIMARY`/`OLLAMA_FALLBACK` both
+pinned to the M1), but spectre's minimal `.env` never got the same fix, so
+every `audio_backfill.py` → `scribe.run_broadcast_script` call paid a
+connect-timeout tax against a hostname that was never going to resolve
+before falling back to the M1. Fixed: spectre's `.env` now sets
+`OLLAMA_PRIMARY` the same as resolute's. This plus the M1 already carrying
+100% of the analyzer/character_builder/narration load together explain
+part of why wall time didn't drop the way the scribe→broadcast-script pull
+predicted — the new LLM round-trip the pull introduced (script-writing)
+was paying this tax on every call, on top of ordinary M1 load variance.
+
+**Broadcast-script rejection rate was measured at 81% (30/37), and the
+model was found to be ignoring the length instruction, not merely
+missing it.** 37 real attempts ranged 776-4048 chars (median 1682, mean
+1871) against a 1,100-char target — a smooth, wide distribution with no
+visible pull toward 1,100 at all, which is why the 2500→1400 retune made
+the reject rate worse rather than better: nothing about generation itself
+changed, only where the post-hoc cutoff fell across an unmoved
+distribution. Root cause: `_apply_spec_following_options` sets
+`num_predict=-1` (unbounded) for every gemma4-family call, so the
+character-count instruction in `prompts.yaml` was a request the model was
+free to ignore — nothing in decoding was ever enforcing it.
+
+Fix landed (`b2df679`): `run_broadcast_script` now caps generation at 300
+tokens (`BROADCAST_NUM_PREDICT`, scoped to this one call — no other
+`call_ollama_local_only` caller is affected). Measured against 3 real
+articles at 250/300/350 tokens before choosing 300: it's the only value
+where all three landed under 1400 chars, and two of three finished
+naturally (`done_reason=stop`) before ever hitting the cap, with complete
+sentences. The third — dense, list-heavy biographical content — hit the
+cap mid-sentence at every value tested, 250 included; that one's a
+content-shape problem no single token value fully solves.
+`BROADCAST_MAX_CHARS` stays as a backstop reject — the cap reduces
+overshoots, it doesn't guarantee zero.
+
+**Considered and rejected: routing this call to warden + `qwen2.5:1.5b`
+instead of the M1 + `gemma4:e2b`.** Memory-wise it's the right fit (warden
+can't honestly run `gemma4:e2b`, `qwen2.5:1.5b` is what Huntaegis' analyzer
+already proves works there). But measured against real content — 11
+generations, both `/api/generate` and `/api/chat` with a proper
+system/user split, every num_predict value tried — `qwen2.5:1.5b`
+reproduces the "RED TEAM FINDINGS" section labels as literal markdown
+headers and restates the source as bullet points, never rewriting into
+continuous narrated prose, on every single attempt. `gemma4:e2b`'s
+problem was purely length; trading it for a model with a format problem
+instead is a worse trade at any cap value. Reverted: spectre's `.env` no
+longer sets `BROADCAST_OLLAMA_HOST`/`BROADCAST_OLLAMA_MODEL` (config only
+— never committed to this repo), and `spectre-rebuild`'s warden ufw
+allowlist change for spectre was reverted too (`fd3aa6b`, that repo). The
+host/model override mechanism itself stays in `ollama_utils.py` — it's
+inert when unset and is exactly what a future retry would need, whichever
+model that ends up being.
+
+**New: `mailer.py` narration-liveness monitoring (`802fe9a`)** — output-
+arriving, not process-alive, specifically because this incident's shape
+(daemon/mutex/tunnel all healthy, zero output) is invisible to
+`watchdog.sh` by design. `audio_backfill.py` now sets
+`arc:audio:last_narration` on every success; `mailer.py` alerts when its
+age exceeds 3× `cycle_minutes` (2h floor, 8h ceiling — 4.85h at today's
+97-minute cycle). Opt-in via `arc.cfg`'s `narration_liveness_enabled`
+since Huntaegis shares this file but has no narrator at all. Not yet
+observed firing or clearing in production — first real test is whenever
+narration next actually stalls past the threshold.
+
+**Unresolved, worth knowing**: the M1 is also only 8GB RAM, same as
+warden, and was observed mid-session with heavy swap use during a large
+analysis job (later explained by a reboot, not chronic thrashing — but
+the M1's memory ceiling is real and shared across analyzer,
+character_builder, and now narration's script-writing call, all pinned to
+it). Nothing acted on this beyond the num_predict cap above, which
+reduces call volume/duration on the M1 somewhat but doesn't address the
+underlying single-8GB-host concentration.
+
