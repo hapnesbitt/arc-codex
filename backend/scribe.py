@@ -39,7 +39,10 @@ import subprocess
 import tempfile
 import psutil
 from stream_utils import publish_analysis, ensure_stream_group
-from ollama_utils import call_ollama_local_only, OLLAMA_LOCAL_FALLBACK
+from ollama_utils import (
+    call_ollama_local_only, OLLAMA_LOCAL_FALLBACK,
+    BROADCAST_OLLAMA_HOST, BROADCAST_OLLAMA_MODEL,
+)
 from retention import run_retention_pass
 from operational_state import ScribeOperationalState, run_heartbeat_loop
 from fetch_utils import sanitize_active_content
@@ -1851,7 +1854,10 @@ CONSTRAINTS:
 
     try:
         logger.info(f"📻 Writing broadcast script for {article_id}...")
-        raw_response, duration, model_used = call_ollama_local_only(broadcast_prompt, timeout=timeout)
+        raw_response, duration, model_used = call_ollama_local_only(
+            broadcast_prompt, timeout=timeout,
+            host=BROADCAST_OLLAMA_HOST, model=BROADCAST_OLLAMA_MODEL,
+        )
         script = (raw_response or '').strip()
 
         if not script:

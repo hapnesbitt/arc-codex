@@ -24,6 +24,17 @@ OLLAMA_URL            = os.environ.get("OLLAMA_URL", "http://192.168.1.185:11434
 OLLAMA_CLOUD_MODEL    = os.environ.get("OLLAMA_CLOUD_MODEL", "gemma4:31b-cloud")
 OLLAMA_LOCAL_FALLBACK  = os.environ.get("OLLAMA_LOCAL_FALLBACK", "gemma4:e2b")
 
+# Dedicated host/model for scribe.run_broadcast_script only (2026-09-11).
+# Script-writing is a narrow, bounded rewrite of existing Red/Blue/Purple
+# findings — unlike analysis, it doesn't need gemma4:e2b's size. Both unset
+# by default so every other call_ollama_local_only() caller (analyzer.py,
+# prompt_to_article.py, scribe.py's sentinel/counter-analyst passes) is
+# unaffected. Set on spectre to route narration script-writing to warden
+# instead of the M1, which was otherwise absorbing 100% of this load on top
+# of everything else (M1 measured at 89% swap used 2026-09-11).
+BROADCAST_OLLAMA_HOST  = os.environ.get("BROADCAST_OLLAMA_HOST")   # e.g. http://192.168.1.190:11434
+BROADCAST_OLLAMA_MODEL = os.environ.get("BROADCAST_OLLAMA_MODEL")  # e.g. qwen2.5:1.5b
+
 TRANSLATION_LOCK_KEY      = "translation:active"
 TRANSLATION_LOCK_MAX_WAIT = 60  # seconds to wait before proceeding anyway
 LOCAL_HEALTHCHECK_TIMEOUT = 2.0
@@ -289,11 +300,21 @@ def call_ollama_with_fallback(
     raise Exception(f"All Ollama models failed (tried {tried})")
 
 
-def call_ollama_local_only(prompt_text: str, timeout: int = 900):
+def call_ollama_local_only(prompt_text: str, timeout: int = 900, *,
+                            host: str | None = None, model: str | None = None):
     """
     Call Ollama using the local model only (OLLAMA_LOCAL_FALLBACK) — never the cloud model.
     No local-to-local fallback: one local model, one attempt.
     Used by scribe.py to avoid cloud API costs during background ingestion.
+
+    host/model: override the configured local host/model for THIS call only.
+    Used by run_broadcast_script to route to BROADCAST_OLLAMA_HOST/MODEL
+    (e.g. warden + qwen2.5:1.5b) instead of the M1 + OLLAMA_LOCAL_FALLBACK.
+    When given: no ollama_client primary/fallback host failover (a single
+    attempt against the given host — consistent with this function's
+    "one local model, one attempt" contract) and no gemma4-family
+    spec-following options applied (those are scoped to the gemma4 family;
+    an override is presumed to be a different, non-thinking model).
 
     Returns:
         tuple: (response_text, duration_ms, model_used)
@@ -302,18 +323,24 @@ def call_ollama_local_only(prompt_text: str, timeout: int = 900):
         Exception: if the local model fails.
     """
     _wait_for_translation()
-    local_host = ollama_client.FALLBACK or OLLAMA_URL
+    local_host = host or ollama_client.FALLBACK or OLLAMA_URL
+    local_model = model or OLLAMA_LOCAL_FALLBACK
 
-    for model, label in [(OLLAMA_LOCAL_FALLBACK, "local")]:
+    for attempt_model, label in [(local_model, "local")]:
         try:
-            logger.info(f"🖥️  Trying {label} model: {model}")
-            payload = {"model": model, "prompt": prompt_text, "stream": False}
+            logger.info(f"🖥️  Trying {label} model: {attempt_model} @ {local_host}")
+            payload = {"model": attempt_model, "prompt": prompt_text, "stream": False}
             if not is_local_available(local_host):
                 raise requests.RequestException(f"Local Ollama health check failed for {local_host}")
-            _apply_spec_following_options(payload)
+            if model is None:
+                _apply_spec_following_options(payload)
 
             call_start = time.perf_counter()
-            resp = ollama_client.post("/api/generate", json=payload, read_timeout=timeout)
+            if host is None:
+                resp = ollama_client.post("/api/generate", json=payload, read_timeout=timeout)
+            else:
+                resp = requests.post(f"{local_host.rstrip('/')}/api/generate",
+                                      json=payload, timeout=(3.0, timeout))
             duration_ms = (time.perf_counter() - call_start) * 1000
 
             if resp.status_code == 200:
@@ -326,9 +353,9 @@ def call_ollama_local_only(prompt_text: str, timeout: int = 900):
                         logger.warning(f"⚠️  {label.capitalize()} model TRUNCATED (done_reason=length) in {duration_ms:.0f}ms ({len(response_text)} chars) — output cap hit")
                     else:
                         logger.info(f"✅ {label.capitalize()} model response in {duration_ms:.0f}ms ({len(response_text)} chars)")
-                    return (response_text, duration_ms, model)
+                    return (response_text, duration_ms, attempt_model)
                 if done_reason == "length":
-                    logger.warning(f"🔥 {label.capitalize()} model EMPTY (done_reason=length) — thinking-phase token exhaustion; check think=false + num_predict for {model}")
+                    logger.warning(f"🔥 {label.capitalize()} model EMPTY (done_reason=length) — thinking-phase token exhaustion; check think=false + num_predict for {attempt_model}")
 
             logger.warning(f"{label.capitalize()} model failed (status {resp.status_code}), trying next")
 
@@ -337,4 +364,4 @@ def call_ollama_local_only(prompt_text: str, timeout: int = 900):
                 _trip_local_breaker(local_host)
             logger.warning(f"{label.capitalize()} model error: {e}, trying next")
 
-    raise Exception(f"Local Ollama model failed (tried {OLLAMA_LOCAL_FALLBACK})")
+    raise Exception(f"Local Ollama model failed (tried {local_model} @ {local_host})")
