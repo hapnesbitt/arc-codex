@@ -994,7 +994,13 @@ SCRAPED_IMAGE_DIR = os.path.join(os.path.dirname(BASE_DIR), 'frontend', 'public'
 # the whole contract — if it is set there is audio, if it is absent there is
 # none. Nothing here writes original_text, title, or source_lang.
 AUDIO_DIR = os.path.join(os.path.dirname(BASE_DIR), 'frontend', 'public', 'uploads', 'audio')
-AUDIO_KOKORO_PYTHON = "/home/www/lecture_pipeline/.kokoro-venv/bin/python"  # provisioned by lecture_pipeline/scripts
+AUDIO_KOKORO_PYTHON = os.environ.get(
+    "AUDIO_KOKORO_PYTHON",
+    "/home/www/lecture_pipeline/.kokoro-venv/bin/python",
+)  # provisioned by lecture_pipeline/scripts; override per-host so a second
+   # Kokoro worker (e.g. warden) doesn't need lecture_pipeline's exact path
+   # replicated verbatim — same pattern as BROADCAST_OLLAMA_HOST/MODEL.
+   # Unset = today's behavior on spectre/resolute, unchanged.
 AUDIO_VOICE = "af_heart"
 AUDIO_SPEED = 0.95
 AUDIO_SAMPLE_RATE = 24000               # Kokoro's native output rate
