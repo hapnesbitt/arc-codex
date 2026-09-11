@@ -1351,12 +1351,85 @@ since Huntaegis shares this file but has no narrator at all. Not yet
 observed firing or clearing in production — first real test is whenever
 narration next actually stalls past the threshold.
 
-**Unresolved, worth knowing**: the M1 is also only 8GB RAM, same as
-warden, and was observed mid-session with heavy swap use during a large
-analysis job (later explained by a reboot, not chronic thrashing — but
-the M1's memory ceiling is real and shared across analyzer,
-character_builder, and now narration's script-writing call, all pinned to
-it). Nothing acted on this beyond the num_predict cap above, which
-reduces call volume/duration on the M1 somewhat but doesn't address the
-underlying single-8GB-host concentration.
+**M1 memory — chased to ground, no changes made (Ross's instruction: land
+and document, no changes to the M1 this session).** Early in this session
+an 89%/7.3GB swap reading was reported as if steady-state; it wasn't — the
+M1 rebooted between that check and a later one, and swap resets to 0 on
+boot. Corrected, then chased further:
+
+- **`OLLAMA_KEEP_ALIVE=-1` confirmed**, via `/Library/LaunchDaemons/
+  com.arc.ollama.plist` (mtime 2026-08-19 19:50, matching `ops/RUNBOOK.md`'s
+  own dated entry). `/api/ps`'s `expires_at` in the year 2318 is that
+  setting's documented behavioral signature (RUNBOOK says so itself,
+  2026-08-19 entry) — confirmed, not inferred.
+- **The 2026-08-20 incident this pin caused is real and is closed, twice
+  over**: `ops/RUNBOOK.md` records 63% coverage collapsing to 4% (67
+  resident-defers vs 3 narrations) because `scribe.py:kokoro_preflight`
+  used to refuse whenever `/api/ps` showed any resident model. Fixed
+  same-day: preflight now checks `psutil.virtual_memory().available`
+  instead — confirmed still the live code today, no residency check
+  anywhere in `kokoro_preflight()`. Separately, Kokoro itself no longer
+  runs on the M1 at all (moved to resolute that same 2026-08-20, then to
+  spectre since) — the preflight this pin used to break doesn't even touch
+  the M1 anymore, so this specific conflict cannot recur regardless of the
+  pin.
+- **The pin's cost is still live, not just historical**: RUNBOOK's own
+  2026-08-20 measurement (8.79h window) found ~14.9 GB/hour of continuous
+  swapping, called "steady state, machine coping" at the time. Checked
+  today on a 37-minute-old boot: cumulative `Swapouts` in `vm_stat` ×
+  16KB page size ≈ 5.91 GB ≈ **9.6 GB/hour** — same order of magnitude,
+  still happening, today.
+- **Recommendation (not applied): worth testing a finite keep-alive,
+  status is "worth testing," not "confirmed remove."** The pin buys
+  avoided cold-load latency (measured once: 42s, a cold start after a
+  reboot) but costs a permanent ~2.67GB reservation and multi-GB/hour
+  swapping as a *baseline*, including genuinely idle stretches (overnight,
+  the peak-hour narration throttle window) where nothing needs the model
+  loaded. Real call cadence during active hours (`character_builder.log`
+  showed calls roughly every ~2 minutes in the window observed) may
+  already keep even a finite keep-alive warm through the day, meaning the
+  pin might be buying little while an 8GB box sits permanently near its
+  ceiling — in tension with the standing "must never thrash" rule even
+  though it hasn't produced an outright hang since the preflight fix.
+  **The one missing measurement**: real inter-call gaps during quiet/
+  overnight hours — that's what actually determines whether unpinning
+  would cost anything in practice. Not measured this session; needed
+  before deciding, not before testing.
+- **qwen2.5:1.5b is not a candidate for offloading M1 work as-is.**
+  Already found format-non-compliant for the narration-script task (see
+  above) — reproduces section headers and bullet points instead of
+  rewriting to prose, on every test, both `/api/generate` and `/api/chat`.
+  It has **not been tested** against the M1's other two real consumers,
+  `analyzer.py` and `character_builder.py` — different tasks (structured
+  multi-section analysis, character-voice comments), so the narration
+  failure doesn't automatically predict failure there, but nothing says
+  it'll succeed either. If M1 memory pressure is ever addressed by moving
+  a task to a smaller model, that model has to be tested against the
+  actual target task first, same as narration was tested before ruling
+  qwen out for it. **If no small model can do analyzer/character_builder's
+  job acceptably, the right conclusion is that job doesn't fit an 8GB box
+  at all — moving the work to different hardware, not forcing a smaller
+  model to approximate it.**
+
+**Broadcast-cap production check — started, not yet reported.** Both
+`arc-audio-backfill.service` (spectre) and `mailer` (resolute) were
+restarted this session to pick up: the `OLLAMA_PRIMARY` fix, the
+`num_predict=300` cap, and `check_narration_liveness`. A background check
+was kicked off at 06:23 MDT, sleeping ~75 minutes, due to report **around
+07:38 MDT** — **this session ended before that landed.** Next session:
+check whether it already reported (it notifies on completion) or read
+`logs/scribe.log` on spectre directly. What to look for:
+  - Attempted / accepted / rejected counts for broadcast scripts since the
+    restart (grep `📻` in spectre's own `logs/scribe.log` — NOT
+    `journalctl`, scribe.py's own `FileHandler` never reaches the journal,
+    see earlier in this handoff for why), compared against the pre-cap
+    baseline of **81% rejected (30 of 37)**.
+  - The actual character lengths of whatever gets generated now — is 300
+    tokens landing consistently under 1400, matching the 3-article
+    pre-deploy measurement, or did real production traffic (different
+    content mix) behave differently.
+  - Whether `arc:audio:last_narration` is being written on each success —
+    that heartbeat is what `check_narration_liveness` reads; if it's not
+    updating, the new watchdog check is blind regardless of whether
+    narration itself is working.
 
