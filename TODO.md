@@ -1611,3 +1611,140 @@ cfg values, an unrelated in-flight edit to Arc's public developer page
 describing this same multi-role architecture — Ross's own work, not
 touched).
 
+---
+
+## Session 2026-09-11, later still — Arc/Hunt divergence audit, STOPPED AT 90% SESSION LIMIT
+
+**Do not treat this as done.** Ross asked for a full written account —
+per-hunk classification (deliberate product difference vs. unintended
+drift) of the four files `CLAUDE.md` names as shared
+(`ollama_utils.py`, `fetch_utils.py`, `stream_utils.py`, `auth.py`),
+then widened to every file that exists in one stack and not the other,
+and every file in both that differs. Deliverable: a document Ross can
+read to answer "if I re-cloned Arc to Hunt tomorrow, what would I have
+to put back" — committed somewhere findable (proposed:
+`docs/arc-hunt-drift-2026-09-11.md`, matching the existing dated-doc
+convention in `docs/`). **Report only, no reconciliation** — explicit
+instruction, nothing was to be fixed.
+
+**Done, solid, ready to write up verbatim:**
+
+- **`ollama_utils.py`** (189 diff lines) — fully hunk-classified:
+  - Import reordering at the top — cosmetic, no functional change. Drift, trivial.
+  - `BROADCAST_OLLAMA_HOST`/`BROADCAST_OLLAMA_MODEL` block and the
+    `call_ollama_local_only(host=, model=, num_predict=)` override —
+    **100% this session's own work** (2026-09-11, the warden narration
+    build). Deliberate, Arc-specific, dated precisely in its own
+    comments. Not something to "put back" on Hunt — it's Arc's own
+    narration-pipeline plumbing, meaningless on Hunt.
+  - The `Fix (validated 2026-07-06 ...)` docstring wording (Hunt still
+    says "in the arc stack against previously-failing articles"; Arc
+    now cites a specific article hash) — drift, but *inherently*
+    non-portable: the article ID is Arc-specific data, there's nothing
+    to mirror.
+  - `_trip_cloud_breaker`'s docstring parenthetical — drift, trivial.
+  - **`is_cloud_reachable()` — present in Arc, absent from Hunt
+    entirely. This is the one that matters.** Its own docstring: added
+    after the 2026-07-07 M1 outage caused "2,755 doomed escalations...
+    against a dead host because reachability was never checked."
+    Confirmed real, live usage in Arc: `character_builder.py`,
+    `translation.py`, `analyzer.py` (5 call sites total). Confirmed
+    **zero** equivalent anywhere in Hunt's codebase (grepped for any
+    reachability check before cloud escalation — nothing). **Hunt is
+    currently exposed to the exact bug class Arc fixed on 2026-07-07.**
+    This is drift that's actually a live, unfixed bug on one side, not
+    a cosmetic difference — the strongest single finding of this pass
+    so far.
+  - `call_ollama_with_fallback`'s expanded signature (`format_schema`,
+    `temperature`, `models` params, all optional/backward-compatible) —
+    real capability added to Arc only (schema-constrained decoding,
+    temperature control, custom model cascades), not from this session.
+    Hunt cannot do any of these three things. Drift or deliberate withhold
+    — undetermined; needs Ross's call on whether Hunt ever needs them.
+  - Exception-message tightening (`tried = ", ".join(...)`) — trivial, drift.
+
+- **`fetch_utils.py`** — fully hunk-classified, **one major finding**:
+  - Sanitizer comment ("Mirror of arc/backend/fetch_utils.py" in Hunt →
+    replaced with real allowlist description in Arc) — drift, comment-only,
+    the actual `_SANITIZE_ALLOWED_TAGS` set itself is IDENTICAL in both.
+  - Bare `except:` → `except Exception:` — trivial code-quality drift, safe to port.
+  - **`fetch_with_anti_bot_handling`'s entire Tier-2/3 implementation
+    was replaced in Arc** (2026-07-15, "Playwright Tier-3 restoration,"
+    see `ops/RUNBOOK.md`) — delegates to a new `playwright_tier3.py`
+    module (owns browser lifecycle, "the radeon exile [--disable-gpu]",
+    process-tree kill-on-timeout). **Hunt still has the old, ~90-line
+    inline Playwright stealth-context implementation Arc deleted.**
+    Checked whether this is dangerous: Hunt's only call site
+    (`main.py:384`) always passes `playwright_browser=None`, so the old
+    code path is dead-but-present, never actually invoked — consistent
+    with Hunt's own `CLAUDE.md` ("Playwright removed... do not re-add").
+    **Not a live bug, but a real capability gap**: Arc can now
+    partially recover CAPTCHA-walled content via `playwright_tier3.py`
+    and Hunt cannot. Whether Arc's new module actually avoids the
+    original "AMD GPU UBSAN crashes" reason Hunt dropped Playwright is
+    **unverified** — that's the open question before anyone decides
+    whether this is "deliberate, Hunt opted out" or "drift, Hunt just
+    never got the fix." Needs Ross's call, not mine.
+
+- **`stream_utils.py`** (22 diff lines) — fully classified, all trivial:
+  two comment updates (a service name added to a docstring list —
+  `quiz_generator` — and a stream-size figure refreshed from "41k
+  entries by 07-22" to "85k entries / ~5 months by 07-18"). **No
+  functional difference anywhere in this file.** Pure comment drift,
+  lowest-stakes of the four.
+
+**Not started — pick up here next session:**
+
+1. **`auth.py`** — the biggest of the four and not yet touched at all.
+   Already know from the stale-file survey earlier this session:
+   **it doesn't exist in `huntaegis_stack/backend/` at all** — no file,
+   no `auth_bp`, no `login_required` anywhere in that codebase (grepped,
+   confirmed). This isn't a diff-and-classify job like the other three —
+   it's "Hunt has none of this feature." What still needs answering:
+   is that deliberate (Hunt genuinely has no local-auth realm by design,
+   OAuth-only) or drift (auth.py was written for Arc after the stacks
+   forked and simply never got ported)? `CLAUDE.md` lists it as
+   "shared" without qualification, which argues for drift, but that
+   needs checking against Hunt's actual auth story (does
+   `huntaegis_stack/frontend/lib/auth.ts` alone cover everything Hunt
+   needs, making a Flask-side auth.py genuinely unnecessary there?).
+2. **The full widen pass** — "every file that exists in one stack and
+   not the other, and every file that exists in both but differs" —
+   **not done at all** beyond the byte-identical list already found
+   (`backfill_sentinel_ca.py`, `comment_utils.py`, `corpus_exporter.py`,
+   `operational_state.py`, `redis_readiness.py`, `user_prefs.py`,
+   `validate_sites.py` — confirmed identical, likely fine as-is) and
+   the two known-stale copies already on record
+   (`huntaegis_stack/arc_config.yaml`, `huntaegis_stack/backend/
+   project_context.yaml` — stale undated copies of Arc's own files,
+   confirmed dead, from the 2026-09-10 handoff entry above). The
+   mechanical part is cheap (a `diff`/existence loop across both
+   `backend/` trees, same pattern as this session's identical-file
+   check) — the SLOW part is the same hunk-by-hunk classification just
+   done for the four named files, applied to whatever else turns up
+   differing. Ross specifically named three recurring symptoms to
+   watch for while doing this: **APIClient existing in three separate
+   copies**, **the 5005 port default hardcoded in four different
+   files**, and **the 0600 umask bug recurring in three different
+   generators** — none of the three has been located yet this session;
+   start there, since Ross already knows they exist and named them
+   precisely.
+3. **Frontend side of the widen pass** — not started at all. Given the
+   backend pass alone found this much, the frontend trees (`app/`,
+   `components/`, `lib/`) almost certainly have their own version of
+   the same problem and haven't been looked at.
+4. **Write the actual deliverable** — a real markdown document (not
+   just this TODO entry) organized around Ross's own framing: "if I
+   re-cloned Arc to Hunt tomorrow, what would I have to put back."
+   Propose `docs/arc-hunt-drift-2026-09-11.md` (matches the dated-doc
+   convention already in `docs/`), commit it there, and **cross-link it
+   from `huntaegis_stack`'s own `CLAUDE.md`** too, since a doc that only
+   lives in Arc's repo is exactly the kind of thing that won't be found
+   from the Hunt side when someone needs it.
+
+**Reminder for whoever picks this up**: nothing has been fixed or
+reconciled, on purpose, per Ross's explicit instruction — this whole
+pass is report-only. Don't let finding `is_cloud_reachable`'s absence
+or the Playwright gap turn into an urge to just port the fix over;
+report it in the document and let Ross decide.
+
