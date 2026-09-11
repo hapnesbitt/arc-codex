@@ -280,6 +280,14 @@ export default function DeveloperPage() {
             produces an alarm that fires on every quiet afternoon and is therefore ignored when
             it matters.
           </p>
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            Narration adds a third kind of check, because its failure mode is silent. A
+            synthesis worker can be up and consuming memory while producing no audio at all —
+            a heartbeat would still be green. The narration-liveness check therefore ignores
+            process state and watches the output itself: if audio has not landed for the
+            newest publishable articles within the expected window, that absence is the
+            alert. Liveness is measured by what arrived, not by what is running.
+          </p>
           <Warn>
             <span><strong className="not-italic">An alert that cannot clear is not an alert.</strong>
             Conditions are edge-triggered and paired with an explicit all-clear, so a fault that
