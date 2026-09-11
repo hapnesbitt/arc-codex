@@ -1021,6 +1021,22 @@ AUDIO_TIMEOUT_SECONDS = 600             # a long feature piece still finishes we
 BROADCAST_MAX_CHARS = 1400
 BROADCAST_TIMEOUT_SECONDS = 900
 
+# 2026-09-11: the 1,100-target/1,400-reject instruction above isn't a
+# generation-time constraint — it's a request the model is free to ignore,
+# and measurement showed it does: 37 real attempts ranged 776-4048 chars
+# (median 1682, mean 1871) with no visible pull toward 1,100 at all. A
+# character-count sentence in the prompt can't stop generation; a token
+# cap can. This is enforced via call_ollama_local_only's num_predict
+# kwarg, on this call only — see that function's docstring for why it
+# overrides gemma4-family's usual num_predict=-1.
+#
+# Starting value, sized to land comfortably under BROADCAST_MAX_CHARS
+# rather than exactly at it (tokens-to-characters isn't fixed): measured
+# against qwen2.5:1.5b (BROADCAST_OLLAMA_MODEL) on real Red/Blue/Purple
+# content 2026-09-11, see that session's notes for the actual char/token
+# ratio observed before trusting this number long-term.
+BROADCAST_NUM_PREDICT = 300
+
 # Preflight budget. Superseded history: this floor used to gate the M1's
 # free memory over ssh (3584 MB, then 1024 MB post-KEEP_ALIVE=-1 — see git
 # blame on this line from before 2026-08-20 for that saga). None of it
@@ -1857,6 +1873,7 @@ CONSTRAINTS:
         raw_response, duration, model_used = call_ollama_local_only(
             broadcast_prompt, timeout=timeout,
             host=BROADCAST_OLLAMA_HOST, model=BROADCAST_OLLAMA_MODEL,
+            num_predict=BROADCAST_NUM_PREDICT,
         )
         script = (raw_response or '').strip()
 

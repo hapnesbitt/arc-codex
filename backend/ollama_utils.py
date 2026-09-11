@@ -301,7 +301,8 @@ def call_ollama_with_fallback(
 
 
 def call_ollama_local_only(prompt_text: str, timeout: int = 900, *,
-                            host: str | None = None, model: str | None = None):
+                            host: str | None = None, model: str | None = None,
+                            num_predict: int | None = None):
     """
     Call Ollama using the local model only (OLLAMA_LOCAL_FALLBACK) — never the cloud model.
     No local-to-local fallback: one local model, one attempt.
@@ -315,6 +316,21 @@ def call_ollama_local_only(prompt_text: str, timeout: int = 900, *,
     "one local model, one attempt" contract) and no gemma4-family
     spec-following options applied (those are scoped to the gemma4 family;
     an override is presumed to be a different, non-thinking model).
+
+    num_predict: hard output-token ceiling for THIS call only, applied
+    after (and overriding) whatever _apply_spec_following_options set —
+    that function defaults gemma4-family calls to num_predict=-1
+    (unbounded) via setdefault(), so an explicit value here always wins
+    regardless of host/model. Unlike a length instruction in the prompt,
+    this actually stops generation — see run_broadcast_script's
+    BROADCAST_NUM_PREDICT for why this exists (2026-09-11: a measured,
+    wide, roughly-800-to-4000-char output distribution with no visible
+    pull toward the prompt's stated 1,100-char target — the instruction
+    alone wasn't constraining anything). Truncation at the token cap is a
+    different failure mode than the length-based rejection this pairs
+    with: the response stops mid-thought rather than finishing early:
+    over the cap, the reject never fires because a shorter piece never
+    reaches BROADCAST_MAX_CHARS.
 
     Returns:
         tuple: (response_text, duration_ms, model_used)
@@ -334,6 +350,8 @@ def call_ollama_local_only(prompt_text: str, timeout: int = 900, *,
                 raise requests.RequestException(f"Local Ollama health check failed for {local_host}")
             if model is None:
                 _apply_spec_following_options(payload)
+            if num_predict is not None:
+                payload.setdefault("options", {})["num_predict"] = num_predict
 
             call_start = time.perf_counter()
             if host is None:
