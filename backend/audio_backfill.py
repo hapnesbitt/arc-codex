@@ -155,6 +155,14 @@ AUDIO_MUTEX_KEY = "arc:audio:active"
 AUDIO_MUTEX_LEASE_TTL = 45          # seconds — short on purpose, see above
 _LEASE_REFRESH_INTERVAL = AUDIO_MUTEX_LEASE_TTL / 3   # renew well before expiry
 
+# Heartbeat for mailer.py's check_narration_liveness (2026-09-11). Set to
+# now() on every successful narration — output-arriving, not process-alive;
+# a real 2026-09-11 incident had the daemon, this mutex, and the Redis
+# tunnel all healthy for 4h45m of broadcast-script rejections producing
+# nothing, which `systemctl` would never have caught. Plain epoch seconds,
+# no TTL — mailer reads its AGE, same shape as scribe:last_cycle.
+AUDIO_LAST_NARRATION_KEY = "arc:audio:last_narration"
+
 # Atomic compare-and-delete: only clear the key if it still holds the value
 # we expect. Used to release our own lock — never delete a mutex some other
 # holder has since taken (the old release_mutex() deleted unconditionally).
@@ -615,6 +623,7 @@ def narrate_one(r: redis.Redis, article_id: str, red: str, blue: str, purple: st
         return False
 
     r.hset(f"article:{article_id}", 'audio_url', audio_url)
+    r.set(AUDIO_LAST_NARRATION_KEY, int(time.time()))
 
     dur = probe_duration_seconds(audio_path)
     if dur is None:

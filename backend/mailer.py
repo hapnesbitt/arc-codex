@@ -87,6 +87,32 @@ SCRIBE_LIVENESS_THRESHOLD_S  = max(LIVENESS_THRESHOLD_FLOOR_S,
 # both count — so downstream code only needs to compare.
 SCRIBE_LIVENESS_CLAMPED      = SCRIBE_LIVENESS_THRESHOLD_S != _LIVENESS_RAW_S
 
+# Narration liveness (2026-09-11). Explicit opt-in via [audio]
+# narration_liveness_enabled — huntaegis_stack shares this file and this
+# same [audio] section shape but has no audio_backfill.py narrating
+# anything, so an unconditional check would alert forever there. Own
+# multiplier/floor/ceiling, not scribe's: narration's dependency chain
+# (ingest -> analysis -> broadcast-script generation -> synthesis) is
+# longer and lossier than a single sweep, so multi-hour gaps are routine
+# even when nothing is broken — scribe's tight 90-min ceiling would be
+# false-positive city here. Same 3x-cycle convention as scribe's own
+# liveness, evaluated against narration's own bounds: floor 2h (never
+# quieter, even at a stress-test cycle_minutes=0), ceiling 8h (never
+# slacker, however large cycle_minutes grows). At today's 97-minute
+# cycle that's 3x97m = 4.85h, unclamped — comfortably past the
+# peak-hour throttle's own ~95-minute designed gaps, comfortably short
+# of the 19h (really 4h45m, see that session's correction) incident that
+# prompted this.
+NARRATION_LIVENESS_ENABLED       = bool(SITE.get('audio', 'narration_liveness_enabled', False))
+NARRATION_LIVENESS_MULTIPLIER    = 3
+NARRATION_LIVENESS_FLOOR_S       = 7200    # 2h
+NARRATION_LIVENESS_CEILING_S     = 28800   # 8h
+_NARRATION_LIVENESS_RAW_S        = NARRATION_LIVENESS_MULTIPLIER * CYCLE_MINUTES * 60
+NARRATION_LIVENESS_THRESHOLD_S   = max(NARRATION_LIVENESS_FLOOR_S,
+                                       min(NARRATION_LIVENESS_CEILING_S,
+                                           _NARRATION_LIVENESS_RAW_S))
+NARRATION_LIVENESS_CLAMPED       = NARRATION_LIVENESS_THRESHOLD_S != _NARRATION_LIVENESS_RAW_S
+
 # Publish-stall threshold. Derived from cycle_minutes with the same formula and
 # clamp as liveness so both scale together when Ross tunes the cadence; the
 # yaml key stall_threshold_hours still wins when set. A stack that hardcodes
@@ -109,6 +135,10 @@ ANALYZER_QUEUE_KEY = "analyzer:queue"
 # on BOTH stacks (byte-identical file); may be absent on stacks whose scribe.py
 # doesn't call operational_state (e.g. Hunt scribe uses its own refresh_heartbeat).
 SCRIBE_COUNTERS_KEY = "arc:ops:scribe:counters"
+# Written by audio_backfill.py (Arc-only, runs on spectre) — hardcoded there
+# the same way, not via SITE.redis_key(). Only ever present/meaningful when
+# NARRATION_LIVENESS_ENABLED is true for this stack.
+AUDIO_LAST_NARRATION_KEY = "arc:audio:last_narration"
 
 LOG_FILES = {
     "scribe":    "/home/www/arc_stack/logs/scribe.log",
@@ -417,6 +447,15 @@ def build_diagnosis(r: redis.Redis) -> str:
     lines.append(f"  publish stall threshold          = {STALL_THRESHOLD_HOURS:.2f}h"
                  f" ({STALL_THRESHOLD_SOURCE})")
 
+    if NARRATION_LIVENESS_ENABLED:
+        v, age = _read_epoch_age(r, AUDIO_LAST_NARRATION_KEY, now_s)
+        lines.append(f"  {AUDIO_LAST_NARRATION_KEY:32s} = {v}"
+                     + (f"   (age: {_fmt_age(age)})" if age is not None else ""))
+        narr_clamp_note = " [clamped]" if NARRATION_LIVENESS_CLAMPED else ""
+        lines.append(f"  narration liveness threshold     = {NARRATION_LIVENESS_THRESHOLD_S}s"
+                     f"{narr_clamp_note} (raw: {NARRATION_LIVENESS_MULTIPLIER}× cycle_minutes={CYCLE_MINUTES}m"
+                     f" = {_NARRATION_LIVENESS_RAW_S}s)")
+
     for label, key in [("analyzer:queue LLEN", ANALYZER_QUEUE_KEY),
                        (f"{PRIORITY_QUEUE_KEY} LLEN", PRIORITY_QUEUE_KEY)]:
         try:
@@ -455,8 +494,9 @@ def build_diagnosis(r: redis.Redis) -> str:
 # alert_key -> (subject, body_lead) resolved fresh from Redis for the
 # all-clear email. Kept centralised so the fire and recovery messages read
 # as a matched pair.
-_LIVENESS_KEY = "scribe_liveness"
-_PUBLISH_KEY  = "publish_volume"
+_LIVENESS_KEY  = "scribe_liveness"
+_PUBLISH_KEY   = "publish_volume"
+_NARRATION_KEY = "narration_liveness"
 
 
 def _fire(r: redis.Redis, alert_key: str, subject: str, body_lead: str):
@@ -563,6 +603,55 @@ def check_publish_volume(r: redis.Redis):
                        f"Latest: {raw}.")
     except Exception as e:
         logger.warning("Publish-volume check failed: %s", e)
+
+
+def check_narration_liveness(r: redis.Redis):
+    """Fire once when no narration has succeeded in
+    NARRATION_LIVENESS_THRESHOLD_S; all-clear once one does.
+
+    No-ops entirely when NARRATION_LIVENESS_ENABLED is false — this check
+    is Arc-specific (audio_backfill.py runs only there) and huntaegis_stack
+    shares this same mailer.py; without this gate a stack with no narrator
+    at all would alert forever on a permanently-missing key.
+
+    Reads AUDIO_LAST_NARRATION_KEY directly rather than any log — output
+    arriving, not the daemon reporting itself alive. That distinction is
+    the whole point: a 2026-09-11 incident had the daemon, its mutex, and
+    the Redis tunnel all healthy for 4h45m of broadcast-script rejections
+    producing nothing, which no process-liveness check (watchdog.sh
+    included) would ever have caught.
+    """
+    if not NARRATION_LIVENESS_ENABLED:
+        return
+    try:
+        raw, age = _read_epoch_age(r, AUDIO_LAST_NARRATION_KEY, time.time())
+        in_breach = age is None or age > NARRATION_LIVENESS_THRESHOLD_S
+
+        if NARRATION_LIVENESS_CLAMPED:
+            threshold_str = (f"threshold: {_fmt_age(NARRATION_LIVENESS_THRESHOLD_S)} "
+                             f"[clamped from raw {NARRATION_LIVENESS_MULTIPLIER}× "
+                             f"cycle_minutes ({CYCLE_MINUTES}m) = "
+                             f"{_fmt_age(_NARRATION_LIVENESS_RAW_S)}]")
+        else:
+            threshold_str = (f"threshold: {_fmt_age(NARRATION_LIVENESS_THRESHOLD_S)} "
+                             f"= {NARRATION_LIVENESS_MULTIPLIER}× cycle_minutes "
+                             f"({CYCLE_MINUTES}m)")
+        if in_breach:
+            reason = (f"{AUDIO_LAST_NARRATION_KEY} is missing" if age is None
+                      else f"No successful narration for {_fmt_age(age)}")
+            if should_fire(r, _NARRATION_KEY):
+                _fire(r, _NARRATION_KEY,
+                      f"⚠️ {SITE.name} — Narration liveness lost",
+                      f"{reason}. {threshold_str}. Daemon/mutex/tunnel being "
+                      f"healthy does not imply this is healthy — check those "
+                      f"separately if this fires.")
+        else:
+            if should_clear(r, _NARRATION_KEY):
+                _clear(r, _NARRATION_KEY,
+                       f"✅ {SITE.name} — Narration liveness restored",
+                       f"Last successful narration was {_fmt_age(age)} ago. {threshold_str}.")
+    except Exception as e:
+        logger.warning("Narration liveness check failed: %s", e)
 
 # ---------------------------------------------------------------------------
 # Daily digest
@@ -760,6 +849,11 @@ def main():
                 LIVENESS_MULTIPLIER, CYCLE_MINUTES, _LIVENESS_RAW_S)
     logger.info("   publish stall threshold   = %.2fh (%s)",
                 STALL_THRESHOLD_HOURS, STALL_THRESHOLD_SOURCE)
+    if NARRATION_LIVENESS_ENABLED:
+        narr_clamp_note = " [clamped]" if NARRATION_LIVENESS_CLAMPED else ""
+        logger.info("   narration liveness thresh = %ds%s (raw: %d× cycle_minutes=%dm = %ds)",
+                    NARRATION_LIVENESS_THRESHOLD_S, narr_clamp_note,
+                    NARRATION_LIVENESS_MULTIPLIER, CYCLE_MINUTES, _NARRATION_LIVENESS_RAW_S)
     r = get_redis()
 
     # No startup email — boot notices were noise (watchdog restarts, reboots).
@@ -770,6 +864,7 @@ def main():
             check_logs(r)
             check_scribe_liveness(r)
             check_publish_volume(r)
+            check_narration_liveness(r)
             if should_send_digest(r):
                 # PD-01: write :sent only on success; release :lock on failure
                 # so the next 60s tick retries within the DIGEST_HOUR window.
