@@ -1476,3 +1476,138 @@ actual decision:
   `concurrent_preproc`'s 10 rather than relying on collisions staying
   rare. Not decided or touched this session.
 
+---
+
+## Session 2026-09-11, later — Ollama off both 8GB boxes; narration moved M1→spectre→warden
+
+**The reallocation**: Ross moved Ollama off the M1 and warden entirely —
+both become Kokoro TTS workers instead (measured today: warden swapped
+2,295MB running gemma4:e2b, the M1 was paging 3.8GB; Kokoro is ~330MB,
+neither box swaps running it). Sequence this session, each step
+verified live, not assumed:
+
+1. **Arc's analyzer was escalating 100% of articles to cloud** — the M1's
+   models were already deleted (`/api/tags` → `{"models":[]}`), every
+   `gemma4:e2b` call 404'd, every article fell through to
+   `gemma4:31b-cloud`. Repointed `OLLAMA_URL`/`PRIMARY`/`FALLBACK` on
+   resolute's `.env`, spectre's own `.env`, and a third leaked M1
+   reference in `huntaegis_stack/backend/.env`
+   (`TRANSLATION_HOST`, not previously caught) — all now → spectre
+   (192.168.1.189, 14GB, already serving Hunt's `gemma4:e2b`). Restarted
+   the full arc_stack + Hunt's gunicorn. **Verified**, not assumed: a
+   real post-restart article completed `source=local_full` via spectre,
+   zero cloud escalation.
+2. **Arc's narration moved spectre → warden** (Ross: no TTS on spectre or
+   resolute at all — corrects an earlier wrong recommendation in this
+   same session to leave it on spectre). Built from scratch:
+   - `AUDIO_KOKORO_PYTHON` (`scribe.py`) is now an env override, not a
+     hardcoded `lecture_pipeline` path (`31fc870`) — same pattern as
+     `BROADCAST_OLLAMA_HOST`.
+   - `kokoro_worker` ansible role fixed to use `uv` instead of the
+     deadsnakes PPA (`spectre-rebuild@82df62f`) — confirmed directly that
+     spectre's real, working Python 3.12 was never from that PPA
+     (`dpkg -l` shows zero deadsnakes packages there); the role had
+     never been run against real hardware. Not converged via the role
+     today — see below.
+   - Warden's actual Kokoro capability **reused existing, already-tested
+     work found in `/home/ross/.venv`** (kokoro/torch/misaki/spacy
+     installed, Kokoro-82M weights warmed, real synthesis already
+     verified — `essay_audio.mp3` etc. predate this session). Pointed
+     the new env override at it directly rather than provisioning fresh.
+   - Full parity build otherwise: `arc_stack` cloned to
+     `/home/www/arc_stack`, its own backend venv (`uv venv --python
+     3.12`), two **new, warden-specific** SSH keys (not copies of
+     spectre's) — `arc_redis_tunnel_ed25519` and
+     `arc_audio_sync_ed25519` — with matching restricted
+     `authorized_keys` entries added on resolute
+     (`port-forwarding,permitopen="127.0.0.1:6379"` /
+     `command="/usr/bin/rrsync -wo .../uploads/audio"`). Both systemd
+     --user units tracked at `ops/systemd/warden/` (`arc_stack@bd3bc6d`),
+     mirroring `ops/systemd/spectre/`'s existing pattern.
+   - **Real gap found and fixed mid-build**: `requirements.txt` was
+     missing `yt-dlp` entirely (scribe.py imports it unconditionally via
+     `youtube_ingest.py`) — pinned to `2026.8.19`, matching spectre's
+     real ad-hoc-installed version (`dcf0b8b`). A clean
+     `pip install -r requirements.txt` had been broken by this since
+     whenever the dependency landed; surfaced rebuilding warden from a
+     real clean venv under time pressure.
+   - **Root steps needed** (only two, both Ross's, both landed): `sudo
+     mkdir -p /home/www /opt/kokoro && chown ross:ross` (bootstrap, same
+     one-time pattern as spectre's own `/home/www`), and `sudo apt
+     install -y git` (warden had zero git). Everything else — uv,
+     Python, both venvs, both clones, both keys, both units — done
+     without further sudo.
+   - **Spectre's narration stopped and disabled**, not left idle —
+     confirmed `arc-audio-backfill.service` `disabled`/`inactive` there.
+     Warden's confirmed `enabled`/`active`, stable, no crash-loop, since
+     restart.
+3. **bookradio_stack/lecture_pipeline**: agreed to stay on warden too, as
+   **separate scheduled jobs, no coordination with `arc:audio:active`**
+   — checked directly, neither codebase references it. The only real
+   consideration is local CPU contention on warden if both run at once
+   (Kokoro's ~330MB footprint means this is not a memory/thrash risk the
+   way the Ollama models were) — accepted as a self-resolving cost for
+   "batch work with no deadline," not worth a lock. Not built this
+   session (bookradio/lecture_pipeline scheduling itself is unscoped,
+   just the coordination decision).
+4. **`failed_this_run` durability gap — designed, approved, and built**
+   (`dcf0b8b`). The gap: that set is process-local, so a real narration
+   failure got exactly one lifetime attempt per daemon process (no
+   retry without a restart), while a restart wiped it and gave every
+   past failure an *unbounded* fresh attempt forever. Fixed:
+   `arc:audio:attempts:{article_id}` in Redis, incremented on every
+   `narrate_one()` failure, TTL'd on first creation to
+   `backfill_window_ceiling_hours` (not the live window) + 1h margin,
+   checked in `find_newest_silent()` alongside the existing poison-pill
+   check. Attempt cap: 3, persists across any number of restarts.
+   Exhaustion logs once, distinctly from the poison-pill line (`🛑`,
+   not the poison-pill's plain skip), with the article id and the last
+   actual failure reason — `narrate_one()` now returns `(bool, reason)`
+   instead of a bare bool so there's something to attach. Deployed to
+   warden, restarted, confirmed stable.
+5. **M1**: not touched all session, per Ross's own instruction (his
+   machine, hand-configured). Confirmed `OLLAMA_KEEP_ALIVE=-1` is set
+   via `/Library/LaunchDaemons/com.arc.ollama.plist` (still present,
+   though Ollama has nothing to serve there now that its models are
+   deleted) — whether that LaunchDaemon should be removed/disabled now
+   that the M1's job has changed entirely is an open question, not
+   decided or touched.
+
+**Left for next session — the watcher is still running, do not
+re-derive this list, just read its output:**
+
+A background process (`watch_first_narration.sh`, tracked task,
+started ~17:00 MDT this session) is polling warden's
+`arc-audio-backfill` journal for the first `✓` success line since it
+started. Warden entered the site's peak-hour throttle window
+(14:00–19:00 MDT, ~1 acquire/95min) shortly after the build finished,
+so the first real narration may not land until close to or after 19:00
+when full-speed scanning resumes. **The moment it fires, report these
+five points individually, not as a summary** (Ross's own framing,
+because the 0600-umask-on-this-exact-directory bug has bitten before —
+a file can exist, match, and still be unreadable by Caddy):
+
+1. mp3 exists on warden — `/home/www/arc_stack/frontend/public/uploads/audio/{id}.mp3`
+2. mp3 exists at the same path on resolute (the actual serving host)
+3. byte sizes match on both hosts exactly
+4. `audio_url` is set on `article:{id}` in Redis (the field itself, not just that narration "succeeded" in the log)
+5. the public URL serves: `curl -D - https://arc-codex.com/uploads/audio/{id}.mp3` → `200`, with an `Accept-Ranges: bytes` header specifically, not just any 200
+
+The watcher's own script is at
+`/tmp/claude-1000/-home-www/36a8a33f-c82d-4ba7-b300-54ba91af7c64/scratchpad/watch_first_narration.sh`
+(session-scratch, won't survive past this session — if it's gone next
+session, just re-run the same five checks by hand against whatever the
+next `✓` line's article id is; the check logic is simple and is spelled
+out here in full either way).
+
+**Repo state at session end**: `arc_stack` and `spectre-rebuild` both
+`0` ahead of origin (everything pushed). `huntaegis_stack` is still on
+`fix/translate-failure-visibility` (not `main` — pre-existing since
+before this session, 53 commits ahead of `main`, unmerged; not this
+session's problem to fix) with one new commit on top
+(`ce72577`, the M1-retirement CLAUDE.md note), pushed. Dirty-but-not-
+mine files left exactly as found in all three repos (operator-tuned
+cfg values, an unrelated in-flight edit to Arc's public developer page
+describing this same multi-role architecture — Ross's own work, not
+touched).
+
