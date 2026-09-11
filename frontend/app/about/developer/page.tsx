@@ -107,9 +107,18 @@ export default function DeveloperPage() {
         {/* Services */}
         <SectionShell id="services" eyebrow="II" heading="Services & Supervision">
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            The stack is managed by a single control script and <strong>auto-starts on boot</strong>.
-            A <strong>watchdog</strong> supervises the services at runtime and restarts any that
-            crash, distinguishing a deliberately-stopped service from a failed one.
+            Arc is not a single box. Responsibilities are split across roles that run
+            independently: ingestion, storage, and serving are one role; local analysis is a
+            second role; speech synthesis is a third; and a portable node exists for offline
+            authoring work. Synthesis runs on its own role by design — audio generation is
+            memory-hungry, and keeping it off the analysis role means neither ever waits on
+            the other. No role but the synthesis role produces speech.
+          </p>
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            Within each role, the services are managed by a single control script and
+            <strong> auto-start on boot</strong>. A <strong>watchdog</strong> supervises them at
+            runtime and restarts any that crash, distinguishing a deliberately-stopped service
+            from a failed one.
           </p>
           <p className="font-serif text-base text-slate-200 leading-relaxed">
             What runs: RSS ingestion (the <em>Scribe</em>); the on-demand analysis worker
@@ -202,12 +211,13 @@ export default function DeveloperPage() {
         {/* AI Pipeline */}
         <SectionShell id="ai" eyebrow="VII" heading="AI Pipeline">
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            Inference is tiered and demand-gated: a compact local model handles the bulk of the work,
-            and a larger cloud model is reached only on escalation, within a weekly budget. The
-            Red / Blue / Purple analyses are computed lazily — on an article&rsquo;s first view rather
-            than at ingest — so inference cost tracks readership, not ingest volume. Published articles
-            are retained for roughly a month before they are pruned. Translation degrades gracefully
-            when a model is unavailable: &ldquo;model unavailable&rdquo; is shown rather than a hard failure.
+            Inference is tiered and demand-gated: a compact local model, running on the dedicated
+            analysis role, handles the bulk of the work, and a larger cloud model is reached only
+            on escalation, within a weekly budget. The Red / Blue / Purple analyses are computed
+            lazily — on an article&rsquo;s first view rather than at ingest — so inference cost tracks
+            readership, not ingest volume. Published articles are retained for roughly a month before
+            they are pruned. Translation degrades gracefully when a model is unavailable:
+            &ldquo;model unavailable&rdquo; is shown rather than a hard failure.
           </p>
           <Warn>
             <span><strong className="not-italic">Translation is a click, not an auto-fire in the feed.</strong>
@@ -220,12 +230,22 @@ export default function DeveloperPage() {
         {/* Audio & Narration */}
         <SectionShell id="audio" eyebrow="VIII" heading="Audio &amp; Narration">
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            Every published article is also spoken. A neural text-to-speech model
-            (<Code>Kokoro</Code>) renders the article body to audio on the same hardware that
-            runs the rest of the pipeline — there is no cloud speech service, no per-character
-            billing, and no third party receives the text. Long pieces are split into chunks,
-            synthesised in sequence, then concatenated and encoded to a compact mono MP3 sized
-            for slow connections rather than for fidelity.
+            The audio a listener hears is not the source article read aloud. After the
+            Red / Blue / Purple passes complete, an additional analysis pass writes an
+            <em> original short broadcast piece</em> drawn from what those three passes found —
+            the verified facts, the balanced summary, and the anti-pattern reading. That written
+            piece, not the article the Scribe ingested, is what gets spoken. The reasoning is
+            editorial: reading source prose aloud reproduces its framing verbatim; narrating from
+            Arc&rsquo;s own analysis passes yields a piece whose voice is the site&rsquo;s, whose claims
+            trace back to what the analysis actually concluded, and whose length is chosen for the
+            ear rather than the page.
+          </p>
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            The broadcast piece is then handed to a neural text-to-speech model
+            (<Code>Kokoro</Code>), which renders it to audio locally — there is no cloud speech
+            service, no per-character billing, and no third party receives the text. Long pieces
+            are split into chunks, synthesised in sequence, then concatenated and encoded to a
+            compact mono MP3 sized for slow connections rather than for fidelity.
           </p>
           <p className="font-serif text-base text-slate-200 leading-relaxed">
             Narration is opportunistic rather than blocking. Publishing never waits on audio:
@@ -236,10 +256,11 @@ export default function DeveloperPage() {
             the news without a screen.
           </p>
           <Warn>
-            <span><strong className="not-italic">Synthesis yields to analysis.</strong> Speech
-            generation is memory-hungry, so a pre-flight check confirms there is genuine headroom
-            before a run starts. If there is not, narration steps aside rather than competing with
-            the analysis pipeline for the same machine. Audio is the part of the system that can
+            <span><strong className="not-italic">Synthesis is its own role, and yields to analysis
+            anyway.</strong> Speech generation runs on a dedicated role so it cannot starve
+            analysis of memory; on top of that, a pre-flight check confirms there is genuine
+            headroom before a run starts, and if there is not, narration steps aside rather than
+            competing with the rest of the pipeline. Audio is the part of the system that can
             afford to be late.</span>
           </Warn>
         </SectionShell>
