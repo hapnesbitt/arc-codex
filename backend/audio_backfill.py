@@ -163,6 +163,61 @@ _LEASE_REFRESH_INTERVAL = AUDIO_MUTEX_LEASE_TTL / 3   # renew well before expiry
 # no TTL — mailer reads its AGE, same shape as scribe:last_cycle.
 AUDIO_LAST_NARRATION_KEY = "arc:audio:last_narration"
 
+# Bounded, durable retry record (2026-09-11) — closes the gap
+# failed_this_run left open: that set is process-local, so a real failure
+# (rejected script, synthesis timeout, sync failure) got exactly one
+# lifetime attempt per daemon process (no automatic retry without a
+# restart), while a restart wiped it entirely and gave every past failure
+# an UNBOUNDED fresh attempt, forever, including ones that will never
+# succeed. This persists the attempt count in Redis instead: bounded
+# (AUDIO_RETRY_MAX_ATTEMPTS) regardless of how many restarts happen in
+# between, and durable (a restart no longer means "forget everything").
+#
+# TTL is sized off backfill_window_ceiling_hours, not the live
+# backfill_window_hours — the record must outlive the article's candidacy
+# window no matter how that's tuned, and self-expire shortly after the
+# article could never be a candidate again (no manual cleanup).
+AUDIO_RETRY_ATTEMPTS_KEY_PREFIX = "arc:audio:attempts:"
+AUDIO_RETRY_MAX_ATTEMPTS = 3
+
+
+def _retry_key(article_id: str) -> str:
+    return f"{AUDIO_RETRY_ATTEMPTS_KEY_PREFIX}{article_id}"
+
+
+def retry_attempts(r: redis.Redis, article_id: str) -> int:
+    """Attempts recorded so far for this article, 0 if none."""
+    raw = r.get(_retry_key(article_id))
+    try:
+        return int(raw) if raw is not None else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def record_narration_failure(r: redis.Redis, cfg_audio: dict, article_id: str, reason: str) -> int:
+    """Increment the durable attempt counter for a failure, TTL it on
+    first creation, and log distinctly — once — the moment it crosses
+    AUDIO_RETRY_MAX_ATTEMPTS. Returns the new attempt count.
+
+    Distinct from the poison-pill log line on purpose: poison-pill is
+    "known unwinnable on sight" (over the char budget, never attempted);
+    this is "tried AUDIO_RETRY_MAX_ATTEMPTS real times and failed every
+    time" — a permanently-failing article should be findable later by
+    what actually happened to it, not folded into the same message as an
+    article that was never attempted at all.
+    """
+    key = _retry_key(article_id)
+    attempts = r.incr(key)
+    if attempts == 1:
+        ceiling_hours = float(cfg_audio.get("backfill_window_ceiling_hours", 6))
+        r.expire(key, int(ceiling_hours * 3600) + 3600)  # +1h margin past the ceiling
+    if attempts == AUDIO_RETRY_MAX_ATTEMPTS:
+        logger.warning(
+            f"🛑 {article_id} — retry budget exhausted after {attempts} attempts, "
+            f"last failure: {reason}; permanently silent — will not be "
+            f"retried again while it remains in the candidate window")
+    return attempts
+
 # Atomic compare-and-delete: only clear the key if it still holds the value
 # we expect. Used to release our own lock — never delete a mutex some other
 # holder has since taken (the old release_mutex() deleted unconditionally).
@@ -425,12 +480,16 @@ def find_newest_silent(r: redis.Redis, hours: float, skip: set,
 
     Rebuilt fresh from Redis on every call — this function body IS the
     trailing window, not a cache of one. `skip` is the process-local
-    failed-this-run set (see main loop) so a synthesis failure doesn't get
-    retried every single pass forever; a restart clears it. A candidate
-    over `max_chars` (see max_chars_for_budget) is logged once and added to
-    `skip` right here rather than being returned and later failing — its
-    length won't change, so unlike a real synthesis failure this verdict is
-    good for the rest of the run, no retry ever worth attempting.
+    failed-this-run set (see main loop); a restart clears it, but that no
+    longer means "forget everything" — retry_attempts() below independently
+    checks the durable Redis counter (record_narration_failure), so a
+    candidate that has already exhausted AUDIO_RETRY_MAX_ATTEMPTS across any
+    number of restarts stays skipped regardless of what's in the in-memory
+    set this process happens to have. A candidate over `max_chars` (see
+    max_chars_for_budget) is logged once and added to `skip` right here
+    rather than being returned and later failing — its length won't change,
+    so unlike a real synthesis failure this verdict is good for the rest of
+    the run, no retry ever worth attempting.
 
     An unanalyzed candidate is NOT added to `skip` — it's eager-enqueued
     (if not already) and passed over for this pass only; a future pass
@@ -464,6 +523,14 @@ def find_newest_silent(r: redis.Redis, hours: float, skip: set,
             logger.info(f"{aid} skipped — {len(body)} chars is over the "
                         f"{max_chars}-char budget for {scribe.AUDIO_TIMEOUT_SECONDS}s; "
                         f"never retried this run")
+            skip.add(aid)
+            continue
+        if retry_attempts(r, aid) >= AUDIO_RETRY_MAX_ATTEMPTS:
+            # Exhaustion itself was already logged once, distinctly, by
+            # record_narration_failure() at the moment it happened — this
+            # is silent on purpose so a long-lived process doesn't repeat
+            # the same warning every 30s poll for as long as the article
+            # remains in the window.
             skip.add(aid)
             continue
         if not _is_analyzed(red, blue, purple):
@@ -582,10 +649,13 @@ def probe_duration_seconds(path: str) -> float | None:
         return None
 
 
-def narrate_one(r: redis.Redis, article_id: str, red: str, blue: str, purple: str) -> bool:
+def narrate_one(r: redis.Redis, article_id: str, red: str, blue: str, purple: str) -> tuple[bool, str | None]:
     """Write a broadcast script from this article's analysis, then
     synthesize and store audio from THAT — never from the source text.
-    True on success.
+    (True, None) on success; (False, reason) otherwise, reason a short
+    string suitable for the retry-exhaustion log line (see
+    record_narration_failure) — not just a bool, so the caller can report
+    *why* an article used up its attempts, not only that it did.
 
     The caller (find_newest_silent) has already confirmed red/blue/purple
     are all present; a broadcast script that comes back None here (empty
@@ -596,16 +666,17 @@ def narrate_one(r: redis.Redis, article_id: str, red: str, blue: str, purple: st
     started = time.perf_counter()
     script = scribe.run_broadcast_script(article_id, red, blue, purple)
     if not script:
+        reason = "no broadcast script"
         logger.warning(f"{article_id} — no broadcast script; narration skipped this pass")
-        return False
+        return False, reason
 
     audio_url = scribe.synthesize_article_audio(article_id, script)
     wall = time.perf_counter() - started
 
     if not audio_url:
-        logger.warning(
-            f"{article_id} — synthesis returned None after {wall:.1f}s")
-        return False
+        reason = f"synthesis returned None after {wall:.1f}s"
+        logger.warning(f"{article_id} — {reason}")
+        return False, reason
 
     audio_path = os.path.join(
         os.path.dirname(_HERE), 'frontend', 'public',
@@ -616,11 +687,11 @@ def narrate_one(r: redis.Redis, article_id: str, red: str, blue: str, purple: st
     # serves it; a hset that beats the sync is a broken promise. No-op on
     # the serving host itself (SYNC_DEST unset). See push_to_destination.
     if not push_to_destination(r, article_id, audio_path):
+        reason = f"synthesized OK but sync to {SYNC_DEST} failed after {SYNC_ATTEMPTS} attempts"
         logger.warning(
-            f"{article_id} — synthesized OK but sync to {SYNC_DEST} failed "
-            f"after {SYNC_ATTEMPTS} attempts; article stays silent, "
+            f"{article_id} — {reason}; article stays silent, "
             f"will re-enter candidacy next pass")
-        return False
+        return False, reason
 
     r.hset(f"article:{article_id}", 'audio_url', audio_url)
     r.set(AUDIO_LAST_NARRATION_KEY, int(time.time()))
@@ -634,7 +705,7 @@ def narrate_one(r: redis.Redis, article_id: str, red: str, blue: str, purple: st
         flag = " ⚠ suspicious" if not (5 < cps < 40) else ""
         logger.info(f"{article_id} ✓ {len(script)} script chars → {dur:.1f}s mp3 "
                     f"({cps:.1f} chars/s, {wall:.1f}s wall){flag}")
-    return True
+    return True, None
 
 
 def run(once: bool, dry_run: bool, ignore_peak: bool) -> int:
@@ -725,9 +796,10 @@ def run(once: bool, dry_run: bool, ignore_peak: bool) -> int:
         last_acquire_ts = time.time()
         try:
             with _lease_heartbeat(r, cas_refresh, token):
-                ok = narrate_one(r, article_id, red, blue, purple)
+                ok, reason = narrate_one(r, article_id, red, blue, purple)
                 if not ok:
                     failed_this_run.add(article_id)
+                    record_narration_failure(r, cfg_audio, article_id, reason)
         finally:
             release_mutex(r, cas_delete, token)
 
