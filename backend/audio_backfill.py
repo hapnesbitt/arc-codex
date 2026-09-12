@@ -199,6 +199,13 @@ def record_narration_failure(r: redis.Redis, cfg_audio: dict, article_id: str, r
     first creation, and log distinctly — once — the moment it crosses
     AUDIO_RETRY_MAX_ATTEMPTS. Returns the new attempt count.
 
+    Callers (narrate_one's one call site) are expected to call this ONLY
+    for countable failures — see narrate_one's own docstring for the
+    countable/not-countable split (2026-09-12). This function itself
+    doesn't gate on that; it trusts the caller, same as it trusted the
+    caller to only call it on real failures before this distinction
+    existed.
+
     Distinct from the poison-pill log line on purpose: poison-pill is
     "known unwinnable on sight" (over the char budget, never attempted);
     this is "tried AUDIO_RETRY_MAX_ATTEMPTS real times and failed every
@@ -649,34 +656,66 @@ def probe_duration_seconds(path: str) -> float | None:
         return None
 
 
-def narrate_one(r: redis.Redis, article_id: str, red: str, blue: str, purple: str) -> tuple[bool, str | None]:
+def narrate_one(r: redis.Redis, article_id: str, red: str, blue: str, purple: str) -> tuple[bool, str | None, bool]:
     """Write a broadcast script from this article's analysis, then
     synthesize and store audio from THAT — never from the source text.
-    (True, None) on success; (False, reason) otherwise, reason a short
-    string suitable for the retry-exhaustion log line (see
-    record_narration_failure) — not just a bool, so the caller can report
-    *why* an article used up its attempts, not only that it did.
+
+    Returns (ok, reason, countable):
+      ok        — True on success.
+      reason    — short human-readable failure reason, or None on success.
+      countable — meaningless when ok is True; when ok is False, whether
+                  this failure says something about THIS article and
+                  should count against its retry budget (see
+                  record_narration_failure). False means infrastructure —
+                  the model host was unreachable or answered with nothing
+                  usable, the synthesis tool crashed/timed out, or the
+                  push to the serving host failed. Only content-level
+                  outcomes are True: the model answered, the answer
+                  arrived, and it was unusable for a reason specific to
+                  this article (over BROADCAST_MAX_CHARS, or the written
+                  script too short to narrate). 2026-09-12: added after a
+                  ~10h spectre firewall gap made every attempt fail with a
+                  ConnectTimeout that looked, in the log and in the retry
+                  counter, identical to an ordinary content rejection —
+                  burning through an article's attempts for a reason that
+                  taught us nothing about the article.
 
     The caller (find_newest_silent) has already confirmed red/blue/purple
-    are all present; a broadcast script that comes back None here (empty
-    response, over the BROADCAST_MAX_CHARS bound, or an API failure) is a
-    narration failure for this pass, same as any other synthesis failure —
-    the article stays silent and re-enters candidacy on a future pass.
+    are all present.
     """
     started = time.perf_counter()
-    script = scribe.run_broadcast_script(article_id, red, blue, purple)
+
+    try:
+        script = scribe.run_broadcast_script(article_id, red, blue, purple)
+    except scribe.OllamaTransportError as e:
+        reason = f"broadcast script host unreachable: {e}"
+        logger.warning(f"{article_id} — 📡 UNREACHABLE — {reason} — "
+                       f"infrastructure, not counted against retry budget")
+        return False, reason, False
+    except scribe.OllamaNoResponseError as e:
+        reason = f"broadcast script host gave no usable response: {e}"
+        logger.warning(f"{article_id} — 🔇 NO-RESPONSE — {reason} — "
+                       f"infrastructure, not counted against retry budget")
+        return False, reason, False
+
     if not script:
         reason = "no broadcast script"
         logger.warning(f"{article_id} — no broadcast script; narration skipped this pass")
-        return False, reason
+        return False, reason, True
 
-    audio_url = scribe.synthesize_article_audio(article_id, script)
+    try:
+        audio_url = scribe.synthesize_article_audio(article_id, script)
+    except scribe.AudioToolError as e:
+        reason = f"synthesis tool failure: {e}"
+        logger.warning(f"{article_id} — 🔧 TOOL-FAILURE — {reason} — "
+                       f"infrastructure, not counted against retry budget")
+        return False, reason, False
     wall = time.perf_counter() - started
 
     if not audio_url:
         reason = f"synthesis returned None after {wall:.1f}s"
         logger.warning(f"{article_id} — {reason}")
-        return False, reason
+        return False, reason, True
 
     audio_path = os.path.join(
         os.path.dirname(_HERE), 'frontend', 'public',
@@ -686,12 +725,16 @@ def narrate_one(r: redis.Redis, article_id: str, red: str, blue: str, purple: st
     # audio_url. audio_url promises the file is visible where Next.js
     # serves it; a hset that beats the sync is a broken promise. No-op on
     # the serving host itself (SYNC_DEST unset). See push_to_destination.
+    # Every failure shape here is the network path or the destination
+    # host — rsync has no concept of "this article's content," so this is
+    # unconditionally infrastructure, never counted.
     if not push_to_destination(r, article_id, audio_path):
         reason = f"synthesized OK but sync to {SYNC_DEST} failed after {SYNC_ATTEMPTS} attempts"
         logger.warning(
-            f"{article_id} — {reason}; article stays silent, "
-            f"will re-enter candidacy next pass")
-        return False, reason
+            f"{article_id} — 🚚 SYNC-FAILURE — {reason}; article stays silent, "
+            f"will re-enter candidacy next pass — infrastructure, not "
+            f"counted against retry budget")
+        return False, reason, False
 
     r.hset(f"article:{article_id}", 'audio_url', audio_url)
     r.set(AUDIO_LAST_NARRATION_KEY, int(time.time()))
@@ -705,7 +748,7 @@ def narrate_one(r: redis.Redis, article_id: str, red: str, blue: str, purple: st
         flag = " ⚠ suspicious" if not (5 < cps < 40) else ""
         logger.info(f"{article_id} ✓ {len(script)} script chars → {dur:.1f}s mp3 "
                     f"({cps:.1f} chars/s, {wall:.1f}s wall){flag}")
-    return True, None
+    return True, None, True
 
 
 def run(once: bool, dry_run: bool, ignore_peak: bool) -> int:
@@ -796,10 +839,17 @@ def run(once: bool, dry_run: bool, ignore_peak: bool) -> int:
         last_acquire_ts = time.time()
         try:
             with _lease_heartbeat(r, cas_refresh, token):
-                ok, reason = narrate_one(r, article_id, red, blue, purple)
+                ok, reason, countable = narrate_one(r, article_id, red, blue, purple)
                 if not ok:
+                    # failed_this_run always gets it, regardless of
+                    # countable — still don't hot-loop the same candidate
+                    # every 30s within this process's life, infrastructure
+                    # failure or not. Only the DURABLE Redis counter (and
+                    # therefore whether this article can ever be
+                    # permanently exhausted) is gated on countable.
                     failed_this_run.add(article_id)
-                    record_narration_failure(r, cfg_audio, article_id, reason)
+                    if countable:
+                        record_narration_failure(r, cfg_audio, article_id, reason)
         finally:
             release_mutex(r, cas_delete, token)
 

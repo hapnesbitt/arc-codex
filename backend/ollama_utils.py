@@ -18,6 +18,33 @@ import ollama_client  # transport-layer primary/fallback host failover (owns req
 
 load_dotenv()
 
+
+class OllamaTransportError(Exception):
+    """Never reached the model at all — connection refused, DNS failure,
+    connect timeout, or the pre-flight health check itself failing.
+    Nothing about the article/prompt or the model's behavior was
+    observed; this is purely infrastructure (the host, the network path,
+    or a firewall between here and it). Callers should not count this
+    against a per-article retry budget — retrying won't teach us
+    anything about the input, only about whether the host is back.
+
+    2026-09-12: this distinction exists because a ~10h spectre firewall
+    gap made every warden narration attempt fail with a ConnectTimeout,
+    indistinguishable in the log from an ordinary content rejection.
+    """
+
+
+class OllamaNoResponseError(Exception):
+    """The host was reached and responded, but produced nothing usable —
+    a non-200 status, or HTTP 200 with an empty body (e.g. gemma4-family
+    thinking-phase token exhaustion, done_reason=length). This is about
+    the model/host or its configured options, not about this specific
+    call's input — same reasoning as OllamaTransportError, one level
+    further in: the host answered, but the answer itself carries no
+    information about the prompt. Callers should not count this against
+    a per-article retry budget either.
+    """
+
 logger = logging.getLogger(__name__)
 
 OLLAMA_URL            = os.environ.get("OLLAMA_URL", "http://192.168.1.185:11434")
@@ -336,7 +363,14 @@ def call_ollama_local_only(prompt_text: str, timeout: int = 900, *,
         tuple: (response_text, duration_ms, model_used)
 
     Raises:
-        Exception: if the local model fails.
+        OllamaTransportError: never reached the model — connection/timeout/
+            DNS, or the pre-flight health check itself failing. Not about
+            this call's input; see the exception's own docstring.
+        OllamaNoResponseError: the host responded but produced nothing
+            usable (bad status, or HTTP 200 with an empty body). Also not
+            about this call's input.
+        Exception: unexpected failures not covered above (defensive
+            fallback — should be rare).
     """
     _wait_for_translation()
     local_host = host or ollama_client.FALLBACK or OLLAMA_URL
@@ -347,18 +381,22 @@ def call_ollama_local_only(prompt_text: str, timeout: int = 900, *,
             logger.info(f"🖥️  Trying {label} model: {attempt_model} @ {local_host}")
             payload = {"model": attempt_model, "prompt": prompt_text, "stream": False}
             if not is_local_available(local_host):
-                raise requests.RequestException(f"Local Ollama health check failed for {local_host}")
+                raise OllamaTransportError(f"health check failed for {local_host}")
             if model is None:
                 _apply_spec_following_options(payload)
             if num_predict is not None:
                 payload.setdefault("options", {})["num_predict"] = num_predict
 
             call_start = time.perf_counter()
-            if host is None:
-                resp = ollama_client.post("/api/generate", json=payload, read_timeout=timeout)
-            else:
-                resp = requests.post(f"{local_host.rstrip('/')}/api/generate",
-                                      json=payload, timeout=(3.0, timeout))
+            try:
+                if host is None:
+                    resp = ollama_client.post("/api/generate", json=payload, read_timeout=timeout)
+                else:
+                    resp = requests.post(f"{local_host.rstrip('/')}/api/generate",
+                                          json=payload, timeout=(3.0, timeout))
+            except requests.RequestException as e:
+                _trip_local_breaker(local_host)
+                raise OllamaTransportError(f"{attempt_model} @ {local_host} unreachable: {e}") from e
             duration_ms = (time.perf_counter() - call_start) * 1000
 
             if resp.status_code == 200:
@@ -374,9 +412,15 @@ def call_ollama_local_only(prompt_text: str, timeout: int = 900, *,
                     return (response_text, duration_ms, attempt_model)
                 if done_reason == "length":
                     logger.warning(f"🔥 {label.capitalize()} model EMPTY (done_reason=length) — thinking-phase token exhaustion; check think=false + num_predict for {attempt_model}")
+                raise OllamaNoResponseError(
+                    f"{attempt_model} @ {local_host} returned an empty response "
+                    f"(done_reason={done_reason!r}) in {duration_ms:.0f}ms")
 
-            logger.warning(f"{label.capitalize()} model failed (status {resp.status_code}), trying next")
+            raise OllamaNoResponseError(
+                f"{attempt_model} @ {local_host} failed (status {resp.status_code})")
 
+        except (OllamaTransportError, OllamaNoResponseError):
+            raise
         except Exception as e:
             if isinstance(e, requests.RequestException):
                 _trip_local_breaker(local_host)

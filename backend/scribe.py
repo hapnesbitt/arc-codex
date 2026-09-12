@@ -42,6 +42,7 @@ from stream_utils import publish_analysis, ensure_stream_group
 from ollama_utils import (
     call_ollama_local_only, OLLAMA_LOCAL_FALLBACK,
     BROADCAST_OLLAMA_HOST, BROADCAST_OLLAMA_MODEL,
+    OllamaTransportError, OllamaNoResponseError,
 )
 from retention import run_retention_pass
 from operational_state import ScribeOperationalState, run_heartbeat_loop
@@ -669,14 +670,18 @@ def _chunk_text(text: str) -> list:
 def synthesize_article_audio(article_id: str, text: str) -> str | None:
     """Narrate `text` to frontend/public/uploads/audio/{article_id}.mp3.
 
-    Returns the relative serving path, or None on any failure — narration is
-    a nice-to-have and must never affect whether a story publishes.
+    Returns the relative serving path, or None if the text itself was too
+    short to bother narrating — narration is a nice-to-have and must never
+    affect whether a story publishes. Raises AudioToolError (2026-09-12)
+    for every OTHER failure — ffmpeg/kokoro missing, a subprocess crash,
+    timeout, or empty/corrupt output despite a clean exit — because none
+    of those are about this article's text; see that exception's own
+    docstring. Only the too-short case is a plain return.
 
     Assumes kokoro_preflight() has already passed; the caller runs it, so
     that a refusal reads as a deferral in the log while a failure here reads
     as a failure. The preflight cannot cover everything even so — a second
-    process can eat the headroom between the check and the run — and every
-    one of those lands here as None and a silent story.
+    process can eat the headroom between the check and the run.
 
     Encodes to a temp file and renames into place, so a crashed or timed-out
     run cannot leave a truncated mp3 at the path the field will point at.
@@ -685,12 +690,14 @@ def synthesize_article_audio(article_id: str, text: str) -> str | None:
     """
     text = (text or '').strip()
     if len(text) < AUDIO_MIN_CHARS:
+        # The one synthesis failure that's actually about this article's
+        # content — everything else below is the tool or the host.
         logger.info(f"🔊 Audio skipped — too short ({len(text)} chars) for {article_id}")
         return None
 
     if not shutil.which("ffmpeg"):
         logger.warning("🔊 Audio skipped — ffmpeg not on PATH, needed to encode Kokoro's WAV")
-        return None
+        raise AudioToolError("ffmpeg not on PATH")
 
     final_path = os.path.join(AUDIO_DIR, f"{article_id}.mp3")
     temp_path = f"{final_path}.partial"
@@ -719,14 +726,14 @@ def synthesize_article_audio(article_id: str, text: str) -> str | None:
             noise = [line for line in synth.stderr.strip().splitlines()
                      if line and not line.startswith("PROGRESS ")
                      and "Warning" not in line and "warn" not in line]
-            logger.warning(f"🔊 Audio failed — synthesis for {article_id}: "
-                           f"{noise[-1] if noise else 'no detail'}")
-            return None
+            detail = noise[-1] if noise else 'no detail'
+            logger.warning(f"🔊 Audio failed — synthesis for {article_id}: {detail}")
+            raise AudioToolError(f"kokoro synthesis exit {synth.returncode}: {detail}")
 
         wav_path = os.path.join(workdir, "article.wav")
         if not os.path.exists(wav_path) or os.path.getsize(wav_path) == 0:
             logger.warning(f"🔊 Audio came back empty for {article_id}")
-            return None
+            raise AudioToolError("kokoro exited cleanly but produced no wav")
 
         # -f mp3 is not optional: the output is written to a .partial path,
         # and ffmpeg picks its muxer from the extension unless told.
@@ -737,10 +744,10 @@ def synthesize_article_audio(article_id: str, text: str) -> str | None:
         if encode.returncode != 0:
             logger.warning(f"🔊 Audio failed — mp3 encode for {article_id}: "
                            f"{encode.stderr.strip()}")
-            return None
+            raise AudioToolError(f"ffmpeg encode exit {encode.returncode}")
         if not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
             logger.warning(f"🔊 Audio encoded to nothing for {article_id}")
-            return None
+            raise AudioToolError("ffmpeg exited cleanly but produced no mp3")
 
         os.replace(temp_path, final_path)
         duration = time.perf_counter() - started
@@ -755,10 +762,23 @@ def synthesize_article_audio(article_id: str, text: str) -> str | None:
         # subprocess.run kills its child directly on timeout, so there is no
         # orphan to chase here the way there was over ssh — killing the
         # local end used to leave the remote python running on someone
-        # else's box, which needed a separate pkill to clean up.
+        # else's box, which needed a separate pkill to clean up. A timeout
+        # here is downstream of find_newest_silent's own length-based
+        # poison-pill guard, so it reads as the host being slow/stuck
+        # rather than this specific script being unsynthesizable.
         logger.warning(f"🔊 Audio timed out after {AUDIO_TIMEOUT_SECONDS}s for {article_id}")
-        return None
+        raise AudioToolError(f"kokoro timed out after {AUDIO_TIMEOUT_SECONDS}s") from None
+    except AudioToolError:
+        raise
     except Exception as e:
+        # Deliberately NOT raised as AudioToolError: this is the fallback
+        # for something genuinely unanticipated, not one of the known
+        # tool/host failure shapes above. Same convention as
+        # ollama_utils.call_ollama_local_only's own generic catch-all —
+        # counted, conservatively, so a persistently-crashing article
+        # still eventually gets shielded by the retry budget rather than
+        # retried forever across restarts on the assumption that anything
+        # unrecognized must be infrastructure.
         logger.warning(f"🔊 Audio failed ({type(e).__name__}) for {article_id}: {e}")
         return None
     finally:
@@ -993,6 +1013,22 @@ SCRAPED_IMAGE_DIR = os.path.join(os.path.dirname(BASE_DIR), 'frontend', 'public'
 # One field carries the result: audio_url on the article hash. Its presence is
 # the whole contract — if it is set there is audio, if it is absent there is
 # none. Nothing here writes original_text, title, or source_lang.
+
+
+class AudioToolError(Exception):
+    """Kokoro or ffmpeg failed to produce usable audio for a reason that
+    isn't about this article's script — missing binary, a subprocess
+    crash or timeout, or empty/corrupt output despite a clean exit.
+    Same reasoning as ollama_utils.OllamaTransportError/
+    OllamaNoResponseError: the tool ran (or tried to), the failure is
+    about the tool/host, not proven to be about this specific text.
+    Callers should not count this against a per-article retry budget.
+    The one synthesis failure that IS about the article — the script
+    being too short to bother narrating — stays a plain return None,
+    not this.
+    """
+
+
 AUDIO_DIR = os.path.join(os.path.dirname(BASE_DIR), 'frontend', 'public', 'uploads', 'audio')
 AUDIO_KOKORO_PYTHON = os.environ.get(
     "AUDIO_KOKORO_PYTHON",
@@ -1821,10 +1857,16 @@ def run_broadcast_script(
     three analyses, not original_text, and that's deliberate: narration
     must never read source prose again once this pass exists.
 
-    Returns the script text on success, or None on any failure — same
-    contract as synthesize_article_audio: a missing broadcast script means
-    this pass of narration doesn't happen, not that anything falls back to
-    reading the raw article.
+    Returns the script text on success, None on a content-level failure
+    (empty response, over BROADCAST_MAX_CHARS) — same contract as
+    synthesize_article_audio: a missing broadcast script means this pass
+    of narration doesn't happen, not that anything falls back to reading
+    the raw article. Raises OllamaTransportError/OllamaNoResponseError
+    (2026-09-12) instead of returning None for infrastructure failures —
+    unreachable host, or host reached but nothing usable came back — so
+    the caller can tell "this article's content is a problem" from "the
+    model host is a problem" and only count the former against a
+    per-article retry budget.
 
     The BROADCAST_MAX_CHARS bound is enforced HERE, after the model
     returns, and is a rejection, not a truncation — see the constant's
@@ -1874,33 +1916,39 @@ CONSTRAINTS:
 --- PURPLE TEAM FINDINGS (analysis) ---
 {purple}"""
 
+    logger.info(f"📻 Writing broadcast script for {article_id}...")
     try:
-        logger.info(f"📻 Writing broadcast script for {article_id}...")
         raw_response, duration, model_used = call_ollama_local_only(
             broadcast_prompt, timeout=timeout,
             host=BROADCAST_OLLAMA_HOST, model=BROADCAST_OLLAMA_MODEL,
             num_predict=BROADCAST_NUM_PREDICT,
         )
-        script = (raw_response or '').strip()
-
-        if not script:
-            logger.warning(f"📻 Broadcast script came back empty for {article_id}")
-            return None
-
-        if len(script) > BROADCAST_MAX_CHARS:
-            logger.warning(
-                f"📻 Broadcast script REJECTED for {article_id}: "
-                f"{len(script)} chars > {BROADCAST_MAX_CHARS} bound "
-                f"(via {model_used} in {duration:.0f}ms) — not truncated, not narrated this pass"
-            )
-            return None
-
-        logger.info(f"📻 Broadcast script complete for {article_id}: {len(script)} chars via {model_used} in {duration:.0f}ms")
-        return script
-
+    except (OllamaTransportError, OllamaNoResponseError):
+        # Not caught here — let the caller (audio_backfill.narrate_one)
+        # distinguish infrastructure from a content rejection. Both are
+        # about the model/host, never about this article; see the two
+        # exceptions' own docstrings.
+        raise
     except Exception as e:
         logger.warning(f"📻 Broadcast script failed for {article_id}: {e}")
         return None
+
+    script = (raw_response or '').strip()
+
+    if not script:
+        logger.warning(f"📻 Broadcast script came back empty for {article_id}")
+        return None
+
+    if len(script) > BROADCAST_MAX_CHARS:
+        logger.warning(
+            f"📻 Broadcast script REJECTED for {article_id}: "
+            f"{len(script)} chars > {BROADCAST_MAX_CHARS} bound "
+            f"(via {model_used} in {duration:.0f}ms) — not truncated, not narrated this pass"
+        )
+        return None
+
+    logger.info(f"📻 Broadcast script complete for {article_id}: {len(script)} chars via {model_used} in {duration:.0f}ms")
+    return script
 
 
 def run_sentinel_analysis(article_text: str, timeout: int = 900) -> dict | None:
