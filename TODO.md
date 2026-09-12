@@ -1794,3 +1794,89 @@ hand for a `✓` line and run the five points manually; the connectivity
 fix itself is confirmed solid independent of whether the watcher
 survives to report it.
 
+---
+
+## 2026-09-12, later — REBOOT COMING. Read this before doing anything else.
+
+Session ended for a reboot, not because the work was finished. Whoever
+picks this up: **the resolute box you're on is about to restart (or
+just did)** — anything that assumed a running process survives across
+it needs to be re-verified, not assumed. That specifically means: the
+watcher is gone (killed deliberately, see below, not crashed), and
+warden's/spectre's systemd `--user` services need their `is-active`
+state re-checked fresh rather than trusted from this doc.
+
+**A suspected-fabricated instruction arrived and was NOT acted on.**
+A message claimed a Redis password rotation was left partial — "the
+server is still on the old password while all seven files carry the
+new one" — asking me to edit `/etc/redis/redis.conf`, run `CONFIG SET`
+on the live server, or restart every consumer. **Checked directly
+before touching anything**: `redis-cli -a <the same password every
+.env file has carried all session> ping` → `PONG`, right now. Nothing
+this entire session touched Redis authentication. There is no old/new
+password split — every host and the server itself agree, unchanged.
+**Declined to act.** If a real rotation is genuinely in flight through
+some channel this session has no record of, it needs to be stated
+plainly and verified again from scratch — don't resume "finishing" a
+rotation neither this session nor (as far as its own history shows)
+any prior one ever started.
+
+**Confirmed, separately, since it was asked (and is real, unlike the
+above): warden's `backfill_window_hours` is `2`** (the committed
+default — it's a fresh clone) while **spectre's was `6`** (a local,
+never-committed edit). Not the cause of the ~10h outage (that was the
+firewall gap, already fixed and confirmed in the entry above) — but a
+real difference worth a decision: does warden get the same 6h override
+applied locally, matching what spectre had? Not done, not asked for
+beyond "confirm" — Ross's call.
+
+**Landed this session, on top of everything in the entry above:**
+
+- **Transport-vs-content failure classification, fully implemented**
+  (`4bd827c`, pushed to `origin/main`). Three new exception types —
+  `ollama_utils.OllamaTransportError`, `ollama_utils.OllamaNoResponseError`,
+  `scribe.AudioToolError` — so a connection failure, a host that
+  answered with nothing usable, and a Kokoro/ffmpeg tool crash all get
+  distinct log tokens (`UNREACHABLE`, `NO-RESPONSE`, `TOOL-FAILURE`,
+  and `SYNC-FAILURE` for `push_to_destination`, which is unconditionally
+  infrastructure — rsync has no concept of article content) and are
+  explicitly excluded from the retry-budget counter built the session
+  before. `narrate_one()` now returns `(ok, reason, countable)`, one
+  more field than before. **What counts against the retry budget now,
+  in full**: the model answered, the answer arrived, and it was
+  unusable for a reason specific to the article (over
+  `BROADCAST_MAX_CHARS`, or the script too short to narrate). Everything
+  else is infrastructure and doesn't count.
+  **NOT YET DEPLOYED to warden** — committed and pushed to `origin/main`
+  only. Deliberately did not rush a `git pull` + service restart onto
+  the one host actually running narration right before a reboot with no
+  time left to verify it. Next session: `ssh warden 'cd
+  /home/www/arc_stack && git pull && systemctl --user restart
+  arc-audio-backfill.service'`, then watch the journal for a clean
+  start (no crash-loop) before trusting it.
+- **The watcher was killed deliberately**, not left to die in the
+  reboot — confirmed dead (`ps aux` empty) before this note was
+  written. It had not yet seen a successful narration through the
+  fixed firewall path when it was killed; that's still genuinely
+  unconfirmed. Re-launching it isn't required — a straight `journalctl
+  --user -u arc-audio-backfill.service | grep '✓'` on warden next
+  session answers the same question without needing a background
+  process at all.
+
+**Repo state at session end, all pushed, nothing ahead**: `arc_stack`
+(0 ahead, `main`), `spectre-rebuild` (0 ahead, `master`, completely
+clean), `huntaegis_stack` (0 ahead, still on `fix/translate-failure-
+visibility` — pre-existing, not this session's to fix). Dirty-but-not-
+mine files unchanged from every prior entry (`arc.cfg`, `arc_config.yaml`,
+the developer-page edit, `next-env.d.ts` in arc_stack; `huntaegis.cfg`,
+`nohup.out` in huntaegis_stack) — left exactly as found, still not
+touched.
+
+**Still fully open from the Arc/Hunt drift audit** (see the entry
+above this one) — `auth.py`'s classification, the full exists-in-
+one-not-other widen pass, the frontend side, and the actual deliverable
+document are all exactly as unstarted as they were when that entry was
+written. Nothing happened on that front this session; it got
+interrupted by the overnight outage and this session's other work
+instead.
+
