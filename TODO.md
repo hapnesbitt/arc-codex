@@ -1748,3 +1748,49 @@ pass is report-only. Don't let finding `is_cloud_reachable`'s absence
 or the Playwright gap turn into an urge to just port the fix over;
 report it in the document and let Ross decide.
 
+---
+
+## 2026-09-12 morning — warden's narration was completely down overnight, found and fixed
+
+The original watcher process got killed ("system running low on
+memory") before it ever saw a success. Checking cold the next morning
+found **zero successful narrations since the build finished the
+previous evening** — every single attempt from 17:44 onward failed
+with `Local Ollama health check failed for http://192.168.1.189:11434
+(ConnectTimeout)`, logged as an ordinary `no broadcast script;
+narration skipped this pass` line — indistinguishable from a content
+rejection unless you already know to check connectivity.
+
+**Root cause**: spectre's `ufw` only ever allowlisted resolute
+(`192.168.1.198`) for its Ollama port. When warden's
+`OLLAMA_PRIMARY`/`FALLBACK` were repointed at spectre the previous
+day (`192.168.1.189:11434`), nobody updated spectre's
+`ollama_api_clients` to also allow warden (`192.168.1.190`) — confirmed
+directly: `curl` from warden timed out, the identical `curl` from
+resolute worked. A pure gap in yesterday's build — connectivity was
+verified resolute→spectre and spectre→itself, never warden→spectre
+specifically, which is exactly the new path that mattered.
+
+**Fixed**: `ollama_api_clients` in `spectre-rebuild/inventory/
+host_vars/spectre.yml` now includes `192.168.1.190`
+(`c808f0f`, pushed) — source-of-truth for the next converge. Ross ran
+the matching live command by hand (`sudo ufw allow from 192.168.1.190
+to any port 11434 proto tcp comment 'warden narration'`) since this was
+a live ~10-hour outage, not something to leave for a future converge.
+**Verified**: `curl` from warden to spectre's `:11434` now succeeds
+(confirmed live, not assumed from the ufw rule alone).
+
+**Still open — not yet confirmed**: connectivity is fixed, but no
+*narration* has actually succeeded through the fixed path yet as of
+this note — that needs a real new candidate to land and a real attempt
+to complete. Re-launched the watcher
+(`watch_first_narration.sh`, same script/logic as before, task
+`bnrzbflfk`) to catch the first post-fix `✓` line and run the original
+five-point check (mp3 on warden, mp3 on resolute, byte sizes match,
+`audio_url` set, public URL serves with `Accept-Ranges`). If this
+watcher also dies before reporting, don't assume the fix didn't work —
+check `journalctl --user -u arc-audio-backfill.service` on warden by
+hand for a `✓` line and run the five points manually; the connectivity
+fix itself is confirmed solid independent of whether the watcher
+survives to report it.
+
