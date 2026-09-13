@@ -524,14 +524,22 @@ def find_newest_silent(r: redis.Redis, hours: float, skip: set,
         if (lang or 'English') != 'English':
             continue
         body = (body or '').strip()
-        if len(body) < scribe.AUDIO_MIN_CHARS:
+        if len(body) < scribe.SOURCE_MIN_CHARS:
             continue
-        if len(body) > max_chars:
-            logger.info(f"{aid} skipped — {len(body)} chars is over the "
-                        f"{max_chars}-char budget for {scribe.AUDIO_TIMEOUT_SECONDS}s; "
-                        f"never retried this run")
-            skip.add(aid)
-            continue
+        # Source-length upper bound removed 2026-09-12. It was
+        # estimated_synthesis_cps × AUDIO_TIMEOUT_SECONDS (18.34 × 600
+        # = 11004 chars), sized to keep synthesis of RAW ARTICLE TEXT
+        # under the Kokoro timeout — but nothing narrates source text
+        # any more. narrate_one calls scribe.run_broadcast_script() and
+        # feeds the resulting ~1700-char script to synthesize_article_
+        # audio; the script's length is bounded by BROADCAST_NUM_PREDICT
+        # (300 tokens) at generation time, and does not scale with the
+        # source article. A 110,000-char article produces the same
+        # ~1700-char script as a 13,000-char one, so a source-length
+        # gate here filters candidates it has no business filtering.
+        # max_chars is kept in the signature until the caller stops
+        # computing it (see max_chars_for_budget), but it is no longer
+        # consulted.
         if retry_attempts(r, aid) >= AUDIO_RETRY_MAX_ATTEMPTS:
             # Exhaustion itself was already logged once, distinctly, by
             # record_narration_failure() at the moment it happened — this

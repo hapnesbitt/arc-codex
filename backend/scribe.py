@@ -689,9 +689,13 @@ def synthesize_article_audio(article_id: str, text: str) -> str | None:
     no file.
     """
     text = (text or '').strip()
-    if len(text) < AUDIO_MIN_CHARS:
+    if len(text) < SCRIPT_MIN_CHARS:
         # The one synthesis failure that's actually about this article's
-        # content — everything else below is the tool or the host.
+        # content — everything else below is the tool or the host. In
+        # practice this now only fires on a truncated or empty script;
+        # narrate_one already guards against a falsy script upstream, so
+        # this catches the truthy-but-tiny case (whitespace-heavy, model
+        # cut off after one sentence, etc.).
         logger.info(f"🔊 Audio skipped — too short ({len(text)} chars) for {article_id}")
         return None
 
@@ -1040,7 +1044,25 @@ AUDIO_KOKORO_PYTHON = os.environ.get(
 AUDIO_VOICE = "af_heart"
 AUDIO_SPEED = 0.95
 AUDIO_SAMPLE_RATE = 24000               # Kokoro's native output rate
-AUDIO_MIN_CHARS = 100                   # matches the sentinel/counter-analyst skip threshold
+# Split 2026-09-12 (was: AUDIO_MIN_CHARS = 100, applied to both texts below).
+# One constant was gating two different things: the raw article body in
+# find_newest_silent (source floor — the Aug 2026 CAPTCHA-extract cluster at
+# 1234–1250 is what this exists to keep out) and the generated broadcast
+# script in synthesize_article_audio (script floor — a safety net against a
+# truncated or empty script). Those two floors want to point in opposite
+# directions, and a shared low value (100) meant the source-side CAPTCHA
+# guard was silently absent.
+SOURCE_MIN_CHARS = 1500                 # raw article body floor — above the
+                                        # Aug 2026 CAPTCHA cluster (1234–1250).
+                                        # Consumed by audio_backfill.py's
+                                        # find_newest_silent.
+SCRIPT_MIN_CHARS = 400                  # broadcast script floor — well under
+                                        # BROADCAST_MAX_CHARS (1400) and under
+                                        # the 776-char low end of real scripts
+                                        # observed 2026-09-11, so in practice
+                                        # this only fires on a truncated or
+                                        # near-empty script. Consumed only by
+                                        # synthesize_article_audio below.
 AUDIO_MAX_CHARS = 3500                  # per-request bound; chunks split on sentence boundaries
 AUDIO_TIMEOUT_SECONDS = 600             # a long feature piece still finishes well inside this
 
@@ -1939,15 +1961,22 @@ CONSTRAINTS:
         logger.warning(f"📻 Broadcast script came back empty for {article_id}")
         return None
 
+    # BROADCAST_MAX_CHARS rejection removed 2026-09-12. The token cap
+    # (BROADCAST_NUM_PREDICT=300) is what actually bounds script length;
+    # rejecting against the character bound as well was throwing away
+    # every completed script on warden because the model reliably lands
+    # 1700–1800 chars at 300 tokens (~5.7 chars/token for this content),
+    # and 1700 > 1400. Nothing could ever pass. If we ever want a
+    # rejection back it should be at the token layer, not the character
+    # layer, and it needs to be above the model's actual output range.
     if len(script) > BROADCAST_MAX_CHARS:
-        logger.warning(
-            f"📻 Broadcast script REJECTED for {article_id}: "
-            f"{len(script)} chars > {BROADCAST_MAX_CHARS} bound "
-            f"(via {model_used} in {duration:.0f}ms) — not truncated, not narrated this pass"
+        logger.info(
+            f"📻 Broadcast script for {article_id}: {len(script)} chars "
+            f"(over historical BROADCAST_MAX_CHARS={BROADCAST_MAX_CHARS}, accepted) "
+            f"via {model_used} in {duration:.0f}ms"
         )
-        return None
-
-    logger.info(f"📻 Broadcast script complete for {article_id}: {len(script)} chars via {model_used} in {duration:.0f}ms")
+    else:
+        logger.info(f"📻 Broadcast script complete for {article_id}: {len(script)} chars via {model_used} in {duration:.0f}ms")
     return script
 
 
