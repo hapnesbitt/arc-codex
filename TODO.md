@@ -1880,3 +1880,121 @@ written. Nothing happened on that front this session; it got
 interrupted by the overnight outage and this session's other work
 instead.
 
+---
+
+## Session handoff 2026-09-12 evening — narration gates removed, script-collapse finding open
+
+Warden was silent when the session opened: `arc:audio:last_narration` at
+17:11 MDT, no article in the current feed carrying an `audio_url`, watchdog
+still reporting "nothing silent in the last 6.00h" while the entire feed was
+silent. Three gates surfaced across the session. Each of the three was
+measuring a property of the pipeline as it existed **before Sunday's
+redesign** — when `run_broadcast_script` became the sole caller of
+`synthesize_article_audio` and source text stopped being narrated. None had
+been updated to reflect that. Two gates landed as removals today; the third
+landed as a naming/reorganization only.
+
+**Gate 1 — `AUDIO_MIN_CHARS = 100` doing double duty** (split, no behavior
+change downstream). The one constant was consulted at two sites against two
+different texts: `audio_backfill.py:527` measured raw article body (a CAPTCHA
+/ stub floor — the Aug 2026 CAPTCHA-extract cluster at 1234-1250 is what
+this ought to keep out) and `scribe.py:692` measured the generated broadcast
+script (a truncated-script floor). Split into `SOURCE_MIN_CHARS = 1500`
+(raw body, above the CAPTCHA cluster) and `SCRIPT_MIN_CHARS = 400` (script,
+well below the 776-char low end of real 2026-09-11 model output). Constants
+split; both call sites updated. `AUDIO_MIN_CHARS` no longer exists.
+
+**Gate 2 — `BROADCAST_MAX_CHARS = 1400` post-response rejection removed**
+(`scribe.py:1964`). This was set as the ceiling on the model's script
+output after the 2026-09-06 retune; paired with `BROADCAST_NUM_PREDICT
+= 300` meant to keep the model landing under it. In practice the model was
+reliably producing 1590-1911 chars at 300 tokens (~5.7 chars per token for
+this content) and hitting the char ceiling every time — every completed
+script was being discarded, with `TRUNCATED (done_reason=length)` and
+`REJECTED for {aid}` back-to-back in the log. The rejection now downgrades
+to an informational log line ("over historical BROADCAST_MAX_CHARS=1400,
+accepted") and the script passes through. Constant is still defined;
+nothing consults it as a hard gate any more.
+
+**Gate 3 — 11,004-char source-length skip in `find_newest_silent` removed**
+(`audio_backfill.py:527-534`). This was `max_chars_for_budget()` =
+`estimated_synthesis_cps × AUDIO_TIMEOUT_SECONDS` = 18.34 × 600 = 11,004,
+sized to keep synthesis of **raw article text** under Kokoro's timeout.
+Nothing narrates raw article text any more — `narrate_one` calls
+`run_broadcast_script()` and feeds the resulting ~1700-char script to
+`synthesize_article_audio()`. Script length is bounded by
+`BROADCAST_NUM_PREDICT` at generation, not by the source it was derived
+from; a 110,000-char article produces the same ~1700-char script as a
+13,000-char one. Skip removed; `max_chars_for_budget()` and its
+"11004-char synthesis budget" startup log line are now unused (cosmetic
+cleanup for later, non-urgent).
+
+**End-to-end verification with the removed gates**: target article
+`5a9f6aa7c4e55b9f751548748aed6891` (15,031-char body, which the 11,004
+skip had rejected earlier in the session) narrated at 18:26:50 MDT —
+1574-char script → 115.5s mp3 (13.6 chars/s), 617s wall.
+`article:...audio_url` set, `arc:audio:sync_ok` incremented 1608 → 1609,
+`sync_fail` still empty, `https://arc-codex.com/uploads/audio/5a9f6aa7…mp3`
+returns HTTP/2 200 with `content-type: audio/mpeg`, local mp3 on
+resolute at 924,332 bytes md5 `b859a8ce…`. First successful narration
+since the 17:11 MDT stall.
+
+**Where the work actually happens (context for the next session)**: warden
+runs Kokoro but does not run `run_broadcast_script`. That's a
+`call_ollama_local_only` call whose `BROADCAST_OLLAMA_HOST` env resolves to
+spectre (`192.168.1.189:11434`, per warden's `.env`). Warden waits on
+spectre for the script, then runs Kokoro locally, then rsyncs the mp3 to
+resolute via the `arc-audio-sync@…` rrsync-wo key. When the daemon logs
+`✓`, most of the wall time was spectre.
+
+**Open finding — script-length collapse, not truncation, cause unknown.**
+Ross observed broadcast-script responses collapsing from 1713-1804 chars
+at 18:03 (all `done_reason=length`, model hitting the token cap) to
+**101-234 chars with `done_reason=stop` and leading whitespace** later
+in the session. That is the model *declining to write*, not writing
+briefly — an entirely different failure shape from anything the day's
+gate work touched, and one that the three edits above cannot cause: the
+request payload to `call_ollama_local_only` (prompt template, `num_predict`,
+model, host, timeout) is byte-for-byte unchanged from before the edits, and
+`prompts.yaml` matches HEAD with matching md5 on both hosts. **The 101-234
+observation is not in warden's `arc-audio-backfill` journal** as far as I
+could locate it — the only TRUNCATED events there are the 1590-1911
+sequence with `done_reason=length` — so the source of the observation is
+somewhere I did not identify: `analyzer.py`'s journal (same call-path
+shape, but different prompt), spectre's ollama server log, or a live
+dashboard/tail. The 18:26:50 target-article narration returned 1574 chars
+via the same code path with `done_reason=length`, which means the
+collapse either recovered or is not universal.
+
+**Where to start next session on that finding**: (a) locate which log
+carries the 101-234-char observation; (b) correlate its timestamps with
+anything that changed on spectre in the same window (ollama restart,
+model reload, weight file touch, memory pressure), since nothing about
+the request itself moved on the Arc side.
+
+**Deliberately not touched at end of session, per Ross**: `SCRIPT_MIN_CHARS
+= 400`, `prompts.yaml`. Nothing lands untested.
+
+**Also unchanged, mentioned but not scoped this session**: the 6h feed
+window in `find_newest_silent`, the peak-hour throttle, `BROADCAST_
+TIMEOUT_SECONDS = 900`, `AUDIO_TIMEOUT_SECONDS = 600`,
+`BROADCAST_NUM_PREDICT = 300`.
+
+**Hunt mirror** — `AUDIO_MIN_CHARS = 100` still exists in
+`/home/www/huntaegis_stack/backend/scribe.py` as the fused single constant.
+Whether Hunt's narration path has the same script-vs-source split as Arc's
+(and therefore the same vestigial-gate story) is unverified. Deferred.
+
+**Repo state at session end**: `arc_stack` is `main` + 2 commits ahead of
+`origin/main` — the gate-removal code commit and this handoff commit. Not
+pushed (session ending, nightly-git-push cron at 02:30 will carry it).
+
+**Ross's operator-owned files unchanged** (per CLAUDE.md's "operator-owned
+fields" rule): `arc.cfg` [ingestion] tuning (`cycle_minutes = 0`,
+`sources_per_sweep = 2`), `arc_config.yaml`, `frontend/next-env.d.ts` —
+left exactly as found, not committed.
+
+**Monitors killed at end of session**: `b8xjk7dcm`, `blr50k7ya` (both
+timed out on their own), `b6ek0n2t3` (explicitly stopped). No background
+task started by this session is still running.
+
