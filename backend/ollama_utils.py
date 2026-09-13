@@ -145,14 +145,21 @@ def _apply_spec_following_options(payload: dict) -> None:
     8ed0bf56b5ed263873771e0d8f883855 and others):
       - think=false          → skip the thinking phase, emit directly
       - options.num_predict=-1 → remove output-length ceiling
-      - options.num_ctx=32768 → generous context for ~4-5K-token analyzer prompts
+      - options.num_ctx=16384 → per-slot context that fits spectre at -np 2
+        (2026-09-13: dropped from 32768 to 16384 to make room for a second
+        parallel slot on the 14 GiB inference host — llama-server is spawned
+        with -c num_ctx × num_parallel, so 32768×2 overflows RAM. Pair change:
+        analysis_max_chars 100000 → 50000 in arc.cfg. p99 prompt at the new
+        cap measures ~18.9k gemma tokens; ~1.4% of articles on the far tail
+        will still truncate silently — accepted trade for the throughput win,
+        see analyzer.py:100-106 for the prior 32k-cap decision this replaces.)
 
     Reference implementation for future spec-following calls fleet-wide.
     """
     payload["think"] = False
     opts = payload.setdefault("options", {})
     opts.setdefault("num_predict", -1)
-    opts.setdefault("num_ctx", 32768)
+    opts.setdefault("num_ctx", 16384)
 
 
 def is_cloud_available() -> bool:
