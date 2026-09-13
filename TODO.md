@@ -4,6 +4,158 @@ Items diagnosed but not landed. A fresh session should pick up cold from here.
 
 ---
 
+## 2026-09-13 session handoff — analyzer throughput, -np 2 rolled back before reboot
+
+### URGENT before reboot: spectre's `-np 2` drop-in must be removed
+
+At session close, spectre was running `ollama` with `OLLAMA_NUM_PARALLEL=2` via
+`/etc/systemd/system/ollama.service.d/20-parallel.conf`, and llama-server had
+spawned with `-c 65536 -np 2`. That is the OOM state: projected RSS ~16.5 GiB
+on 14 GiB physical, zero swap. Memory read fine only because just one KV slot
+was populated at a time; the second slot's pages materialize on first
+concurrent inference. A spectre reboot in this state will OOM-kill Ollama on
+the first request, taking all analysis down.
+
+**Rollback command** (run before reboot if the drop-in is still there):
+
+```bash
+ssh spectre 'sudo rm /etc/systemd/system/ollama.service.d/20-parallel.conf && \
+             sudo systemctl daemon-reload && sudo systemctl restart ollama'
+```
+
+### Committed but runtime-reverted: `analyzer` local-path context cap
+
+Two commits landed and pushed on `main`:
+
+- `46f7a17` — `analyzer: cap local-path num_ctx at 16384 (from 32768)`
+- `44a99a4` — `analyzer: cap analysis_max_chars at 50000 for 16k n_ctx budget`
+
+Purpose: fit a second parallel slot on spectre inside 14 GiB. The code and
+config are correct for `-np 2`; the reason the runner still used 32k per slot
+this session was **three analyzer.py processes on resolute (PIDs 5891, 468566,
+497131) were started before the commits and had the old `ollama_utils.py`
+cached in memory** — they kept requesting `num_ctx=32768`. Ollama sized
+llama-server from the first stale request: `32768 × 2 = -c 65536`.
+`OLLAMA_CONTEXT_LENGTH` on the server is a floor for lazy clients, not a
+ceiling — it cannot clamp a client's 32k request down.
+
+**Safe re-enable sequence** (after reboot resolves the stale-code issue by
+itself):
+
+```bash
+# Verify analyzer processes started with the committed code:
+grep -c '^    opts.setdefault("num_ctx", 16384)' /home/www/arc_stack/backend/ollama_utils.py
+ps -o pid,etime,cmd -C python3 | grep analyzer.py    # expect ONE, not three
+
+# Re-apply the drop-in:
+ssh spectre 'sudo tee /etc/systemd/system/ollama.service.d/20-parallel.conf >/dev/null <<EOF
+[Service]
+Environment="OLLAMA_NUM_PARALLEL=2"
+EOF
+sudo systemctl daemon-reload && sudo systemctl restart ollama'
+
+# Wait 30s, then verify:
+ssh spectre 'systemctl show ollama --property=Environment; \
+             ps -eo cmd | grep -E "[l]lama-server" | grep -oE "(-np [0-9]+|-c [0-9]+)"'
+# Expected: OLLAMA_NUM_PARALLEL=2 in env, and `-c 32768 -np 2` on llama-server
+```
+
+Trade-off accepted at 50k cap + 16k n_ctx: **~1.4% of articles on the far tail
+(bodies over ~50k chars → prompts over ~16k gemma tokens) will silently
+truncate.** Measured against 218 recently-analyzed articles with tiktoken
+cl100k_base + 1.15× gemma multiplier: p50 3,837 tok / p90 8,804 tok / p99
+16,406 tok / max 19,726 tok. If truncation-signal `done_reason=length` shows
+up frequently in `logs/analyzer.log`, lower `arc.cfg` `analysis_max_chars`
+further (~24000 is the safe number with 4k output headroom).
+
+### Silent data loss — the real finding, still uncounted
+
+Over the 24h ending at session close, **65 articles aged out of the 6h audio
+window unanalyzed with zero log lines and zero retry counters** — the failure
+mode audio_backfill's `find_newest_silent` produces when it passes over an
+unanalyzed article. Method: articles whose `feed_ts + 6h` boundary crossed in
+the last 24h, minus those that got audio, minus retries, minus private —
+`grand_total_permanently_silent_unanalyzed = 65 of 208 whose window closed`.
+Plus a further 46 that were analyzed but not narrated in time (different bug).
+
+**No metric exists for this.** corpus_exporter.py has no counter for
+"candidate passed to next pass because unanalyzed." Adding one to
+`find_newest_silent` (increment `arc:stats:aged_out_unanalyzed` when
+`_is_analyzed` returns False AND `feed_ts` is close to the window cutoff)
+would surface the loss without needing to grep across two log files.
+
+### Ingestion recon — cycle_minutes=3 fills the queue permanently
+
+`arc.cfg [ingestion] cycle_minutes = 3` (operator-tuned, dirty as a standing
+exception; the committed default is 97). With Ross publishing one story per
+sweep, that sets **arrival rate = 20 articles/hr**. Analyzer measured
+throughput this session: **10.3 completions/hr** (247 in 24h, of which 62%
+were `local_full` at 368s mean on spectre, 38% `cloud` at 4.5s). Queue depth
+grew from 149 → 156 → 153 across the session with no restart able to change
+the arithmetic on its own.
+
+**Ross's proposal: 15**. At `cycle_minutes = 15`, arrival rate drops to ~4/hr,
+below the 10.3/hr drain, and the queue empties. Zero code change. Best move
+before considering `-np 2` again — the parallel-slot work only matters if
+arrival ≥ drain and you want the drain to catch up.
+
+Second-order: `[ingestion]` is protected by the CLAUDE.md rule about
+operator-tuned fields. Any change to `cycle_minutes` needs to be Ross's
+edit, not a normalization pass. Session left `cycle_minutes = 3` dirty
+exactly as found.
+
+### Stale inference routing in `arc.cfg` (informational, still routes correctly via .env)
+
+`arc.cfg [inference]` at line 62 has:
+
+```
+ollama_url  = "http://192.168.1.185:11434"   ← the M1 — verified this session, models=[] empty
+council_url = "http://localhost:11434"        ← resolute — has qwen2.5:1.5b and gpt-oss:latest,
+                                                 NOT gemma4:e2b, which is what character_builder wants
+```
+
+`backend/.env` overrides both for real routing (`OLLAMA_URL`,
+`OLLAMA_PRIMARY`, `OLLAMA_FALLBACK` all point at `http://192.168.1.189:11434`,
+i.e. spectre). Production is unaffected today. But arc.cfg is what
+`site_config.py` documents to a reader — the M1 pointer is a lie the next
+audit will trip over. Same for the council pointer: character_builder assumes
+gemma4:e2b is on `council_url`; if the .env override ever slips or a fresh
+deploy uses cfg defaults, council calls will fail with `model not found`.
+
+Not fixed this session because arc.cfg is a standing dirty exception and
+the wire-through would need Ross's operator-mode edit — but this is exactly
+the kind of drift the [[caddy-api-routing-topology]] and [[cloud-model-migration-in-flight]]
+audits caught after it broke something. The right change is either update
+both defaults to `http://192.168.1.189:11434` and drop the .env overrides, or
+add a `.example` cfg documenting the .env-owned fields and delete the stale
+lines here.
+
+### Three duplicate analyzer.py processes on resolute (reboot will resolve)
+
+`arc-watchdog` spawned two extra processes over the last day (PIDs 468566
+~4h ago, 497131 ~3h ago) without stopping the original 5891 (18h). All three
+BRPOP the same queue but with spectre serialising at one slot, only one is
+ever active. Reboot restarts arc.sh cleanly and should leave exactly one
+analyzer.py. If it doesn't, `watchdog.sh` has a bug worth chasing — see the
+duplicate-start logic in its analyzer entry.
+
+### Session-only findings not carried forward
+
+- 62% of analyzer traffic is `local_full` (spectre), not cloud — the earlier
+  assumption that gemma4:31b-cloud was the serialization point was wrong.
+  Every article gets a Phase-1 local pass on spectre regardless; cloud only
+  fires for the 38% that `decide_escalate` flags.
+- Cloud call latency: mean 4.5s / p50 3.7s / p90 7.4s / max 10.4s. Cloud is
+  not a bottleneck at any observed rate.
+- Local call latency: mean 368s / p50 344s / p90 540s / max 885s. That's
+  where the analyzer's hours actually go.
+- `character_builder.py:64-67` comment still describes the July "M1 belongs
+  to the analyzers, council on Z230" decision as current. Void — the M1 has
+  no models, gemma4:e2b lives on spectre.
+
+
+---
+
 ## arc_stack's git working tree IS the production serving directory (TOP STRUCTURAL)
 
 **Source**: hit directly on 2026-07-30 while branching the sources.json split.
