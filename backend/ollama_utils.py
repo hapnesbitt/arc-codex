@@ -51,6 +51,28 @@ OLLAMA_URL            = os.environ.get("OLLAMA_URL", "http://192.168.1.185:11434
 OLLAMA_CLOUD_MODEL    = os.environ.get("OLLAMA_CLOUD_MODEL", "gemma4:31b-cloud")
 OLLAMA_LOCAL_FALLBACK  = os.environ.get("OLLAMA_LOCAL_FALLBACK", "gemma4:e2b")
 
+
+def _local_only_mode() -> bool:
+    """True when ARC_LOCAL_ONLY is set — supported deployment posture for
+    buyers who require zero cloud dependency. Every cloud-checking gate
+    (is_cloud_available, is_cloud_reachable, and by extension the analyzer
+    escalation branch and translation's cloud retry) returns False when
+    this is set, so the cascade in call_ollama_with_fallback strips cloud
+    tuples and every caller degrades to local. site_config's loader
+    additionally refuses to start if council_url points off-host, so the
+    council path (which does not route through this module) cannot bypass
+    the mode. Value is any truthy string ("1", "true", "yes")."""
+    return os.environ.get("ARC_LOCAL_ONLY", "").strip().lower() in ("1", "true", "yes")
+
+
+if _local_only_mode() and os.environ.get("OLLAMA_CLOUD_MODEL"):
+    logger.warning(
+        "☁️  ARC_LOCAL_ONLY=1 with OLLAMA_CLOUD_MODEL=%r set — cloud is "
+        "disabled at the gate; the cloud-model env is inert. Unset "
+        "OLLAMA_CLOUD_MODEL to remove the ambiguity.",
+        os.environ["OLLAMA_CLOUD_MODEL"],
+    )
+
 # Dedicated host/model for scribe.run_broadcast_script only (2026-09-11).
 # Script-writing is a narrow, bounded rewrite of existing Red/Blue/Purple
 # findings — unlike analysis, it doesn't need gemma4:e2b's size. Both unset
@@ -163,7 +185,16 @@ def _apply_spec_following_options(payload: dict) -> None:
 
 
 def is_cloud_available() -> bool:
-    """Returns True if the cloud circuit breaker is not tripped (key absent)."""
+    """Returns True if the cloud circuit breaker is not tripped (key absent).
+
+    ARC_LOCAL_ONLY=1 forces this to False regardless of breaker state —
+    that's the mechanism that makes local-only mode a hard gate rather
+    than a convention. Every existing cloud-escalation site already checks
+    this function, so the flag propagates through analyzer.py's
+    escalation guard and translation.py's user-facing cloud retry with
+    no per-call-site work."""
+    if _local_only_mode():
+        return False
     if _redis is None:
         return True
     return not bool(_redis.exists(CLOUD_UNAVAILABLE_KEY))
@@ -177,7 +208,13 @@ def is_cloud_reachable(timeout: float = 5.0) -> bool:
     M1 outage, 2,755 doomed escalations were recorded against a dead host
     because reachability was never checked before record_cloud_call().
     Callers must check this BEFORE incrementing the weekly cap counter.
+
+    ARC_LOCAL_ONLY=1 short-circuits the HTTP probe entirely — otherwise
+    every escalation-decision cycle logs a failed probe against a host
+    that's disabled by policy.
     """
+    if _local_only_mode():
+        return False
     try:
         resp = requests.get(
             f"{ollama_client.CLOUD_HOST.rstrip('/')}/api/tags", timeout=timeout

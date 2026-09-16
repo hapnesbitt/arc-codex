@@ -408,7 +408,12 @@ def analyze_article(article_id: str) -> bool:
                 # for 5 days and the answer was archaeology. Checks ordered
                 # cheap-first; reachability (an HTTP probe) runs only when the
                 # first two pass.
-                if not cloud_capacity_available(r):
+                # ARC_LOCAL_ONLY reads as "cloud unavailable" through
+                # is_cloud_available; disambiguate the log so a local-only
+                # deploy doesn't look like it's in a 429 breaker state.
+                if os.environ.get("ARC_LOCAL_ONLY", "").strip().lower() in ("1", "true", "yes"):
+                    valve = "ARC_LOCAL_ONLY mode"
+                elif not cloud_capacity_available(r):
                     valve = "weekly cap exhausted"
                 elif not is_cloud_available():
                     valve = "429 circuit breaker open"

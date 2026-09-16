@@ -215,6 +215,25 @@ class SiteConfig:
 
         self.data = _merge(DEFAULTS, raw)
 
+        # ARC_LOCAL_ONLY hard-gate: the ollama_utils flag disables cloud
+        # for every path that routes through call_ollama_with_fallback /
+        # is_cloud_available, but character_builder.py (council) hits
+        # site.council_url directly with requests.post and does NOT go
+        # through that module. Without this check, a customer who set
+        # council_url to a cloud endpoint would silently bypass the mode.
+        # This is the difference between local-only as a convention and
+        # local-only as a provable invariant — worth ~5 lines to hold.
+        if os.environ.get("ARC_LOCAL_ONLY", "").strip().lower() in ("1", "true", "yes"):
+            council_url = self.data["inference"]["council_url"]
+            _LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1", "0.0.0.0")
+            if not any(f"//{host}" in council_url for host in _LOCAL_HOSTS):
+                raise SiteConfigError(
+                    f"{self.path}: ARC_LOCAL_ONLY=1 requires [inference].council_url "
+                    f"to point at a localhost address, got {council_url!r}. "
+                    f"The council path (character_builder.py) does not route "
+                    f"through ollama_utils and would bypass the local-only gate."
+                )
+
     def __getitem__(self, section: str) -> dict:
         return self.data[section]
 

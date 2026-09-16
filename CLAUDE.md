@@ -161,6 +161,7 @@ DB 5 is shared auth across all stacks (`arc:users` SET, `arc:user:{username}` HA
 - `OLLAMA_URL`, `OLLAMA_CLOUD_MODEL`, `OLLAMA_LOCAL_FALLBACK`, `TRANSLATION_MODEL`
 - `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`
 - `MASTODON_INSTANCE`, `MASTODON_ACCESS_TOKEN`
+- `ARC_LOCAL_ONLY` — set to `1` for the local-only deployment posture (buyers who require zero cloud dependency). Forces `is_cloud_available()` and `is_cloud_reachable()` to False without touching the network; every existing cloud gate in analyzer/translation/`call_ollama_with_fallback` propagates automatically. `site_config.load_site_config()` additionally refuses to start if `[inference].council_url` points off-host, because `character_builder.py`'s council path talks to it directly with `requests.post` and would otherwise bypass the mode. Unset `OLLAMA_CLOUD_MODEL` alongside to silence the "cloud-model env is inert" WARN at import.
 
 ## Arc ↔ Huntaegis Relationship
 
