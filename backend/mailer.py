@@ -57,7 +57,7 @@ def _load_mailer_cfg() -> dict:
 _CFG  = _load_mailer_cfg()
 SITE  = load_site_config()
 
-ALERT_FROM    = "ross@arc-codex.com"
+ALERT_FROM    = SITE.email_from
 ALERT_TO      = "rossnesbitt@gmail.com"
 DIGEST_HOUR   = 7       # 7am local time
 CHECK_INTERVAL = 60     # seconds between alert checks
@@ -761,16 +761,16 @@ def send_digest(r: redis.Redis) -> bool:
         return False
 
     date_str = datetime.now().strftime("%B %d, %Y")
-    subject = f"Arc Codex Daily Digest — {date_str}"
+    subject = f"{SITE.name} Daily Digest — {date_str}"
 
     # Plain text
-    lines = [f"Arc Codex Daily Digest — {date_str}", "=" * 50, ""]
+    lines = [f"{SITE.name} Daily Digest — {date_str}", "=" * 50, ""]
     for i, a in enumerate(articles, 1):
         score_pct = int(a["score"] * 100)
         lines.append(f"{i:2}. [{score_pct:3d}% obj] {a['title']}")
-        lines.append(f"     {a['source']}  —  https://arc-codex.com/article/{a['id']}")
+        lines.append(f"     {a['source']}  —  {SITE.article_url(a['id'])}")
         lines.append("")
-    lines += ["=" * 50, "Arc Codex — arc-codex.com", "Unsubscribe: reply with 'unsubscribe'"]
+    lines += ["=" * 50, f"{SITE.name} — {SITE.domain}", "Unsubscribe: reply with 'unsubscribe'"]
     text = "\n".join(lines)
 
     # HTML
@@ -787,7 +787,7 @@ def send_digest(r: redis.Redis) -> bool:
         <tr>
           <td style="padding:12px 8px;border-bottom:1px solid #1e293b;color:#64748b;font-size:13px;">{i}</td>
           <td style="padding:12px 8px;border-bottom:1px solid #1e293b;">
-            <a href="https://arc-codex.com/article/{a['id']}"
+            <a href="{SITE.article_url(a['id'])}"
                style="color:#e2e8f0;text-decoration:none;font-weight:500;">{a['title']}</a>
             <div style="color:#64748b;font-size:12px;margin-top:4px;">{a['source']}</div>
           </td>
@@ -800,7 +800,7 @@ def send_digest(r: redis.Redis) -> bool:
     html = f"""<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;padding:0;margin:0;">
 <div style="max-width:600px;margin:0 auto;padding:32px 16px;">
   <div style="margin-bottom:24px;">
-    <h1 style="color:#f59e0b;font-size:20px;margin:0;">Arc Codex</h1>
+    <h1 style="color:#f59e0b;font-size:20px;margin:0;">{SITE.name}</h1>
     <p style="color:#64748b;margin:4px 0 0;font-size:14px;">Daily Intelligence Digest — {date_str}</p>
   </div>
   <table style="width:100%;border-collapse:collapse;background:#1e293b;border-radius:8px;overflow:hidden;">
@@ -815,7 +815,7 @@ def send_digest(r: redis.Redis) -> bool:
   </table>
   <hr style="border-color:#1e293b;margin:24px 0;">
   <p style="color:#334155;font-size:12px;text-align:center;">
-    <a href="https://arc-codex.com" style="color:#f59e0b;">arc-codex.com</a> · 
+    <a href="{SITE.base_url}" style="color:#f59e0b;">{SITE.domain}</a> ·
     Reply with "unsubscribe" to stop receiving digests
   </p>
 </div>

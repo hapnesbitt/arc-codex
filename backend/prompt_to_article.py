@@ -12,8 +12,10 @@ from __future__ import annotations
 import logging
 
 from ollama_utils import call_ollama_local_only
+from site_config import load_site_config
 
 logger = logging.getLogger('scribe')
+_SITE = load_site_config()
 
 
 def generate_article_from_prompt(prompt_text: str) -> str | None:
@@ -25,7 +27,7 @@ def generate_article_from_prompt(prompt_text: str) -> str | None:
     no meta-commentary, no "here is your article", just the article itself.
     """
     system_instruction = (
-        "You are a professional writer for Arc Codex, an intelligence and analysis platform. "
+        f"You are a professional writer for {_SITE.name}, an intelligence and analysis platform. "
         "When given a writing prompt, produce a well-structured, publication-ready article. "
         "Write only the article itself — no preamble, no 'here is your article', no meta-commentary. "
         "Use clear prose, factual tone, and logical structure with an introduction, body, and conclusion."

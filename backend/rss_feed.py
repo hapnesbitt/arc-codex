@@ -17,8 +17,11 @@ import time
 import logging
 
 from fetch_utils import sanitize_active_content
+from site_config import load_site_config
 
 logger = logging.getLogger(__name__)
+
+_SITE = load_site_config()
 
 rss_blueprint = Blueprint('rss', __name__)
 
@@ -138,8 +141,8 @@ def rss_feed():
         rss.set('xmlns:atom', 'http://www.w3.org/2005/Atom')
         channel = SubElement(rss, 'channel')
         
-        SubElement(channel, 'title').text = 'Arc Codex — A.R.C. Intelligence Feed'
-        SubElement(channel, 'link').text = 'https://arc-codex.com'
+        SubElement(channel, 'title').text = _SITE.rss_title
+        SubElement(channel, 'link').text = _SITE.base_url
         SubElement(channel, 'description').text = (
             'News analysis through the Argumentative Resilience Codex. '
             'Three-team AI analysis: Facts Only, Executive Summary, and Full Take.'
@@ -148,12 +151,12 @@ def rss_feed():
         SubElement(channel, 'lastBuildDate').text = datetime.now(timezone.utc).strftime(
             '%a, %d %b %Y %H:%M:%S +0000'
         )
-        SubElement(channel, 'generator').text = 'Arc Codex A.R.C. Framework'
+        SubElement(channel, 'generator').text = _SITE.rss_generator
         SubElement(channel, 'ttl').text = '30'
-        
+
         # Self-referencing atom link (best practice)
         atom_link = SubElement(channel, 'atom:link')
-        atom_link.set('href', 'https://arc-codex.com/api/rss')
+        atom_link.set('href', f"{_SITE.base_url}/api/rss")
         atom_link.set('rel', 'self')
         atom_link.set('type', 'application/rss+xml')
         
@@ -174,13 +177,11 @@ def rss_feed():
             
             # Link to article page
             slug = article.get('slug', aid)
-            SubElement(item, 'link').text = (
-                f"https://arc-codex.com/article/{slug}"
-            )
-            
+            SubElement(item, 'link').text = _SITE.article_url(slug)
+
             # Use article_id as GUID
             guid = SubElement(item, 'guid')
-            guid.text = f"arc-codex-{aid}"
+            guid.text = f"{_SITE.rss_guid_prefix}-{aid}"
             guid.set('isPermaLink', 'false')
             
             # Publication date
@@ -227,7 +228,7 @@ def _empty_feed():
     """Return a valid but empty RSS feed."""
     rss = Element('rss', version='2.0')
     channel = SubElement(rss, 'channel')
-    SubElement(channel, 'title').text = 'Arc Codex — A.R.C. Intelligence Feed'
+    SubElement(channel, 'title').text = _SITE.rss_title
     SubElement(channel, 'description').text = 'No articles available.'
     xml_bytes = tostring(rss, encoding='unicode', xml_declaration=False)
     xml_output = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_bytes

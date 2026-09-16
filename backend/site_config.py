@@ -261,6 +261,69 @@ class SiteConfig:
     def stack_path(self) -> str:
         return self.data["site"]["stack_path"]
 
+    # ── branding — one accessor per hardcoded-brand pattern the parity
+    # audit turned up. Each reads a cfg key under [branding] (arc.cfg and
+    # huntaegis.cfg both already have this section); a cfg that omits a
+    # key falls back to a sensible construction from the site identity
+    # so a minimal cfg still works. Key names match the existing schema
+    # (rss_title, rss_generator, guid_prefix, mail_sender, default_image).
+    @property
+    def email_from(self) -> str:
+        """Site-scoped sender address. Reads [branding].mail_sender;
+        defaults to ross@<domain> — every stack today uses ross@ as the
+        operator handle."""
+        return self.data.get("branding", {}).get("mail_sender") or f"ross@{self.domain}"
+
+    @property
+    def default_image_url(self) -> str:
+        """Site-scoped OG fallback image, always absolute. cfg's
+        [branding].default_image can be relative ("/uploads/foo.jpg") or
+        absolute ("https://cdn.example/foo.jpg"); relative paths get the
+        site's base_url prefixed. Defaults to <base_url>/uploads/<slug>-default.jpg
+        when the cfg omits it — matches the file convention every stack
+        already follows."""
+        raw = self.data.get("branding", {}).get("default_image")
+        if raw:
+            if raw.startswith(("http://", "https://")):
+                return raw
+            return f"{self.base_url}{raw if raw.startswith('/') else '/' + raw}"
+        return f"{self.base_url}/uploads/{self.slug}-default.jpg"
+
+    def article_url(self, article_id: str) -> str:
+        """Canonical public URL for an article. Used by every social
+        poster, the RSS feed, mailer, and manual_publisher — replaces
+        11+ hardcoded `f"https://arc-codex.com/article/{id}"` constructions
+        across the backend."""
+        return f"{self.base_url}/article/{article_id}"
+
+    @property
+    def rss_title(self) -> str:
+        """RSS channel <title>. Reads [branding].rss_title; defaults to
+        '<name> — A.R.C. Intelligence Feed'."""
+        return (
+            self.data.get("branding", {}).get("rss_title")
+            or f"{self.name} — A.R.C. Intelligence Feed"
+        )
+
+    @property
+    def rss_generator(self) -> str:
+        return (
+            self.data.get("branding", {}).get("rss_generator")
+            or f"{self.name} A.R.C. Framework"
+        )
+
+    @property
+    def rss_guid_prefix(self) -> str:
+        """RSS <guid> prefix. Reads [branding].guid_prefix; defaults to
+        the slug with a trailing dash, so guids look like arc-codex-<aid>
+        / hapenews-<aid> / etc. Existing cfgs already ship the trailing
+        dash in the string, so we strip a trailing dash from the read
+        value to normalize (callers append their own separator)."""
+        raw = self.data.get("branding", {}).get("guid_prefix")
+        if raw is not None:
+            return raw.rstrip("-")
+        return self.slug
+
     # ── derived — never repeated in the cfg ───────────────────────────────
     @property
     def backend_port(self) -> int:

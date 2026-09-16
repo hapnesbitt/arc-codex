@@ -39,18 +39,23 @@ os.makedirs(LOG_DIR, exist_ok=True)
 LOG_FILE = os.path.join(LOG_DIR, "manual_publisher.log")
 PROMPTS_FILE = os.path.join(BASE_DIR, "prompts.yaml")
 
-API_BASE_URL = os.environ.get("SCRIBE_API_BASE_URL", "http://127.0.0.1:5005/api")
+from site_config import load_site_config
+_SITE = load_site_config()
+
+API_BASE_URL = os.environ.get("SCRIBE_API_BASE_URL", f"{_SITE.backend_internal_url}/api")
 SCRIBE_SECRET_KEY = os.environ.get("SCRIBE_SECRET_KEY", "default_secret_for_dev")
 # Redis connection for stream publishing
 stream_redis = get_redis_connection()
 ensure_stream_group(stream_redis)
-# Category-based default images (matches frontend category selector)
+# Category-based default images (matches frontend category selector).
+# All fall through to the site's default image; per-category overrides
+# can be set in the cfg's [branding] block if a customer wants finer art.
 CATEGORY_IMAGES = {
-    'threat_intelligence': 'https://arc-codex.com/information-warfare.jpg',
-    'tech_surveillance':   'https://arc-codex.com/tech-surveillance.jpg',
-    'economic_finance':    'https://arc-codex.com/economic-control.jpg',
-    'science_health':      'https://arc-codex.com/science-medical.jpg',
-    'general':             'https://arc-codex.com/manual-upload.jpg',
+    'threat_intelligence': f"{_SITE.base_url}/information-warfare.jpg",
+    'tech_surveillance':   f"{_SITE.base_url}/tech-surveillance.jpg",
+    'economic_finance':    f"{_SITE.base_url}/economic-control.jpg",
+    'science_health':      f"{_SITE.base_url}/science-medical.jpg",
+    'general':             f"{_SITE.base_url}/manual-upload.jpg",
 }
 DEFAULT_IMAGE_URL = CATEGORY_IMAGES['general']
 
@@ -267,7 +272,7 @@ def run_counter_analyst(article_text: str, article_id: str, redis_conn, timeout:
         logger.warning("  ⚠️  Counter-analyst skipped — no instruction in prompts.yaml")
         return False
 
-    ca_prompt = f"""You are reviewing this article for Arc Codex. Write a counter-argument comment.
+    ca_prompt = f"""You are reviewing this article for {_SITE.name}. Write a counter-argument comment.
 
 {ca_instruction}
 
@@ -491,7 +496,7 @@ def process_manual_upload(filepath, api_client):
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "Manual Upload",
             "title": title,
-            "url": f"https://arc-codex.com/article/{article_hash}",
+            "url": _SITE.article_url(article_hash),
             "sourceUrl": source_url,
             "imageUrl": image_url,
             "dossier": json.dumps(dossier),

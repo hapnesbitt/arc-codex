@@ -103,19 +103,39 @@ auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
 # ── Module-level Redis client (DB 5) ─────────────────────────────────────────
 _auth_redis: redis.Redis | None = None
-_domain: str = "arc-codex.com"
-_from_addr: str = "ross@arc-codex.com"
+
+# Derive defaults from site_config so a caller that forgets to pass domain=
+# (or an early code path that touches _domain before init_auth is called)
+# still lands on the right stack's brand rather than hardcoded arc-codex.
+try:
+    from site_config import load_site_config as _load_site_config
+    _site_defaults = _load_site_config()
+    _domain: str = _site_defaults.domain
+    _from_addr: str = _site_defaults.email_from
+    _site_name: str = _site_defaults.name
+    _default_domain = _site_defaults.domain
+    _default_email = _site_defaults.email_from
+    _default_site_name = _site_defaults.name
+except Exception:
+    # site_config can fail in test/tooling contexts without a cfg on disk;
+    # keep the module importable and let init_auth set the real values.
+    _domain: str = "arc-codex.com"
+    _from_addr: str = "ross@arc-codex.com"
+    _site_name: str = "Arc Codex"
+    _default_domain = "arc-codex.com"
+    _default_email = "ross@arc-codex.com"
+    _default_site_name = "Arc Codex"
 
 AUTH_DB = 5
 USER_SET = "arc:users"
 
 def init_auth(app, redis_password: str = None, redis_host: str = "localhost",
-              redis_port: int = 6379, domain: str = "arc-codex.com",
+              redis_port: int = 6379, domain: str = None,
               from_addr: str = None):
     """Call once after app creation to wire up shared auth Redis + limiter."""
     global _auth_redis, _domain, _from_addr
-    _domain = domain
-    _from_addr = from_addr or f"ross@{domain}"
+    _domain = domain or _default_domain
+    _from_addr = from_addr or f"ross@{_domain}"
 
     # Bind Flask-Limiter to this app. Use the same Redis instance as the
     # auth store (DB 5) so limiter state lives with the credentials it
@@ -333,7 +353,7 @@ function togglePw(id) {
 <div class="card {{ extra_class or '' }}">
   <div class="logo">
     <a href="/" style="display:block;text-align:center;text-decoration:none;">
-      <div class="logo-title">Arc Codex</div>
+      <div class="logo-title">{{ site_name }}</div>
       <div class="logo-sub">Intelligence infrastructure for the independent mind</div>
     </a>
   </div>
@@ -350,7 +370,7 @@ def _render(title, content, chrome_label=None, extra_class="", domain=None):
     d = domain or _domain
     from flask import Response
     html = render_template_string(_BASE,
-        title=title, content=content, domain=d,
+        title=title, content=content, domain=d, site_name=_site_name,
         chrome_label=chrome_label, extra_class=extra_class,
         get_flashed_messages=get_flashed_messages)
     return Response(html, mimetype='text/html')
@@ -417,7 +437,7 @@ def register():
 </div>
 """
     from flask import render_template_string
-    content = render_template_string(content)
+    content = render_template_string(content, site_name=_site_name)
     return _render("Register", content, chrome_label=f"{_domain}://auth/register")
 
 
@@ -465,7 +485,7 @@ def login():
 
     content = """
 <h1>Welcome Back</h1>
-<p class="sub">Sign in to Arc Codex</p>
+<p class="sub">Sign in to {{ site_name }}</p>
 <form method="post">
   <label>Username</label>
   <input type="text" name="username" required placeholder="your username" autocomplete="username">
@@ -487,7 +507,7 @@ def login():
 </div>
 """
     from flask import render_template_string
-    content = render_template_string(content)
+    content = render_template_string(content, site_name=_site_name)
     return _render("Log In", content, chrome_label=f"{_domain}://auth/login")
 
 
@@ -527,7 +547,7 @@ def forgot():
 <div class="links"><a href="{{ url_for('auth.login') }}">Back to login</a></div>
 """
     from flask import render_template_string
-    content = render_template_string(content)
+    content = render_template_string(content, site_name=_site_name)
     return _render("Forgot Password", content)
 
 

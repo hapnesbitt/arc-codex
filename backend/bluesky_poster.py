@@ -36,11 +36,14 @@ from dotenv import load_dotenv
 # ── env ────────────────────────────────────────────────────────────────────────
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
+from site_config import load_site_config
+_SITE = load_site_config()
+
 BLUESKY_HANDLE       = os.getenv("BLUESKY_HANDLE", "hapenez.bsky.social")
 BLUESKY_APP_PASSWORD = os.getenv("BLUESKY_APP_PASSWORD", "")
 REDIS_URL            = os.environ['REDIS_URL']
-BACKEND_URL          = os.getenv("BACKEND_INTERNAL_URL", "http://localhost:5005")
-ARTICLE_BASE_URL     = os.getenv("NEXT_PUBLIC_BACKEND_URL", "https://arc-codex.com")
+BACKEND_URL          = os.getenv("BACKEND_INTERNAL_URL", _SITE.backend_internal_url)
+ARTICLE_BASE_URL     = os.getenv("NEXT_PUBLIC_BACKEND_URL", _SITE.base_url)
 
 # Namespaced per-stack so Arc and Huntaegis don't share a session key.
 # Set BLUESKY_SESSION_KEY=huntaegis:bluesky_session in Huntaegis .env
@@ -288,7 +291,7 @@ def bsky_upload_thumb(og_image_url: str) -> dict | None:
 # ── Post ───────────────────────────────────────────────────────────────────────
 def bsky_post(text: str, og_image_url: str = "", article_url: str = "") -> bool:
     if not og_image_url:
-        og_image_url = "https://arc-codex.com/uploads/arc-codex-default.jpg"
+        og_image_url = _SITE.default_image_url
     """
     Create a Bluesky post with optional image thumbnail in the link card.
     On 401/ExpiredToken: tries refreshSession first, falls back to createSession.
@@ -297,7 +300,7 @@ def bsky_post(text: str, og_image_url: str = "", article_url: str = "") -> bool:
         if not bsky_ensure_session():
             return False
 
-    DEFAULT_IMAGE = "https://arc-codex.com/uploads/arc-codex-default.jpg"
+    DEFAULT_IMAGE = _SITE.default_image_url
     thumb = bsky_upload_thumb(og_image_url)
     if thumb is None and og_image_url != DEFAULT_IMAGE:
         log.info("Thumb failed for external URL — retrying with default image")

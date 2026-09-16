@@ -31,7 +31,9 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 MASTODON_INSTANCE    = os.getenv("MASTODON_INSTANCE", "https://mastodon.social")
 MASTODON_ACCESS_TOKEN = os.getenv("MASTODON_ACCESS_TOKEN", "")
 REDIS_URL            = os.environ['REDIS_URL']
-ARTICLE_BASE_URL     = os.getenv("NEXT_PUBLIC_BACKEND_URL", "https://arc-codex.com")
+from site_config import load_site_config
+_SITE = load_site_config()
+ARTICLE_BASE_URL     = os.getenv("NEXT_PUBLIC_BACKEND_URL", _SITE.base_url)
 
 POLL_INTERVAL  = 15          # seconds between Redis scans
 CA_WAIT        = 120         # seconds to wait for counter-analyst comment
@@ -125,7 +127,7 @@ def mastodon_post(text: str, og_image_url: str = "", article_url: str = "") -> b
     # Upload image if available
     media_ids = []
     if not og_image_url:
-        og_image_url = f"{ARTICLE_BASE_URL}/uploads/arc-codex-default.jpg"
+        og_image_url = _SITE.default_image_url
     media_id = mastodon_upload_image(og_image_url)
     if media_id:
         media_ids.append(media_id)

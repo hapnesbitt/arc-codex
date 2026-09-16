@@ -67,8 +67,10 @@ PAGE_ID          = os.getenv("FACEBOOK_PAGE_ID", "")
 ACCESS_TOKEN     = os.getenv("FACEBOOK_ACCESS_TOKEN", "")
 USER_ACCESS_TOKEN = os.getenv("FACEBOOK_USER_ACCESS_TOKEN", "")
 REDIS_URL        = os.environ['REDIS_URL']
-ARTICLE_BASE_URL = os.getenv("NEXT_PUBLIC_BACKEND_URL", "https://arc-codex.com")
-DEFAULT_IMAGE    = f"{ARTICLE_BASE_URL}/uploads/arc-codex-default.jpg"
+from site_config import load_site_config
+_SITE = load_site_config()
+ARTICLE_BASE_URL = os.getenv("NEXT_PUBLIC_BACKEND_URL", _SITE.base_url)
+DEFAULT_IMAGE    = _SITE.default_image_url
 
 POLL_INTERVAL = 15          # seconds between Redis scans
 JITTER_MIN    = 30          # seconds

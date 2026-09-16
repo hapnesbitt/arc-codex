@@ -510,7 +510,7 @@ def generate_ai_reply(payload: dict) -> bool:
     article_title = article_data.get('title', 'Unknown article')
     article_text = (article_data.get('original_text', '') or '')[:3000]
 
-    reply_prompt = f"""You are the A.R.C. Counter-Analyst on Arc Codex, a platform for building cognitive resilience.
+    reply_prompt = f"""You are the A.R.C. Counter-Analyst on {site.name}, a platform for building cognitive resilience.
 
 You previously posted this comment on an article titled "{article_title}":
 "{ai_comment}"
