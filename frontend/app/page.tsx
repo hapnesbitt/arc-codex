@@ -2,6 +2,7 @@ import React, { Suspense } from 'react';
 import type { Metadata } from 'next';
 import FeedClient from '@/components/FeedClient';
 import PageWrapper from '@/components/layout/PageWrapper';
+import { site } from '@/lib/site';
 
 // Anonymous ISR: SSR render is stable for all visitors between scribe cycles
 // (~13 min). No cookies/headers/auth in this path, so Next.js cannot
@@ -13,7 +14,7 @@ const BACKEND = process.env.BACKEND_INTERNAL_URL ?? "http://localhost:5005";
 
 export const metadata: Metadata = {
   alternates: {
-    canonical: 'https://arc-codex.com/',
+    canonical: `${site.baseUrl}/`,
     types: {
       'application/opensearchdescription+xml': '/opensearch.xml',
       'application/rss+xml': '/rss.xml',

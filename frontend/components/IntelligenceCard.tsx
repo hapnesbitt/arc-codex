@@ -36,6 +36,7 @@ import TranslateButton, { TranslatedFields } from '@/components/TranslateButton'
 import { useUserPrefs } from '@/components/UserPrefsContext';
 import { linkifyText } from '@/lib/textUtils';
 import { cardConfig } from '@/lib/cardConfig';
+import { site } from '@/lib/site';
 import { cn } from '@/lib/utils';
 import type { Article, Comment, Dossier } from '@/lib/types';
 
@@ -1135,7 +1136,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                     decoding="async"
                                     loading={priority ? "eager" : "lazy"}
                                     fetchPriority={priority ? "high" : "auto"}
-                                    onError={(e) => { (e.target as HTMLImageElement).src = '/uploads/arc-codex-default.jpg'; }}
+                                    onError={(e) => { (e.target as HTMLImageElement).src = site.defaultImagePath; }}
                                     className="w-full h-full object-cover"
                                 />
                             </div>
@@ -1225,7 +1226,7 @@ const IntelligenceCard: React.FC<IntelligenceCardProps> = ({
                                         decoding="async"
                                         loading={priority ? "eager" : "lazy"}
                                         fetchPriority={priority ? "high" : "auto"}
-                                        onError={(e) => { (e.target as HTMLImageElement).src = '/uploads/arc-codex-default.jpg'; }}
+                                        onError={(e) => { (e.target as HTMLImageElement).src = site.defaultImagePath; }}
                                         className="w-full h-full object-cover"
                                     />
                                 );

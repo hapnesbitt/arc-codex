@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Copy, Check } from 'lucide-react';
 import type { Article, Comment, Dossier } from '@/lib/types';
+import { site } from '@/lib/site';
 
 interface CopyAllButtonProps {
   article: Article;
@@ -83,7 +84,7 @@ export default function CopyAllButton({ article, comments }: CopyAllButtonProps)
     }
 
     lines.push('');
-    lines.push(`URL: ${process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://arc-codex.com"}/article/${article.id}`);
+    lines.push(`URL: ${process.env.NEXT_PUBLIC_BACKEND_URL ?? site.baseUrl}/article/${article.id}`);
 
     return lines.join('\n');
   }

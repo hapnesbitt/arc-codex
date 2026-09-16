@@ -210,7 +210,7 @@ export default function SalesPage() {
               First Week · Add-Ons In The Deployment Window
             </h3>
             <p className="font-serif text-sm text-slate-300 italic leading-relaxed">
-              Wired in during the same five-day setup window as the base. Assumes the engineer is also carrying across recent improvements from the shared codebase — a real cost, budgeted into the week.
+              Rebrand and reconfigure — sources, taxonomy, domain, palette, social accounts — take one afternoon. The remaining four days go to real customization: the add-ons below, or bespoke work your instance needs.
             </p>
             <ul className="border-t border-slate-800/40">
               {FIRST_WEEK.map((m) => (

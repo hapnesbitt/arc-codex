@@ -1,9 +1,10 @@
 // Next.js not-found.tsx — automatically returns HTTP 404. No changes needed for status code.
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import { site } from '@/lib/site';
 
 export const metadata: Metadata = {
-  title: '404 Not Found — Arc Codex',
+  title: `404 Not Found — ${site.name}`,
   robots: { index: false, follow: false },
 };
 
@@ -11,7 +12,7 @@ const jsonLd = {
   '@context': 'https://schema.org',
   '@type': 'WebPage',
   name: '404 Not Found',
-  description: 'The requested page could not be found on Arc Codex.',
+  description: `The requested page could not be found on ${site.name}.`,
 };
 
 export default function NotFound() {

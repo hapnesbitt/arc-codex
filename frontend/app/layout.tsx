@@ -4,6 +4,7 @@ import { Literata, Public_Sans } from 'next/font/google';
 import './globals.css';
 import ClientLayout from './ClientLayout';
 import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration';
+import { site } from '@/lib/site';
 
 const fontSerif = Literata({
   subsets: ["latin"],
@@ -21,9 +22,9 @@ const fontSans = Public_Sans({
 });
 
 export const metadata: Metadata = {
-  title: 'Arc Codex',
+  title: site.name,
   description: 'AI-powered news intelligence with A.R.C. analysis — Facts Only, Executive Summary, and Full Take on every story.',
-  metadataBase: new URL('https://arc-codex.com'),
+  metadataBase: new URL(site.baseUrl),
 
   manifest: '/manifest.json',
 
@@ -44,7 +45,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'Arc Codex',
+    title: site.name,
   },
 };
 

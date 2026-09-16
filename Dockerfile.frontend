@@ -43,9 +43,19 @@ COPY frontend/components  ./components
 COPY frontend/lib         ./lib
 COPY backend/directives.json ./public/directives.json
 
-# NEXT_PUBLIC_* vars must be present at build time
+# NEXT_PUBLIC_* vars must be present at build time (baked into the client
+# bundle). Fallbacks in lib/site.ts match Arc Codex, so a build that
+# forgets to set these still boots — with visibly-Arc branding, not a
+# crash. Override in a per-stack build script (arc.sh / huntaegis.sh
+# cmd_build) to pass the right values.
 ARG NEXTAUTH_URL
+ARG NEXT_PUBLIC_SITE_NAME
+ARG NEXT_PUBLIC_SITE_BASE_URL
+ARG NEXT_PUBLIC_SITE_DEFAULT_IMAGE
 ENV NEXTAUTH_URL=${NEXTAUTH_URL}
+ENV NEXT_PUBLIC_SITE_NAME=${NEXT_PUBLIC_SITE_NAME}
+ENV NEXT_PUBLIC_SITE_BASE_URL=${NEXT_PUBLIC_SITE_BASE_URL}
+ENV NEXT_PUBLIC_SITE_DEFAULT_IMAGE=${NEXT_PUBLIC_SITE_DEFAULT_IMAGE}
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 

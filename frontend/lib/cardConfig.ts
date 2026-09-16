@@ -6,9 +6,18 @@
 // these as props from callers or fork the component — that is exactly how the
 // two copies drifted before.
 //
+// Identity primitives (siteName, baseUrlFallback) now read from lib/site.ts,
+// which reads them in turn from NEXT_PUBLIC_SITE_* build-time env vars. Every
+// other value here (feature flags, external service URLs like the quiz
+// deeplink and objectivity dashboard, per-stack topic-link mode) stays
+// explicit — those ARE the per-site product decisions this file exists to
+// carry.
+//
 // Flag hygiene: every flag that is `false` carries a comment saying whether it
 // is off BY CHOICE (a product decision) or off because UNBUILT (a debt). Six
 // months out that distinction is invisible without the comment.
+
+import { site } from '@/lib/site';
 
 export interface CardConfig {
   siteName: string;                 // used in tooltips / share copy
@@ -41,8 +50,8 @@ export interface CardConfig {
 }
 
 export const cardConfig: CardConfig = {
-  siteName: 'Arc Codex',
-  baseUrlFallback: 'https://arc-codex.com',
+  siteName: site.name,
+  baseUrlFallback: site.baseUrl,
   videoDomainFallback: 'vid.arc-codex.com',
 
   readingScore: true,
