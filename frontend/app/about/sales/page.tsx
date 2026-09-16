@@ -1,8 +1,8 @@
 // Filename: /frontend/app/about/sales/page.tsx
 // Vision & Doctrine — Arc Codex platform overview.
-// Librarian aesthetic. Reconstructed from page.tsx.Apr20 substantive content
-// (mission, how-it-works, Huntaegis, deployment, integrity) plus the Chimera
-// scorecard from the prior poetic redesign.
+// Librarian aesthetic. Structure follows the four-tier framing (base /
+// first-week / sprint / separate products) settled in the 2026-09-16
+// parity audit; Huntaegis case study kept near-verbatim.
 
 import React from 'react';
 import type { Metadata } from 'next';
@@ -16,10 +16,10 @@ export const metadata: Metadata = {
 };
 
 const STATS = [
-  '2,000+ Sources',
+  '2,300+ Sources',
   'Multilingual',
   '48 A.R.C. Patterns',
-  'Docker-Ready',
+  'Self-Hosted',
 ];
 
 const PASSES = [
@@ -44,14 +44,56 @@ const CHIMERA_METRICS = [
   { name: 'Dale–Chall', body: 'Lexical rarity.' },
 ];
 
-const DEPLOYMENT = [
+// Base = what a Hunt-shaped instance is today, on day one, without add-ons.
+const BASE = [
+  'RSS ingestion at your chosen cadence — your sources, your taxonomy.',
+  'Three-pass A.R.C. analysis on every article: Facts, Summary, Full Take.',
+  'Sentinel AI-content detection and Counter-Analyst adversarial comment.',
+  'Chimera four-metric readability scoring.',
+  'One-click translation into many languages.',
+  'Comment moderation with hostility gating.',
+  'Bluesky, Mastodon, and Facebook auto-posting.',
+  'Weekly opt-in email digest, ranked by readability.',
+  'Your own domain, palette, branding, and social accounts.',
+];
+
+// First week = what a single engineer can genuinely add in five days,
+// after absorbing the shared-codebase porting drift.
+const FIRST_WEEK = [
+  { name: 'Wiki directory', body: 'Read-only intelligence directory grouped by your directives. Layers over existing article storage — no separate database.' },
+  { name: 'Sources page', body: 'Public listing of the feeds you monitor, generated from your sources file.' },
+  { name: 'YouTube ingestion', body: 'Metadata-only ingest of YouTube URLs alongside RSS.' },
+  { name: 'Prompt-to-article', body: 'Generate a publish-ready article from a user prompt.' },
+  { name: 'Grade endpoints', body: 'Structured grading pass on top of the three-pass analysis.' },
+  { name: 'Playwright fallback', body: 'A stealth-browser tier for feeds behind aggressive bot protection.' },
+];
+
+// Sprint = real work, but achievable extensions.
+const SPRINT_ADDONS = [
+  { name: 'Weekly Quiz', body: 'Auto-generated multiple-choice quizzes from the week\'s articles. Requires site-scoped Redis keys and an optional deeplink into a companion learning platform.' },
+  { name: 'Synthetic Reporters', body: 'Persistent character pages with lectures, assignments, and text-to-speech playback. Requires a companion Faculty Directory service.' },
+  { name: 'Reading Library', body: 'A corpus-backed reader with translation cache and curated shelves. Requires you to decide the corpus and provide storage.' },
+];
+
+// Separate products = sibling stacks, not modules.
+const SIBLING_PRODUCTS = [
+  { name: 'Newsradio', body: 'Long-form narrated shows built from analyzed articles. A Kokoro-narrated audio stack that runs alongside Arc.' },
+  { name: 'LightBox', body: 'Video ingestion and analysis. A separate stack with its own hardware footprint.' },
+  { name: 'School of Chat', body: 'The Faculty Directory service that anchors Reporters. A distinct product with its own doctrine and roadmap.' },
+];
+
+const DEPLOYMENT_POSTURE = [
   {
     name: 'Self-Hosted',
-    body: 'Run on your own hardware — a single workstation or server is sufficient. All inference stays local; zero cloud dependency.',
+    body: 'Runs on infrastructure you control. Flask, Next.js, Redis, and Solr fit on one workstation-class server; Ollama runs on whatever LAN host you assign to it.',
   },
   {
-    name: 'Customized for Your Domain',
-    body: 'Swap sources, directives, branding, and palette. Huntaegis went from Arc Codex to a fully branded security platform in a single session.',
+    name: 'Inference On Your Hardware',
+    body: 'Every analysis path except the optional cloud escalation runs locally by default: council, translation, and broadcast script are local-only, and the analyzer runs local-first with a gated escalation. A local-only mode disables cloud entirely for buyers who require it.',
+  },
+  {
+    name: 'Delivered in a Week',
+    body: 'One pre-sales engineer with AI assistance stands up a code-shared instance in five business days — your sources, your taxonomy, your branding, your social accounts, your database. Any tier-one and tier-two features you\'ve chosen are wired in the same window.',
   },
 ];
 
@@ -100,7 +142,7 @@ export default function SalesPage() {
             How It Works
           </h2>
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            Arc Codex monitors over 2,000 RSS sources in many languages in real time. Every article is automatically fetched, scored for reading difficulty, and run through three independent AI analytical passes:
+            Arc Codex monitors over 2,300 RSS sources in many languages in real time. Every article is automatically fetched, scored for reading difficulty, and run through three independent AI analytical passes:
           </p>
           <ul className="border-t border-slate-800/40">
             {PASSES.map((p) => (
@@ -136,6 +178,87 @@ export default function SalesPage() {
           </p>
         </section>
 
+        {/* What You Get — the four tiers */}
+        <section className="py-10 border-b border-slate-800/60 space-y-8">
+          <h2 className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-slate-300">
+            What You Get
+          </h2>
+          <p className="font-serif text-base text-slate-200 leading-relaxed">
+            Arc Codex is sold as a base product with named extensions. Everything below is either running in a live instance today or has a defined path from one to the other. Nothing on this page describes architecture we do not have.
+          </p>
+
+          {/* Tier 1 — Base */}
+          <div className="space-y-4">
+            <h3 className="font-sans text-[11px] uppercase tracking-[0.3em] font-semibold text-emerald-300/90">
+              Base · What Ships On Day One
+            </h3>
+            <p className="font-serif text-sm text-slate-300 italic leading-relaxed">
+              The full working instance. What Huntaegis has been running continuously since its launch.
+            </p>
+            <ul className="border-t border-slate-800/40">
+              {BASE.map((line) => (
+                <li key={line} className="py-3 border-b border-slate-800/40 font-serif text-base text-slate-200 leading-relaxed">
+                  {line}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Tier 2 — First week */}
+          <div className="space-y-4">
+            <h3 className="font-sans text-[11px] uppercase tracking-[0.3em] font-semibold text-amber-300/90">
+              First Week · Add-Ons In The Deployment Window
+            </h3>
+            <p className="font-serif text-sm text-slate-300 italic leading-relaxed">
+              Wired in during the same five-day setup window as the base. Assumes the engineer is also carrying across recent improvements from the shared codebase — a real cost, budgeted into the week.
+            </p>
+            <ul className="border-t border-slate-800/40">
+              {FIRST_WEEK.map((m) => (
+                <li key={m.name} className="py-4 border-b border-slate-800/40 space-y-1">
+                  <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-400">{m.name}</div>
+                  <p className="font-serif text-base text-slate-200 leading-relaxed">{m.body}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Tier 3 — Sprint */}
+          <div className="space-y-4">
+            <h3 className="font-sans text-[11px] uppercase tracking-[0.3em] font-semibold text-sky-300/90">
+              Sprint Add-Ons · Discrete Engagements
+            </h3>
+            <p className="font-serif text-sm text-slate-300 italic leading-relaxed">
+              Substantial features with their own dependencies. Each is a defined engagement, not part of the initial week.
+            </p>
+            <ul className="border-t border-slate-800/40">
+              {SPRINT_ADDONS.map((m) => (
+                <li key={m.name} className="py-4 border-b border-slate-800/40 space-y-1">
+                  <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-400">{m.name}</div>
+                  <p className="font-serif text-base text-slate-200 leading-relaxed">{m.body}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Tier 4 — Sibling products */}
+          <div className="space-y-4">
+            <h3 className="font-sans text-[11px] uppercase tracking-[0.3em] font-semibold text-slate-400">
+              Sibling Products · Named Separately
+            </h3>
+            <p className="font-serif text-sm text-slate-300 italic leading-relaxed">
+              Distinct products that run alongside Arc, not modules of it. Named here so buyers know they exist; scoped and quoted separately.
+            </p>
+            <ul className="border-t border-slate-800/40">
+              {SIBLING_PRODUCTS.map((m) => (
+                <li key={m.name} className="py-4 border-b border-slate-800/40 space-y-1">
+                  <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-400">{m.name}</div>
+                  <p className="font-serif text-base text-slate-200 leading-relaxed">{m.body}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
         {/* Success Story — Huntaegis */}
         <section className="py-10 border-b border-slate-800/60 space-y-4">
           <h2 className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-slate-300">
@@ -150,13 +273,16 @@ export default function SalesPage() {
             >
               Huntaegis.com
             </a>{' '}
-            is a purpose-built cybersecurity intelligence platform deployed on the Arc Codex engine — fully customized for a professional penetration tester.
+            is a purpose-built cybersecurity intelligence platform running the Arc Codex codebase — fully rebranded, with its own database, taxonomy, and social accounts.
           </p>
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            Where Arc Codex monitors general world news, Huntaegis is focused exclusively on threat intelligence: active ransomware campaigns, critical CVEs, state-sponsored cyber operations, DFIR developments, and law enforcement cybercrime actions. It ingests from 51 security-specialist sources including Krebs on Security, Google Project Zero, CISA, Mandiant, Unit 42, and Cisco Talos.
+            Where Arc Codex monitors general world news, Huntaegis is focused exclusively on threat intelligence: active ransomware campaigns, critical CVEs, state-sponsored cyber operations, DFIR developments, and law enforcement cybercrime actions. It ingests from 284 security-specialist sources including Krebs on Security, Google Project Zero, CISA, Mandiant, Unit 42, and Cisco Talos.
           </p>
           <p className="font-serif text-base text-slate-200 leading-relaxed">
             The same A.R.C. cognitive analysis engine runs on every threat report — giving security professionals not just the news, but the angle, the context, and the counter-argument. A dedicated terminal aesthetic makes it feel at home in a SOC environment.
+          </p>
+          <p className="font-serif text-sm text-slate-400 italic leading-relaxed">
+            Huntaegis is the proof point for everything above: a live second instance, code-shared with Arc Codex, run continuously with its own sources, directives, branding, and social accounts.
           </p>
           <a
             href="https://huntaegis.com"
@@ -170,17 +296,16 @@ export default function SalesPage() {
           </a>
         </section>
 
-        {/* Deploy Your Own */}
+        {/* How It's Delivered */}
         <section className="py-10 border-b border-slate-800/60 space-y-6">
           <h2 className="font-sans text-xs uppercase tracking-[0.25em] font-semibold text-slate-300">
-            Deploy Your Own
+            How It&apos;s Delivered
           </h2>
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            Arc Codex is available as a Docker-based deployment. The full stack — Flask API, Next.js frontend, Redis, Apache Solr, and all background workers — ships as a single{' '}
-            <code className="font-mono text-sm text-slate-300 bg-slate-900 border border-slate-800 rounded-sm px-1.5 py-0.5">docker-compose.yml</code>. AI inference runs locally via Ollama, keeping your data on your hardware.
+            One pre-sales engineer, working with AI assistance, delivers the setup. No sprint teams, no consulting layers, no seven-figure statement of work.
           </p>
           <ul className="border-t border-slate-800/40">
-            {DEPLOYMENT.map((d) => (
+            {DEPLOYMENT_POSTURE.map((d) => (
               <li key={d.name} className="py-4 border-b border-slate-800/40 space-y-1">
                 <div className="font-sans text-[10px] uppercase tracking-[0.25em] text-slate-400">{d.name}</div>
                 <p className="font-serif text-base text-slate-200 leading-relaxed">{d.body}</p>
@@ -188,7 +313,7 @@ export default function SalesPage() {
             ))}
           </ul>
           <p className="font-serif text-base text-slate-200 leading-relaxed">
-            Interested in a custom deployment? Reach out — Arc Codex has been deployed for general news intelligence, cybersecurity operations, and domain-specific research platforms.
+            Interested in a deployment? Reach out — the engagement starts with a scoping call to fix the source list, taxonomy, and first-week add-ons.
           </p>
         </section>
 
