@@ -20,8 +20,8 @@
 // (video subdomain, quiz deeplink template, dashboard link); this
 // module is just brand identity.
 
-function requireBrandEnv(name: string): string {
-  const v = process.env[name];
+function requireBrandEnv(name: string, value: string | undefined): string {
+  const v = value;
   if (!v) {
     throw new Error(
       `[site.ts] Required brand env var ${name} is unset or empty. ` +
@@ -35,9 +35,9 @@ function requireBrandEnv(name: string): string {
   return v;
 }
 
-const SITE_NAME = requireBrandEnv('NEXT_PUBLIC_SITE_NAME');
-const SITE_BASE_URL = requireBrandEnv('NEXT_PUBLIC_SITE_BASE_URL');
-const SITE_DEFAULT_IMAGE = requireBrandEnv('NEXT_PUBLIC_SITE_DEFAULT_IMAGE');
+const SITE_NAME = requireBrandEnv('NEXT_PUBLIC_SITE_NAME', process.env.NEXT_PUBLIC_SITE_NAME);
+const SITE_BASE_URL = requireBrandEnv('NEXT_PUBLIC_SITE_BASE_URL', process.env.NEXT_PUBLIC_SITE_BASE_URL);
+const SITE_DEFAULT_IMAGE = requireBrandEnv('NEXT_PUBLIC_SITE_DEFAULT_IMAGE', process.env.NEXT_PUBLIC_SITE_DEFAULT_IMAGE);
 
 // Derived from base_url — no separate env var needed. Strips protocol
 // so callers building host-only strings (canonical URLs already have
