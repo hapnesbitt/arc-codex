@@ -278,6 +278,18 @@ SYNC_TIMEOUT_S = 30                  # rsync's own --timeout, per attempt
 SYNC_OK_COUNTER = "arc:audio:sync_ok"
 SYNC_FAIL_COUNTER = "arc:audio:sync_fail"
 
+# Silent-loss visibility (2026-09-16). Prior 24h observations of ~65 articles
+# aging out of the audio window unanalyzed with zero log lines and zero
+# retry counters (see TODO.md §2026-09-13 "silent data loss") happened
+# because there was no counter for the pass-over case in find_newest_silent.
+# The metric here surfaces the same loss automatically regardless of what
+# cycle_minutes happens to be that week: any time arrivals-of-unanalyzable
+# exceed analyzer drain within the window, the counter ticks and one log
+# line fires per aged-out article. That's the drift a hand-tuned knob makes
+# invisible without a metric.
+NOTED_UNANALYZED_SET = "arc:audio:noted_unanalyzed_ids"
+AGED_OUT_UNANALYZED_COUNTER = "arc:stats:aged_out_unanalyzed"
+
 
 def push_to_destination(r: redis.Redis, article_id: str, local_path: str) -> bool:
     """Push one just-written mp3 to SYNC_DEST via rsync. True on success.
@@ -477,6 +489,61 @@ def _ensure_analysis_queued(r: redis.Redis, article_id: str) -> None:
         logger.warning(f"⚠️  Analysis dispatch failed for {article_id}: {e}")
 
 
+def _tally_aged_out_unanalyzed(r: redis.Redis, cutoff: float, hours: float) -> None:
+    """Detect articles that were noted as unanalyzed while inside the audio
+    window but have since aged out without ever being analyzed. Increment
+    arc:stats:aged_out_unanalyzed and log once per article.
+
+    The point of separating "note" from "count" is idempotency: an article
+    is added to NOTED_UNANALYZED_SET on first observation, and only counted
+    once at the transition where its feed_ts falls below the window cutoff.
+    A busy poll cycle would otherwise increment the same article's tally
+    on every pass, drowning the signal.
+
+    Buckets at age-out time:
+      - has audio → success; drop silently
+      - deleted (feed ZSCORE None) → retention swept it; drop silently
+      - still in window (feed_ts >= cutoff) → keep watching
+      - aged out, analyzed but unnarrated → different failure mode (Kokoro
+        timeouts, sync failures) — drop without counting; those have their
+        own counters
+      - aged out AND unanalyzed → increment + one WARN log line + drop
+    """
+    try:
+        noted = r.smembers(NOTED_UNANALYZED_SET)
+    except Exception as e:
+        logger.debug(f"tally_aged_out: SMEMBERS failed: {e}")
+        return
+    if not noted:
+        return
+    noted_list = list(noted)
+    pipe = r.pipeline()
+    for aid in noted_list:
+        pipe.zscore('feed', aid)
+        pipe.hmget(f"article:{aid}", ['audio_url', *_ANALYSIS_FIELDS])
+    results = pipe.execute()
+    for i, aid in enumerate(noted_list):
+        feed_score = results[i * 2]
+        audio_url, red, blue, purple = results[i * 2 + 1]
+        if audio_url:
+            r.srem(NOTED_UNANALYZED_SET, aid)
+            continue
+        if feed_score is None:
+            r.srem(NOTED_UNANALYZED_SET, aid)
+            continue
+        if feed_score >= cutoff:
+            continue
+        if _is_analyzed(red, blue, purple):
+            r.srem(NOTED_UNANALYZED_SET, aid)
+            continue
+        r.incr(AGED_OUT_UNANALYZED_COUNTER)
+        logger.warning(
+            f"📉 {aid} aged out of {hours}h window UNANALYZED "
+            f"— analyzer drain < arrival rate; counter arc:stats:aged_out_unanalyzed"
+        )
+        r.srem(NOTED_UNANALYZED_SET, aid)
+
+
 def find_newest_silent(r: redis.Redis, hours: float, skip: set,
                         max_chars: int) -> tuple[str, str, str, str, str] | None:
     """Newest silent, analyzed article published within the last `hours`,
@@ -504,6 +571,7 @@ def find_newest_silent(r: redis.Redis, hours: float, skip: set,
     hasn't reached the front of the window's attention yet.
     """
     cutoff = time.time() - hours * 3600
+    _tally_aged_out_unanalyzed(r, cutoff, hours)
     ids = r.zrevrangebyscore('feed', '+inf', cutoff)
     if not ids:
         return None
@@ -550,6 +618,14 @@ def find_newest_silent(r: redis.Redis, hours: float, skip: set,
             continue
         if not _is_analyzed(red, blue, purple):
             _ensure_analysis_queued(r, aid)
+            # Idempotent mark for the silent-loss detector; _tally_aged_out_
+            # unanalyzed reads this set at the top of every pass and counts
+            # the age-out transition. SADD is idempotent — safe to call on
+            # every poll while an article remains unanalyzed in the window.
+            try:
+                r.sadd(NOTED_UNANALYZED_SET, aid)
+            except Exception as e:
+                logger.debug(f"note_unanalyzed: SADD failed for {aid}: {e}")
             continue
         return aid, body, red or '', blue or '', purple or ''
     return None
