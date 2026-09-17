@@ -1,0 +1,32 @@
+# ALMA Reveals Long-Lived Hotspots on Betelgeuse’s Bubbling Surface
+# id=7a468ae7d42c176e1860ef4ef48d443c
+
+## ESSAY OUTPUT
+
+Observations from the Atacama Large Millimeter/submillimeter Array reveal that Betelgeuse, a red supergiant positioned around 600 light-years away, possesses an uneven surface structure. This analysis of data gathered in 2023 shows features like bright hotspots and a corrugated outline across the star's atmosphere. These measurements also detected two distinct hotter areas situated to the northeast and southwest of the visible stellar disk. The hottest observed point is noted as being up to 800 Kelvin warmer than the gas immediately surrounding it, and ALMA recorded variations in the apparent size of the star by as much as six percent. Additionally, molecular detections of substances like silicon monoxide and carbon monoxide suggest an overall irregular environment rather than a simple sphere.
+
+These findings point toward energetic processes occurring deep within the star. The observed hotspots are thought to originate from enormous convective movements that generate shocks as material rises through the outer layers. A critical point emerges when comparing the 2023 data with readings taken in 2015; this comparison shows the hotspot located in the northeast maintained its position and intensity, suggesting a persistence of at least seven years. This longevity creates tension because current theoretical models do not predict such long-lasting convective structures in these types of stars. The persistent nature of these hot spots suggests that the underlying physics governing how energy moves outward and how mass is lost from the star might require adjustment.
+
+What this evidence strongly implies, but does not resolve, is the true physical mechanism enabling such longevity. If a feature predicted to last far less time remains visible for seven years or more, it forces consideration of deeper revisions in our understanding of stellar physics. Specifically, researchers must determine what modification to convection theory would allow for features that are dynamically stable over decade-long timescales. Furthermore, relating the consistent geometry of these hot spots directly to theoretical models of mass loss rates represents a significant gap. The continuing study needs to precisely map if this persistent atmospheric irregularity has a direct functional link to how much material is actually shed into space as the star evolves toward its end state.
+
+## R/B/P GROUND TRUTH FED TO MODEL
+
+### RED
+*   ALMA observations revealed the uneven surface of Betelgeuse.
+*   The observations showed bright hotspots and a corrugated outline on the star's surface.
+*   Betelgeuse is located roughly 600 light-years from Earth.
+*   Betelgeuse has a radius about 800 times that of the Sun.
+*   Observations were obtained in 2023 using ALMA in its longest-baseline configuration.
+*   The atmosphere has an average temperature of around 2300 K.
+*   Two hotter regions are located to the northeast and southwest of the stellar disk.
+*   The brightest hotspot is up to 800 K hotter than the surrounding gas.
+*   Hotspots are thought to be linked to enormous convective motions generating shocks.
+*   Comparison with 2015 data shows the northeastern hotspot location and intensity were similar, suggesting persistence for at least seven years.
+*   ALMA measured variations of up to about six percent in the apparent radius.
+*   Molecules like silicon monoxide (SiO) and carbon monoxide (CO) reveal an irregular environment.
+
+### BLUE
+Observations from the ALMA reveal uneven surface features and hotspots on the atmosphere of Betelgeuse, a red supergiant located approximately 600 light-years away. These features indicate energetic processes within the star, with at least two hotter regions detected in the northeast and southwest of the stellar disk. The brightest hotspot is up to 800 K hotter than the surrounding gas. These structures are believed to be caused by immense convective motions generating shocks as hot gas rises from deeper layers of the star. Comparison of data from 2023 with 2015 suggests that the northeastern hotspot has persisted for at least seven years, which challenges predictions based on current models of convective structure lifetimes. Furthermore, ALMA measurements show variations in the surface radius and clumpy environments surrounding the star, revealed by molecular emissions like silicon monoxide (SiO) and carbon monoxide (CO).
+
+### PURPLE
+The persistence of the hotspot over seven years, exceeding predictions based on current convective models, introduces a significant tension between observational reality and theoretical understanding. This discrepancy suggests that the underlying physics governing internal stellar dynamics and mass transport might require revision, especially concerning how energy is manifested in the extended atmosphere of evolved stars. The structure's long-lived nature implies that the mechanism driving these features—convection, shocks, and mass loss—is more stable or operates on timescales longer than previously estimated by models. The layered information provided by molecular observations (SiO and CO) further indicates a complex, clumpy environment beyond simple spherical geometry. The unresolved orientation of these long-lived features relative to the star's companion demands further high-resolution study to map their precise relationship to mass loss trajectories. The core implication is that current models may underestimate the dynamical stability of convective structures in red supergiants, necessitating re-evaluation of stellar evolution frameworks. Bridge questions include: What modifications to convection theory are required to account for these long-lived features? How does the persistent geometry of these hotspots relate directly to predicted mass loss rates? What role do these observed atmospheric irregularities play in the overall supernova progenitor timeline?

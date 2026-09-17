@@ -91,45 +91,89 @@ dense financial disclosure and a deeply-reported investigation both
 score high. Wrong signal — do not wire chimera to the essay
 trigger.
 
-### Verification run — status at handoff
+### Verification run — completed, verdict: **RECONSIDER**
 
-**Started 2026-09-17 05:31, still running at session end** (article
-1 of 5, e4b at ~5–8 min/essay = 25–40 min total).
+Ran 2026-09-17 05:31–05:44, 5 articles, gemma4:e4b on warden,
+prompt built from R/B/P only (no `original_text` in the signature
+or the template). Wall-per-essay: 82 s to 231 s (mean ~119 s —
+faster than the 5–8 min estimate, because the model self-
+terminated at 277–375 words instead of the 500–1500 word target).
+Outputs preserved at `docs/essay-verification-2026-09-17/*.txt`.
 
-**Where to pick it up:**
-- Command:
-  ```
-  python3 /tmp/claude-1000/-home-www-arc-stack/9c281ec0-c1a5-4cd8-a35c-33d1c9a2bc26/scratchpad/essay_verify.py
-  ```
-  (Idempotent; a rerun overwrites the numbered output files.)
-- Log tail:
-  ```
-  /tmp/claude-1000/.../scratchpad/essay_run.log
-  ```
-- Per-article outputs:
-  ```
-  /tmp/claude-1000/.../scratchpad/essay_{1..5}_<id>.txt
-  ```
-  Each includes: title, id, ESSAY OUTPUT, and the R/B/P GROUND
-  TRUTH fed to the model.
-- Five article ids in order:
-  1. `9c37f564c0d84eabc4236e77c80499ed` — MIRI: *If Anyone Builds It, Everyone Dies*
-  2. `9ec8a7f98fbd4f9c1211a33b5af6e7ad` — True-Crime producer posed as heiress
-  3. `7a468ae7d42c176e1860ef4ef48d443c` — ALMA / Betelgeuse hotspots
-  4. `f5a81066bba4a33c5be7da91d4bda6a2` — AI in Agriculture
-  5. `cfd9839af7b44ff4ac2e87c763288eed` — Aliencell / CHITUBOX 3D printer
+**Failure-mode counts:**
 
-**When it lands, hand-check each for:**
-- source leakage — facts not traceable to R/B/P
-- rewrite-of-purple — essay opening paraphrases Purple opening
-- fabricated causal chains — invented motives/causes to fill space
+| # | Article | Source leakage | Rewrite-of-Purple | Fabricated causal |
+|---|---|---|---|---|
+| 1 | MIRI: If Anyone Builds It | 0 | partial (mid-paragraph) | 0 |
+| 2 | Producer/heiress fraud | 0 | **strong** (whole essay) | 0 |
+| 3 | Betelgeuse / ALMA hotspots | 0 | partial (rewrote bridge Qs) | 0 |
+| 4 | AI in Agriculture | 0 | **strong** (whole essay) | 0 |
+| 5 | Aliencell / CHITUBOX E1 | 0 | **strong** (whole essay) | 0 |
 
-Report the count per failure mode. If >1/5 on any mode, tighten the
-prompt. If >2/5, the guardrail is a prompt problem the model won't
-fix — reconsider before building the machinery.
+- **Source leakage: 0/5** — structural (red, blue, purple)
+  guardrail held perfectly. The no-`original_text` signature is
+  the right architectural choice; keep that for any future essay
+  work.
+- **Rewrite-of-Purple: 5/5** — 3 strong, 2 partial. Every essay
+  drew heavily from Purple's phrasing and structure. Essay 2
+  lifts Purple's "the story's power derives not just from the
+  alleged actions themselves, but from the multiplicity of
+  external actors" nearly verbatim; Essay 4 rewrites Purple's
+  "reliance on automated insights might lead to systemic blind
+  spots… creating externalities across the supply chain" as its
+  own prose; Essay 5 rewrites Purple's "reframing laser tools as
+  extensions of creative thought rather than industrial
+  apparatuses" as "rebranding laser tools away from looking like
+  industrial gear and toward feeling more like extensions of an
+  artist's own mind." Not a subtle issue — pervasive.
+- **Fabricated causal chains: 0/5** — model was appropriately
+  grounded. Speculation stayed within what R/B/P established.
 
-The scratchpad is session-specific and will vanish; if the session is
-gone, copy the outputs somewhere durable before rerunning.
+**Verdict per the threshold set in the scope report** (>2/5 on any
+mode = prompt problem the model won't fix): **do not build the
+machinery yet.** The essay pass with a 5B-8B local model on R/B/P
+alone produces longer Purple restatements, not essays. The problem
+is not the trigger, not the storage, not the surfacing — the
+essay-length prompt does not extract new material from a
+description-length R/B/P summary. Purple already IS the analytical
+take; asking the model to write a longer one from just Purple is
+asking it to pad.
+
+**Options to reconsider before building:**
+1. **Feed more source-derived material** — pass the article's own
+   headline, TL;DR, and Sentinel counter-analyst comment alongside
+   R/B/P. Adds substrate without ceding the structural guardrail
+   (no source prose). Risk: still likely to rewrite whatever we
+   feed.
+2. **Ask a genuinely different question** — the prompt currently
+   asks for "what the source left unanswered," but at essay length
+   the model reaches for Purple's bridge questions and paraphrases
+   them. Try: *what does this article change about a related
+   ongoing story that Arc has been tracking?* — forces the model
+   to bring in structure R/B/P doesn't carry.
+3. **Upgrade to cloud (gemma4:31b-cloud)** for the essay pass only
+   — more capacity to synthesize rather than restate, at cloud-
+   quota cost. Warden essay pass then becomes cloud escalation
+   with e4b as the local fallback.
+4. **Retire the essay pass idea.** If R/B/P + on-demand doesn't
+   produce essays that read as new analysis, the concept doesn't
+   pay for itself. The bench decision to reserve warden for e4b
+   still stands — e4b just gets used differently (or not).
+
+Recommend: try (2) as a one-hour prompt-only iteration before
+committing to (1) or (3). If (2) also produces Purple restatements,
+the concept needs the (3) upgrade or the (4) retirement.
+
+Reproduction command (idempotent — rerun overwrites the numbered
+output files in scratchpad, but the frozen 2026-09-17 copies in
+`docs/essay-verification-2026-09-17/` stay put):
+```
+python3 /tmp/claude-1000/…/scratchpad/essay_verify.py
+```
+(The scratchpad path itself is session-scoped; if the session is
+gone, the script sits next to the outputs at
+`scratchpad/essay_verify.py` — copy it out first before the
+scratchpad vanishes.)
 
 ---
 
