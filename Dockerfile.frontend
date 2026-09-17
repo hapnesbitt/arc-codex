@@ -70,6 +70,16 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=""
 
+# White-label site identity must also exist in the final runner image.
+# These values are baked into the Next.js client during the builder stage
+# and are required by server-side site.ts at runtime.
+ARG NEXT_PUBLIC_SITE_NAME
+ARG NEXT_PUBLIC_SITE_BASE_URL
+ARG NEXT_PUBLIC_SITE_DEFAULT_IMAGE
+ENV NEXT_PUBLIC_SITE_NAME=${NEXT_PUBLIC_SITE_NAME}
+ENV NEXT_PUBLIC_SITE_BASE_URL=${NEXT_PUBLIC_SITE_BASE_URL}
+ENV NEXT_PUBLIC_SITE_DEFAULT_IMAGE=${NEXT_PUBLIC_SITE_DEFAULT_IMAGE}
+
 # Non-root user — security best practice
 RUN addgroup --system --gid 1001 nodejs \
  && adduser  --system --uid 1001 nextjs

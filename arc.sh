@@ -555,7 +555,7 @@ cmd_build() {
     # old cache on next navigation. `git describe --always --dirty` at least
     # distinguishes clean-vs-dirty; it will not distinguish two different
     # dirty states, so commit before deploying if that matters.
-    export SW_CACHE_STAMP="$(git -C "$ITC_ROOT" describe --always --dirty 2>/dev/null || echo dev)"
+    export SW_CACHE_STAMP="$(git -C "$ITC_ROOT" describe --always --dirty 2>/dev/null || echo dev)-$(date +%s)"
     echo "  🔖 SW_CACHE_STAMP=$SW_CACHE_STAMP"
     docker compose -f "$COMPOSE_FILE" build $build_args frontend 2>&1
     if [ $? -eq 0 ]; then
