@@ -134,6 +134,13 @@ services:
       args:
         NEXTAUTH_URL: ${NEXTAUTH_URL:-https://arc-codex.com}
         SW_CACHE_STAMP: ${SW_CACHE_STAMP:-dev}
+        # White-label brand vars. NO fallback default here on purpose:
+        # a missing/misnamed value would otherwise ship a Hunt build with
+        # Arc branding (or vice versa). Pass-through empty → site.ts
+        # throws at build time with a message that names the variable.
+        NEXT_PUBLIC_SITE_NAME: ${NEXT_PUBLIC_SITE_NAME}
+        NEXT_PUBLIC_SITE_BASE_URL: ${NEXT_PUBLIC_SITE_BASE_URL}
+        NEXT_PUBLIC_SITE_DEFAULT_IMAGE: ${NEXT_PUBLIC_SITE_DEFAULT_IMAGE}
     image: arc-codex-frontend:latest
     container_name: arc-frontend
     network_mode: host

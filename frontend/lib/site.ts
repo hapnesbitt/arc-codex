@@ -1,12 +1,17 @@
 // site.ts — per-site identity primitives, read from build-time env.
 //
 // Frontend companion to backend/site_config.py. Reads NEXT_PUBLIC_SITE_*
-// vars baked in at build time (see Dockerfile.frontend build-args block)
-// with hardcoded fallbacks matching Arc Codex — the fallbacks exist so
-// this module is safe to import in local dev without env vars set, and
-// so a rebrand that forgets to set the build args produces a working
-// page (with the wrong branding, visibly) rather than an undefined
-// crash.
+// vars baked in at build time (see Dockerfile.frontend build-args block
+// and docker-compose.yml build.args). NO hardcoded fallbacks: this is
+// the white-label mechanism, and a Hunt build with a missing or
+// misnamed var would otherwise silently ship Arc-branded (or vice
+// versa). A failed build is loud and cheap; wrong branding on a
+// customer instance is not — so any missing/empty required var throws
+// here with a message naming which variable and where to set it. The
+// throw fires at module load, which means it surfaces at Next.js
+// build-time page collection (previously this manifested three files
+// away as `new URL('')` → ERR_INVALID_URL in layout.tsx, hard to
+// trace).
 //
 // Everything else in the frontend that would otherwise hardcode
 // "Arc Codex" / "arc-codex.com" / a specific canonical URL should read
@@ -15,9 +20,24 @@
 // (video subdomain, quiz deeplink template, dashboard link); this
 // module is just brand identity.
 
-const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME ?? 'Arc Codex';
-const SITE_BASE_URL = process.env.NEXT_PUBLIC_SITE_BASE_URL ?? 'https://arc-codex.com';
-const SITE_DEFAULT_IMAGE = process.env.NEXT_PUBLIC_SITE_DEFAULT_IMAGE ?? '/uploads/arc-codex-default.jpg';
+function requireBrandEnv(name: string): string {
+  const v = process.env[name];
+  if (!v) {
+    throw new Error(
+      `[site.ts] Required brand env var ${name} is unset or empty. ` +
+      `This is the white-label mechanism — no default is applied so a ` +
+      `mislabeled build fails loudly instead of shipping the wrong brand. ` +
+      `Set it via docker-compose.yml build.args (see the NEXT_PUBLIC_SITE_* ` +
+      `block, sourced from the shell/.env at build time) or, for local ` +
+      `npm run dev, in frontend/.env.local.`
+    );
+  }
+  return v;
+}
+
+const SITE_NAME = requireBrandEnv('NEXT_PUBLIC_SITE_NAME');
+const SITE_BASE_URL = requireBrandEnv('NEXT_PUBLIC_SITE_BASE_URL');
+const SITE_DEFAULT_IMAGE = requireBrandEnv('NEXT_PUBLIC_SITE_DEFAULT_IMAGE');
 
 // Derived from base_url — no separate env var needed. Strips protocol
 // so callers building host-only strings (canonical URLs already have

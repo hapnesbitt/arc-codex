@@ -54,6 +54,13 @@ const CONTACTS: Array<{ label: string; value: string; href: string; external: bo
     external: true,
     aria: 'hapnesbitt on GitHub (opens in new tab)',
   },
+  {
+    label: 'LinkedIn',
+    value: 'rossicusnesbitticus',
+    href: 'https://www.linkedin.com/in/rossicusnesbitticus/',
+    external: true,
+    aria: 'rossicusnesbitticus on LinkedIn (opens in new tab)',
+  },
 ];
 
 export default function ContactPage() {
