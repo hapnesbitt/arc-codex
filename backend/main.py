@@ -1085,7 +1085,7 @@ def react_to_comment(comment_id):
         app.logger.error(f"🔥 Error processing reaction: {e}", exc_info=True)
         return jsonify({'error': 'Internal server error'}), 500
 
-_pre_analyze_sem = threading.Semaphore(2)
+_pre_analyze_sem = threading.Semaphore(8)
 
 # --- CSP report ingest ------------------------------------------------------
 # Wave C R5: Content-Security-Policy-Report-Only sends violation reports here.
@@ -1201,7 +1201,7 @@ def pre_analyze():
         app.logger.error("🔥 NLP Engine unavailable for pre_analyze")
         return jsonify({"error": "NLP Engine is offline."}), 503
 
-    if not _pre_analyze_sem.acquire(timeout=1):
+    if not _pre_analyze_sem.acquire(timeout=3):
         app.logger.warning("⚠️  pre_analyze: concurrency limit reached, returning 429")
         return jsonify({"error": "Server busy, please retry shortly."}), 429
 
