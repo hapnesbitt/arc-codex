@@ -300,3 +300,179 @@ Hunt:
 - `docker-compose.yml` — three brand build.args
 - `.gitignore` — added `.env` line
 - `.env` — gitignored, per-stack Hunt brand values (new file)
+
+---
+
+## Addendum — later on 2026-09-17 (pre-reboot pass)
+
+### site.ts DefinePlugin fix (both stacks)
+
+Yesterday's brand-env fix killed both frontends this morning
+because `requireBrandEnv(name)` was reading `process.env[name]`
+(dynamic bracket access) internally. Next.js's DefinePlugin only
+statically substitutes `process.env.NEXT_PUBLIC_*` when the source
+uses a literal member expression; dynamic access is left
+untransformed, so in the client bundle `process.env` is
+effectively `{}` and every requireBrandEnv call sees undefined
+and throws in the browser.
+
+Ross hand-edited both stacks with Gemini this morning to fix the
+frontend outage: signature now `(name, value)`, callsites pass
+`process.env.NEXT_PUBLIC_SITE_*` as a literal expression. Committed
+today as `arc 15f825f` and `hunt e11c800`. Guard preserved.
+
+Do not revert to the dynamic form — that reintroduces the
+client-bundle breakage. Rule captured in memory
+`nextjs-defineplugin-literal-env-access`.
+
+Hunt frontend build verified green today with those two commits
+plus the .env brand values in place. Also verified the throw
+fires with the site.ts-named message at page-data collection
+when any of the three NEXT_PUBLIC_SITE_* build-args is empty
+(tested with `--build-arg NEXT_PUBLIC_SITE_BASE_URL=`).
+
+### Hunt .gitignore white-label leak — fixed
+
+`.gitignore` had `!frontend/public/uploads/arc-codex-{default,manual}.jpg`
+un-ignore exceptions. Removed both, added a comment naming the leak
+so it doesn't come back. Committed with the site.ts fix as `e11c800`.
+
+The already-tracked copies of those two files remain (grandfathered —
+.gitignore doesn't untrack). `git rm --cached` when ready to actually
+untrack, but do so only after Hunt has real Hunt-branded fallback
+images (see next section).
+
+### Hunt default-image referrer inconsistency — step 1 done, 2 & 3 deferred
+
+Three referrers, three different truths. `.env` says
+`NEXT_PUBLIC_SITE_DEFAULT_IMAGE=/uploads/huntaegis-default.jpg`;
+`huntaegis.cfg:125` and `backend/scribe.py:148-149` still name the
+Arc-branded upload paths. Converging on `huntaegis-{default,manual}.jpg`:
+
+1. **DONE 2026-09-17 (pre-handoff pass).** Cp'd the arc-codex-*.jpg
+   placeholders from Arc's uploads into Hunt's tree with Hunt-branded
+   names:
+   - `/home/www/huntaegis_stack/frontend/public/uploads/huntaegis-default.jpg`
+   - `/home/www/huntaegis_stack/frontend/public/uploads/huntaegis-manual.jpg`
+
+   Both verified 200 through Caddy at `https://huntaegis.com/uploads/`.
+   They're the arc-codex placeholders byte-for-byte (120,822 bytes,
+   1200x675) — brand-neutral enough to beat a 404, real rebrand
+   defers to the next design pass.
+2. **DEFERRED — clean pass, not urgent.** Repoint backend referrers
+   (`huntaegis.cfg:125`, `backend/scribe.py:148-149`) to
+   `huntaegis-*.jpg`, preferring the `site_config` accessor pattern
+   (mirror of Arc's `b606d12`) so the string lives in one place.
+3. **DEFERRED — clean pass, not urgent.** Untrack the arc-codex-*.jpg
+   files (`git rm --cached` + delete on-disk — bind-mount-served, not
+   container-baked, so deletion takes effect immediately). Do this
+   only AFTER step 2 lands so nothing references them.
+
+Step 1 unblocks the 404 on `huntaegis-default.jpg` that
+`site_config.py:258` (`f"{self.base_url}/uploads/{self.slug}-default.jpg"`)
+generates. Nothing else runtime-critical is waiting on 2 or 3.
+
+### Root-drive pressure — actual cause was Docker build cache
+
+The 90% figure (which had grown to 93% / 34 GB free by mid-day)
+was NOT LightBox — LightBox uploads live on `/mnt/arcdata` (60%,
+181 GB free), not on `/`. The `/` drive was being eaten by
+`docker system` — `Build Cache: 101.2 GB, 46.42 GB reclaimable`.
+
+Hand-run `docker builder prune -f` today: reclaimed 46.42 GB, `/`
+from 93% → 83%, 34 GB free → 77 GB free. Non-destructive; only
+reclaimable layers removed.
+
+Root cause of accumulation: the weekly Sunday-05:30 prune cron
+was using the deprecated `--keep-storage 25GB` flag, which Docker
+29.8.1 accepts but maps to `--reserved-space 25GB` (min-floor).
+Prune only removed reclaimable layers ABOVE 25 GB reserved, so
+mid-week rebuilds (like this week's brand-env churn) could pile
+46 GB on top and the cron would still report `Total: 0B` some
+weeks because reclaimable-at-Sunday was below the floor.
+
+Fixed in crontab: line now uses `--max-used-space 25GB` (cache
+cap semantic — total cache capped at 25 GB). Corrected line
+ran by hand as validation. Rule captured in memory
+`docker-prune-cron-max-used-space`.
+
+**Post-fix state (verified 2026-09-17 late pass):**
+- Live crontab line 39 reads `docker builder prune -f --max-used-space 25GB`
+  — flag is right, no drift.
+- `docker system df`: Build Cache 59.28 GB total, **1.96 GB reclaimable**
+  (the rest pinned to active images). Cache back at ~2.4× the 25 GB
+  cap after 4 days of rebuilds — normal mid-week accumulation, not
+  a broken cron.
+- `logs/docker_prune.log` shows last run 2026-09-13 05:30 reclaimed
+  11.97 GB. Historical weekly totals: 0B, 0B, 0B, 15.95 GB, 14.81 GB,
+  976 MB, 4.43 GB, 454 MB, 0B, 11.97 GB. The cron runs and does
+  what it can — some weeks reclaimable is tiny.
+- If mid-week cache growth becomes a recurring pressure signal
+  (rather than one bad week that motivated today's hand prune),
+  options are: (a) cadence up to daily or twice-weekly, (b) lower
+  the 25 GB cap, (c) attack the frontend rebuild pattern that leaves
+  pinned layers. None urgent as of this handoff.
+
+### LightBox relocation — decision recorded: stay
+
+Do not relocate. Root-drive pressure was Docker (now fixed);
+LightBox has always been on `/mnt/arcdata`, and moving it off
+wouldn't have touched `/`. `/mnt/arcdata` itself is at 60% and
+has plenty of headroom.
+
+**Plan B for when `/mnt/arcdata` does get tight later:** spectre
+storage-only. Uploads move to spectre; the four services (backend,
+cd_daemon, fable_rip, plus the frontend) stay on resolute because
+the two optical drives are physically here (warden's ripper
+option is worse — adds rip load on top of Hunt analysis + Arc
+broadcast + slated essay pass). Loopback-bound Redis on resolute
+isn't a blocker for storage-only. Recorded in memory as
+`lightbox-relocation-plan-b`.
+
+### Files touched this addendum (committed except where noted)
+
+Arc:
+- `frontend/lib/site.ts` — literal env access → `15f825f`
+
+Hunt:
+- `frontend/lib/site.ts` — literal env access
+- `.gitignore` — drop arc-branded un-ignore exceptions
+- (combined commit → `e11c800` on `fix/translate-failure-visibility`
+  — same branch 56b0508 landed on yesterday; still needs merge to main)
+
+Resolute (host state, not source-controlled):
+- crontab — `docker builder prune` flag: `--keep-storage 25GB`
+  → `--max-used-space 25GB`. Snapshot of the previous crontab is
+  at `scratchpad/crontab.pre-prune-fix` (will vanish with the
+  scratchpad; the change is in the live crontab so re-inspect
+  with `crontab -l`).
+
+Memory records added:
+- `lightbox-relocation-plan-b`
+- `docker-prune-cron-max-used-space`
+- `nextjs-defineplugin-literal-env-access`
+
+### Still open after this pass
+
+- **Hunt commits sit on `fix/translate-failure-visibility`**
+  (`56b0508` from yesterday + `e11c800` from today). Ross's call
+  this pass: **leave Hunt on `fix/translate-failure-visibility`**,
+  consistent with the parent branch and where Hunt's work has been
+  landing. No merge-to-main pressure.
+- **Hunt default-image referrer inconsistency — step 1 done, 2 & 3 deferred.**
+  Hunt-branded placeholders now serving 200 (see section above).
+  Backend referrer repoint (`huntaegis.cfg:125`, `scribe.py:148-149`)
+  and `git rm --cached` of the arc-codex-*.jpg tracked copies are
+  the clean pass — not urgent.
+- **Prod verification** — Hunt frontend was rebuilt locally, not
+  deployed. Deploy via `huntaegis.sh build` when ready (uses
+  `--no-deps` internally per the trap in memory).
+- Everything else in the earlier "Still open" list above still
+  applies except:
+  - "Hunt frontend build never run" — done today.
+  - "Hunt .gitignore un-ignores" — done today.
+  - "Resolute disk at 90%" — 83% after prune; the underlying
+    cron is also fixed (state re-verified this pass — see docker
+    section above).
+  - "LightBox relocation report" — done; recommendation is stay.
+  - "`huntaegis-{default,manual}.jpg` missing" — done this pass.
