@@ -98,21 +98,18 @@ DEFAULTS = {
     # audio_backfill.py is the sole narrator (scribe's own audio pass was
     # retired 2026-08-27 — it never took arc:audio:active, so it had no
     # exclusion against the daemon and the two could double-synthesize the
-    # same article; see ops/RUNBOOK.md 2026-08-27). Peak-hour window ([start,
-    # end), half-open, 14 ≤ hour < 19 by default; peak_weekdays_only leaves
-    # weekends unfenced) no longer idles the daemon out entirely — it
-    # throttles it to roughly one acquire per peak_throttle_minutes, matching
-    # the cadence scribe's old per-cycle pass used to provide during that
-    # window, so Kokoro still doesn't hammer this box while Ross is reading
-    # but breaking news during the window doesn't go fully silent either.
+    # same article; see ops/RUNBOOK.md 2026-08-27). Under the 2026-09-17
+    # newest-first redesign there is no candidacy window any more — the
+    # daemon narrates the newest silent article anywhere in feed. Only
+    # the peak-hour throttle survives from the old sliding-window shape:
+    # weekday 14:00-19:00 half-open, weekends unfenced, one mutex acquire
+    # per peak_throttle_minutes as a symbolic lightening around Ross's
+    # business hours (arc.cfg [audio] has the current tuning).
     "audio": {
         "peak_start_hour": 14,
         "peak_end_hour": 19,
         "peak_weekdays_only": True,
-        "peak_throttle_minutes": 95,
-        "backfill_window_hours": 2,
-        "backfill_window_floor_hours": 0.25,
-        "backfill_window_ceiling_hours": 6,
+        "peak_throttle_minutes": 15,
         # Poison-pill guard — see arc.cfg [audio] for the full rationale.
         # Observed median chars/s from 191 historical narrations; used to
         # skip (not attempt) any article whose estimated synthesis time

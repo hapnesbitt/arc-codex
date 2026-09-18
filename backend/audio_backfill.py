@@ -1,57 +1,63 @@
 #!/usr/bin/env python3
-"""audio_backfill.py — sliding-window narration daemon for silent articles.
+"""audio_backfill.py — newest-first narration daemon.
 
-REDESIGNED 2026-08-27. Not a batch job any more — the old snapshot-and-work-
-the-list version (git history has it) took a single candidate list at launch
-and worked through it in order, which meant twelve hours in it was narrating
-articles that were fresh at launch and long since stale, while anything
-published since launch wasn't in its list at all. Ross's principle: "Any
-cycles spent on anything that isn't breaking news is old news."
+REDESIGNED 2026-09-17. The 2026-08-27 sliding-window version narrated only
+articles published within the last N hours (default 6), with anything older
+declared "permanently silent" on the theory that this narrates breaking
+news, not a historical archive. That framing turned out to bury a specific
+failure mode: articles that were silent+analyzed+English when they aged out
+of the window had no metric anywhere and no recovery path — measured live
+2026-09-17, 981 of them were sitting in Redis, indefinitely narratable but
+shut out by the age filter alone. The `arc:stats:aged_out_unanalyzed`
+metric only ever counted the unanalyzed-drain bucket, so the larger loss
+was invisible.
 
 THE MODEL
 ---------
-Every pass: silent articles published in the last BACKFILL_WINDOW_HOURS,
-newest first (rebuilt fresh from Redis, not cached). Narrate the newest one.
-Rebuild the list. Repeat. New publications enter the front of the queue
-immediately — there is no snapshot to be behind.
+Ross: "a big show, prefer recent, take older over nothing."
 
-TRAILING window, not fixed clock buckets: this isn't "the 05:00-06:00 bucket,
-then the 06:00-07:00 bucket." An article published at 06:58 gets close to the
-full window of attention rather than being cut off the moment the clock ticks
-over. Same effect (always working the newest complete stretch, never looking
-back), no cliff at the bucket boundary.
+The window becomes an ORDERING, not a filter. Every pass: every silent
+article in feed, newest first (rebuilt fresh from Redis, not cached).
+Narrate the newest one that's analyzed and eligible. Rebuild the list.
+Repeat. New publications enter the front of the queue immediately — there
+is no snapshot to be behind. When the freshest arrivals are exhausted the
+daemon works older backlog instead of idling; an article that never got
+narrated in a busy stretch still gets its turn during the next lull, no
+matter how old it is.
 
-An article that ages out of the window before its turn is PERMANENTLY silent.
-That is correct, deliberate behavior — this narrates breaking news, not a
-historical archive, and reaching back further to "catch up" on old silence is
-exactly the failure mode being designed against. The one-time 3,431-article
-legacy backlog that the old batch version was working through is DECLINED,
-not deferred — see ops/RUNBOOK.md 2026-08-27.
-
-When the window is empty (everything recent already has audio), sleep briefly
-and re-scan. Idle is correct behavior here, not an opportunity to reach
-further back and find something to do.
-
-NO CHECKPOINT, NO RESUME LOGIC, NO GIVE-UP BOOKKEEPING
--------------------------------------------------------
-A process with no position to lose doesn't need to save one. Restart it —
-planned, crashed, or a reboot — and it looks at what's silent in the current
-window and continues; the worst case is losing one in-flight synthesis, never
-a lost place in a list. This is also why there's no "gave up after N minutes
-of waiting" accounting the old version had: when Kokoro capacity finally
-frees up, the window is re-evaluated fresh, so there's no risk of finishing a
-wait for a target that's gone stale — the age filter already dropped it if it
-aged out, with no separate bookkeeping needed to notice.
+NO CHECKPOINT, NO RESUME LOGIC, NO AGE-BASED GIVE-UP
+----------------------------------------------------
+Same argument as the sliding-window version, unchanged: a process with no
+position to lose doesn't need to save one. Restart it — planned, crashed,
+or a reboot — and it looks at what's silent in the feed and continues; the
+worst case is losing one in-flight synthesis, never a lost place in a list.
+There's no age-based give-up either: an exhausted article's retry counter
+carries a fixed 30-day TTL (see record_narration_failure), long enough
+that any real infrastructure change will have happened, short enough that
+a permanently-unwinnable article doesn't get retried more than ~12
+times/year.
 
 RUNS CONTINUOUSLY
 ------------------
-Managed by systemd (ops/systemd/audio-backfill.service) — Restart=always
-with backoff, WantedBy=multi-user.target so it starts at boot without a
-login (resolute has no FileVault-equivalent gate blocking that, unlike the
-M1). The weekday 13:59-19:01 peak hour used to be a full blackout (idling
-in place so systemd never saw the pause as a crash to restart). It's now a
-THROTTLE instead — see peak_gate() below and arc.cfg [audio]
-peak_throttle_minutes.
+Managed by systemd (ops/systemd/{warden,spectre}/arc-audio-backfill.service)
+— Restart=always with backoff. Under the newest-first design warden is
+expected to run continuously rather than idle: as long as backlog > 0 the
+daemon has work. At warden's sustained ~5/hr off-peak plus ~4/hr during
+the 14:00-19:00 peak-throttled window, that's ~115 narrations/day against
+~130/day narratable arrivals — near-steady state with a slowly growing
+backlog. If that isn't reasonable, the levers are (a) faster synthesis
+(per-chunk timeout, TODO §6 Phase 2), (b) a second host, or (c) lower
+peak_throttle_minutes. The window is not one of them any more.
+
+PEAK HOUR
+---------
+Weekday 14:00-19:00 is a THROTTLE, not a blackout. peak_throttle_minutes
+sizes the interval between mutex acquires; at 15 minutes ~20 narrations
+fit in the peak window versus the ~60 an unthrottled peak would allow.
+The symbolic lightening around Ross's business hours is worth having;
+the 95-minute value the sliding-window era shipped with was tuned to a
+different design and machine (contended M1, scribe's per-cycle pass
+covering the gap). See peak_gate() below.
 
 SOLE NARRATOR (merged 2026-08-27)
 ----------------------------------
@@ -59,29 +65,26 @@ scribe.py used to run its own independent audio pass once per ingest cycle
 (_run_audio_pass et al., now removed — see the note above
 synthesize_article_audio's definition in scribe.py). It never took
 arc:audio:active — only a process-local threading.Lock — so it had zero
-exclusion against this daemon. The two independently reimplemented "pick the
-newest silent article" against the same feed and could (did, 2026-08-27
-09:56-10:12: article dc73d5ad4b60…) land on the same article and run two
-concurrent Kokoro subprocesses for it, each starving the other past
-AUDIO_TIMEOUT_SECONDS. See ops/RUNBOOK.md 2026-08-27 for the incident.
+exclusion against this daemon. The two independently reimplemented "pick
+the newest silent article" against the same feed and could (did,
+2026-08-27 09:56-10:12: article dc73d5ad4b60…) land on the same article
+and run two concurrent Kokoro subprocesses for it, each starving the
+other past AUDIO_TIMEOUT_SECONDS. See ops/RUNBOOK.md 2026-08-27 for the
+incident.
 
-scribe's old blackout-coverage argument for staying separate (it narrated
-during the daemon's peak-hour idle) is now handled by the throttle above
-instead of a second worker: one selector, one mutex holder, always.
-
-Coordination with scribe.py is now one-directional: this daemon imports
+Coordination with scribe.py is one-directional: this daemon imports
 scribe purely for synthesize_article_audio()/kokoro_preflight()/AUDIO_*
 constants, and is the only caller of synthesize_article_audio() for site
-arc. The arc:audio:active Redis mutex (SET NX EX, with stale-holder
-detection — see acquire_mutex()) now only has to guard against two
-instances of THIS daemon overlapping (e.g. mid systemd restart), not
-cross-process contention with scribe.
+arc. The arc:audio:active Redis mutex (SET NX EX, with CAS release — see
+acquire_mutex()) now only has to guard against two instances of THIS
+daemon overlapping (e.g. mid systemd restart), not cross-process
+contention with scribe.
 
 Usage
 -----
   python3 audio_backfill.py                 # run continuously (normal mode)
   python3 audio_backfill.py --once          # one narration attempt, then exit
-  python3 audio_backfill.py --dry-run       # show the current window's top candidate, exit
+  python3 audio_backfill.py --dry-run       # show the top candidate, exit
   python3 audio_backfill.py --ignore-peak   # weekday emergency catch-up
 """
 
@@ -173,12 +176,15 @@ AUDIO_LAST_NARRATION_KEY = "arc:audio:last_narration"
 # (AUDIO_RETRY_MAX_ATTEMPTS) regardless of how many restarts happen in
 # between, and durable (a restart no longer means "forget everything").
 #
-# TTL is sized off backfill_window_ceiling_hours, not the live
-# backfill_window_hours — the record must outlive the article's candidacy
-# window no matter how that's tuned, and self-expire shortly after the
-# article could never be a candidate again (no manual cleanup).
+# Fixed 30-day TTL (2026-09-17): under the newest-first redesign there's
+# no candidacy window to size this off any more. 30 days is long enough
+# that any real infrastructure change (Kokoro upgrade, model swap,
+# upstream fix) will have happened, so an article silent purely because
+# of one of those becomes a candidate again on its own; short enough that
+# a permanently-unwinnable article doesn't retry more than ~12 times/year.
 AUDIO_RETRY_ATTEMPTS_KEY_PREFIX = "arc:audio:attempts:"
 AUDIO_RETRY_MAX_ATTEMPTS = 3
+AUDIO_RETRY_TTL_SECONDS = 30 * 24 * 3600
 
 
 def _retry_key(article_id: str) -> str:
@@ -194,7 +200,7 @@ def retry_attempts(r: redis.Redis, article_id: str) -> int:
         return 0
 
 
-def record_narration_failure(r: redis.Redis, cfg_audio: dict, article_id: str, reason: str) -> int:
+def record_narration_failure(r: redis.Redis, article_id: str, reason: str) -> int:
     """Increment the durable attempt counter for a failure, TTL it on
     first creation, and log distinctly — once — the moment it crosses
     AUDIO_RETRY_MAX_ATTEMPTS. Returns the new attempt count.
@@ -216,13 +222,12 @@ def record_narration_failure(r: redis.Redis, cfg_audio: dict, article_id: str, r
     key = _retry_key(article_id)
     attempts = r.incr(key)
     if attempts == 1:
-        ceiling_hours = float(cfg_audio.get("backfill_window_ceiling_hours", 6))
-        r.expire(key, int(ceiling_hours * 3600) + 3600)  # +1h margin past the ceiling
+        r.expire(key, AUDIO_RETRY_TTL_SECONDS)
     if attempts == AUDIO_RETRY_MAX_ATTEMPTS:
         logger.warning(
             f"🛑 {article_id} — retry budget exhausted after {attempts} attempts, "
-            f"last failure: {reason}; permanently silent — will not be "
-            f"retried again while it remains in the candidate window")
+            f"last failure: {reason}; silent for {AUDIO_RETRY_TTL_SECONDS // 86400}d "
+            f"until the counter expires and the article becomes a candidate again")
     return attempts
 
 # Atomic compare-and-delete: only clear the key if it still holds the value
@@ -277,19 +282,6 @@ SYNC_ATTEMPTS = 3                    # per-file attempts; 3 = ~14s worst-case (2
 SYNC_TIMEOUT_S = 30                  # rsync's own --timeout, per attempt
 SYNC_OK_COUNTER = "arc:audio:sync_ok"
 SYNC_FAIL_COUNTER = "arc:audio:sync_fail"
-
-# Silent-loss visibility (2026-09-16). Prior 24h observations of ~65 articles
-# aging out of the audio window unanalyzed with zero log lines and zero
-# retry counters (see TODO.md §2026-09-13 "silent data loss") happened
-# because there was no counter for the pass-over case in find_newest_silent.
-# The metric here surfaces the same loss automatically regardless of what
-# cycle_minutes happens to be that week: any time arrivals-of-unanalyzable
-# exceed analyzer drain within the window, the counter ticks and one log
-# line fires per aged-out article. That's the drift a hand-tuned knob makes
-# invisible without a metric.
-NOTED_UNANALYZED_SET = "arc:audio:noted_unanalyzed_ids"
-AGED_OUT_UNANALYZED_COUNTER = "arc:stats:aged_out_unanalyzed"
-
 
 def push_to_destination(r: redis.Redis, article_id: str, local_path: str) -> bool:
     """Push one just-written mp3 to SYNC_DEST via rsync. True on success.
@@ -370,10 +362,10 @@ def peak_gate(cfg_audio: dict, last_acquire_ts: float | None) -> tuple[bool, flo
 
     Replaces the old full idle-through (2026-08-27 — see module docstring):
     now that this daemon is the sole narrator, going fully silent for up to
-    5 weekday hours isn't acceptable, but running at full sliding-window
-    speed defeats the point of the window too. Throttle to roughly one
-    acquire per peak_throttle_minutes instead — sized to match the cadence
-    scribe's old per-cycle pass used to provide during this window (arc.cfg
+    5 weekday hours isn't acceptable, but running unthrottled through Ross's
+    business hours defeats the symbolic peak-hour lightening. Throttle to
+    roughly one acquire per peak_throttle_minutes instead; at the current
+    15-minute default that fits ~20 narrations in the peak window (arc.cfg
     [audio]).
 
     The throttle interval is continuous across the window boundary, not
@@ -393,19 +385,6 @@ def peak_gate(cfg_audio: dict, last_acquire_ts: float | None) -> tuple[bool, flo
         return True, 0.0
     remaining = throttle_s - (time.time() - last_acquire_ts)
     return remaining <= 0, max(remaining, 0.0)
-
-
-def window_hours(cfg_audio: dict) -> float:
-    """BACKFILL_WINDOW_HOURS, clamped floor..ceiling per arc.cfg [audio].
-
-    A value can't be set so wide it turns this back into the batch backfill
-    the redesign replaced, and can't be set so narrow it stops meaning
-    anything.
-    """
-    hours = float(cfg_audio.get("backfill_window_hours", 2))
-    floor = float(cfg_audio.get("backfill_window_floor_hours", 0.25))
-    ceiling = float(cfg_audio.get("backfill_window_ceiling_hours", 6))
-    return max(floor, min(ceiling, hours))
 
 
 def max_chars_for_budget(cfg_audio: dict) -> int:
@@ -489,90 +468,35 @@ def _ensure_analysis_queued(r: redis.Redis, article_id: str) -> None:
         logger.warning(f"⚠️  Analysis dispatch failed for {article_id}: {e}")
 
 
-def _tally_aged_out_unanalyzed(r: redis.Redis, cutoff: float, hours: float) -> None:
-    """Detect articles that were noted as unanalyzed while inside the audio
-    window but have since aged out without ever being analyzed. Increment
-    arc:stats:aged_out_unanalyzed and log once per article.
-
-    The point of separating "note" from "count" is idempotency: an article
-    is added to NOTED_UNANALYZED_SET on first observation, and only counted
-    once at the transition where its feed_ts falls below the window cutoff.
-    A busy poll cycle would otherwise increment the same article's tally
-    on every pass, drowning the signal.
-
-    Buckets at age-out time:
-      - has audio → success; drop silently
-      - deleted (feed ZSCORE None) → retention swept it; drop silently
-      - still in window (feed_ts >= cutoff) → keep watching
-      - aged out, analyzed but unnarrated → different failure mode (Kokoro
-        timeouts, sync failures) — drop without counting; those have their
-        own counters
-      - aged out AND unanalyzed → increment + one WARN log line + drop
-    """
-    try:
-        noted = r.smembers(NOTED_UNANALYZED_SET)
-    except Exception as e:
-        logger.debug(f"tally_aged_out: SMEMBERS failed: {e}")
-        return
-    if not noted:
-        return
-    noted_list = list(noted)
-    pipe = r.pipeline()
-    for aid in noted_list:
-        pipe.zscore('feed', aid)
-        pipe.hmget(f"article:{aid}", ['audio_url', *_ANALYSIS_FIELDS])
-    results = pipe.execute()
-    for i, aid in enumerate(noted_list):
-        feed_score = results[i * 2]
-        audio_url, red, blue, purple = results[i * 2 + 1]
-        if audio_url:
-            r.srem(NOTED_UNANALYZED_SET, aid)
-            continue
-        if feed_score is None:
-            r.srem(NOTED_UNANALYZED_SET, aid)
-            continue
-        if feed_score >= cutoff:
-            continue
-        if _is_analyzed(red, blue, purple):
-            r.srem(NOTED_UNANALYZED_SET, aid)
-            continue
-        r.incr(AGED_OUT_UNANALYZED_COUNTER)
-        logger.warning(
-            f"📉 {aid} aged out of {hours}h window UNANALYZED "
-            f"— analyzer drain < arrival rate; counter arc:stats:aged_out_unanalyzed"
-        )
-        r.srem(NOTED_UNANALYZED_SET, aid)
-
-
-def find_newest_silent(r: redis.Redis, hours: float, skip: set,
+def find_newest_silent(r: redis.Redis, skip: set,
                         max_chars: int) -> tuple[str, str, str, str, str] | None:
-    """Newest silent, analyzed article published within the last `hours`,
-    or None. Returns (article_id, body, red, blue, purple) — body is still
-    the candidacy gate (is there enough real source content here at all),
-    but the caller narrates from red/blue/purple via
+    """Newest silent, analyzed article in the feed, or None. Returns
+    (article_id, body, red, blue, purple) — body is still the candidacy
+    gate (is there enough real source content here at all), but the
+    caller narrates from red/blue/purple via
     scribe.run_broadcast_script(), never from body directly.
 
-    Rebuilt fresh from Redis on every call — this function body IS the
-    trailing window, not a cache of one. `skip` is the process-local
-    failed-this-run set (see main loop); a restart clears it, but that no
-    longer means "forget everything" — retry_attempts() below independently
-    checks the durable Redis counter (record_narration_failure), so a
-    candidate that has already exhausted AUDIO_RETRY_MAX_ATTEMPTS across any
-    number of restarts stays skipped regardless of what's in the in-memory
-    set this process happens to have. A candidate over `max_chars` (see
-    max_chars_for_budget) is logged once and added to `skip` right here
-    rather than being returned and later failing — its length won't change,
-    so unlike a real synthesis failure this verdict is good for the rest of
-    the run, no retry ever worth attempting.
+    Rebuilt fresh from Redis on every call — the "window" is now purely
+    an ordering, not a filter (see module docstring, 2026-09-17
+    redesign). ZREVRANGE returns everything in feed newest-first; the
+    daemon narrates whichever is at the top of that order that isn't
+    already narrated, isn't over its retry budget, and is analyzed.
+    Fresh arrivals therefore win automatically, and older backlog is
+    served whenever the freshest slot is already narrated.
+
+    `skip` is the process-local failed-this-run set (see main loop); a
+    restart clears it, but that no longer means "forget everything" —
+    retry_attempts() below independently checks the durable Redis
+    counter (record_narration_failure), so a candidate that has already
+    exhausted AUDIO_RETRY_MAX_ATTEMPTS across any number of restarts
+    stays skipped regardless of what's in the in-memory set this
+    process happens to have.
 
     An unanalyzed candidate is NOT added to `skip` — it's eager-enqueued
     (if not already) and passed over for this pass only; a future pass
-    picks it up once analysis lands, same as any other article that just
-    hasn't reached the front of the window's attention yet.
+    picks it up once analysis lands.
     """
-    cutoff = time.time() - hours * 3600
-    _tally_aged_out_unanalyzed(r, cutoff, hours)
-    ids = r.zrevrangebyscore('feed', '+inf', cutoff)
+    ids = r.zrevrange('feed', 0, -1)
     if not ids:
         return None
 
@@ -612,20 +536,12 @@ def find_newest_silent(r: redis.Redis, hours: float, skip: set,
             # Exhaustion itself was already logged once, distinctly, by
             # record_narration_failure() at the moment it happened — this
             # is silent on purpose so a long-lived process doesn't repeat
-            # the same warning every 30s poll for as long as the article
-            # remains in the window.
+            # the same warning every 30s poll for as long as the counter
+            # remains in Redis.
             skip.add(aid)
             continue
         if not _is_analyzed(red, blue, purple):
             _ensure_analysis_queued(r, aid)
-            # Idempotent mark for the silent-loss detector; _tally_aged_out_
-            # unanalyzed reads this set at the top of every pass and counts
-            # the age-out transition. SADD is idempotent — safe to call on
-            # every poll while an article remains unanalyzed in the window.
-            try:
-                r.sadd(NOTED_UNANALYZED_SET, aid)
-            except Exception as e:
-                logger.debug(f"note_unanalyzed: SADD failed for {aid}: {e}")
             continue
         return aid, body, red or '', blue or '', purple or ''
     return None
@@ -852,18 +768,17 @@ def run(once: bool, dry_run: bool, ignore_peak: bool) -> int:
     cas_delete = r.register_script(_CAS_DELETE_LUA)
     cas_refresh = r.register_script(_CAS_REFRESH_LUA)
 
-    hours = window_hours(cfg_audio)
     max_chars = max_chars_for_budget(cfg_audio)
-    logger.info(f"scanning {site.slug} — trailing {hours:.2f}h window, "
+    logger.info(f"scanning {site.slug} — newest-first over full feed, "
                 f"{max_chars}-char synthesis budget")
 
     if dry_run:
-        candidate = find_newest_silent(r, hours, set(), max_chars)
+        candidate = find_newest_silent(r, set(), max_chars)
         if candidate:
             aid, body, red, blue, purple = candidate
             logger.info(f"would narrate: {aid} ({len(body)} source chars, analyzed)")
         else:
-            logger.info("window is empty — nothing silent+analyzed in range")
+            logger.info("no silent+analyzed candidate anywhere in feed")
         return 0
 
     failed_this_run: set[str] = set()
@@ -875,7 +790,7 @@ def run(once: bool, dry_run: bool, ignore_peak: bool) -> int:
     while True:
         in_peak = in_peak_window(cfg_audio) and not ignore_peak
         if in_peak and not was_in_peak:
-            throttle_min = float(cfg_audio.get("peak_throttle_minutes", 95))
+            throttle_min = float(cfg_audio.get("peak_throttle_minutes", 15))
             logger.info(f"⏸  entering peak-hour window — throttling to "
                         f"~1 acquire / {throttle_min:.0f}m")
         elif was_in_peak and not in_peak:
@@ -893,10 +808,10 @@ def run(once: bool, dry_run: bool, ignore_peak: bool) -> int:
                 continue
             peak_throttled_logged = False
 
-        candidate = find_newest_silent(r, hours, failed_this_run, max_chars)
+        candidate = find_newest_silent(r, failed_this_run, max_chars)
         if candidate is None:
             if not idle_logged:
-                logger.info(f"idle — nothing silent in the last {hours:.2f}h; "
+                logger.info(f"idle — nothing silent+analyzed anywhere in feed; "
                             f"re-scanning every {POLL_SECONDS}s")
                 idle_logged = True
             time.sleep(POLL_SECONDS)
@@ -933,7 +848,7 @@ def run(once: bool, dry_run: bool, ignore_peak: bool) -> int:
                     # permanently exhausted) is gated on countable.
                     failed_this_run.add(article_id)
                     if countable:
-                        record_narration_failure(r, cfg_audio, article_id, reason)
+                        record_narration_failure(r, article_id, reason)
         finally:
             release_mutex(r, cas_delete, token)
 
@@ -946,9 +861,9 @@ def main() -> int:
     parser.add_argument("--once", action="store_true",
                         help="One narration attempt (or idle check), then exit.")
     parser.add_argument("--dry-run", action="store_true",
-                        help="Show the current window's top candidate; don't call Kokoro.")
+                        help="Show the current top candidate; don't call Kokoro.")
     parser.add_argument("--ignore-peak", action="store_true",
-                        help="Do not honour the peak-hour blackout. "
+                        help="Do not honour the peak-hour throttle. "
                              "For emergencies only.")
     args = parser.parse_args()
 
