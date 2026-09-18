@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# ARCHIVED 2026-09-18 — never activated.
+# Complete working code but never wired into arc.sh, never ran (0 members in
+# threads:posted, empty log), no THREADS_ACCESS_TOKEN/THREADS_USER_ID in .env,
+# and the threads_auth.py companion referenced in the docstring never landed.
+# Kept here as a working starting point if outbound Threads posting is later
+# revisited. To revive: land threads_auth.py, populate the two env vars,
+# add "threads_poster" to [services].enabled in arc.cfg and to arc.sh.
 """
 threads_poster.py — Arc Codex auto-poster for Threads
 v1.0
