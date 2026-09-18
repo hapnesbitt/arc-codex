@@ -628,3 +628,134 @@ audio redesign and out of scope tonight.
 Log line to grep on next session: `📡 UNREACHABLE — broadcast
 script host unreachable: gemma4:e2b @ http://192.168.1.189:11434
 unreachable`.
+
+---
+
+## 2026-09-18 addendum — reboot-prep pass
+
+Session ending near the weekly limit. No new work started this
+tail — this addendum records what landed today, what's ready to
+send, and what's pinned but blocked.
+
+### Done today (already committed + pushed)
+
+- **broadcast-script routed to warden's local Ollama.** The
+  spectre queue-contention problem from last night's tail is
+  gone — the audio path now calls `localhost:11434` on warden
+  instead of `192.168.1.189:11434`. Commit `914e898`.
+- **think=False family-gate bug** found underneath the routing
+  fix; corrected in the same commit (`914e898`).
+- **Forward-only ingest translation, Shape A.1, live on both
+  stacks.** Arc `74eb7e4`, Hunt `c44189c`. Warden-routed.
+- **Hunt image repoint** — default/manual images repointed to
+  `huntaegis-*.jpg`. Commit `d09e6c4`.
+- **Dialogue Earth pruned** from Arc sources (every fetch was
+  CAPTCHAing). Commit `1906ca8`.
+- **`threads_poster.py` archived** — complete but never
+  activated; carrying-forward entry from the 09-17 handoff
+  closed. Commit `13c453d`.
+
+### Warden narration daemon — state at addendum time
+
+- PID `1903` on warden, uptime ~6h47m (started 05:46 MDT today,
+  right after the broadcast-script fix landed).
+- **184 audio files written today** (`🔊 Audio written` events
+  in `warden:/home/www/arc_stack/logs/scribe.log`); 34 events
+  in the last 30 min → ~1/min steady state.
+- **Mutex healthy, not stale.** `redis-cli ttl arc:audio:active`
+  = 38s at check time; holder value `1903:398cffd3` matches the
+  running PID. The stale-holder failure mode from last night is
+  fully out of the picture.
+- Zero fatal errors today. The 4 WARNINGs in the log are all
+  pre-05:46 Solr-ping noise from an earlier scribe process
+  ("continuing without indexing" — non-fatal).
+
+Last night's blocker (spectre timeouts) is resolved by the
+routing change; the daemon is producing on the newest-first
+code as intended.
+
+### Ready to send, not started — arc.cfg audit fixes
+
+Three cheap wins from the audit; work drafted but not started
+this session because we were already at the reboot line. Pick
+these up post-reboot, commit separately, push both stacks.
+
+1. **Add `concurrent_preproc` to the operator-owned-fields list
+   in `CLAUDE.md` on both stacks.** It sits in `[ingestion]`
+   and is read one line below `concurrent_scrapers` but isn't
+   listed, so it's one tidy-up away from being normalized.
+   Pure documentation, no code. Hunt has no such list today —
+   add the whole section, mirror of Arc's wording.
+2. **Drop `[inference].ollama_url` from `REQUIRED`** in
+   `backend/site_config.py` on both stacks. Nothing reads it,
+   its value is stale on both, and being `REQUIRED` makes a
+   future reader assume it's live. Do not wire it to the env
+   vars — routing works and adding a fallback layer to a dead
+   field is worse than deleting it. Options: delete the key
+   outright, or leave declared-but-optional (empty-string
+   default in `DEFAULTS`, delete the stale line from both
+   cfgs). Everything runtime already reads `OLLAMA_URL` from
+   env, not from the site cfg.
+3. **Wire the three cheapest cfg-only shadows.** Everything
+   else in the DEAD list stays as-is — Ross decides key by key
+   later.
+   - `services.enabled` → `arc.sh` / `huntaegis.sh` `SERVICES()`
+     array (filter the hardcoded list by the cfg's enabled
+     names; parse the TOML from bash with `python3 -c 'import
+     tomllib; …'`; fall back to the full hardcoded list if the
+     parse fails).
+   - `[backup].warm_retention` → `BACKUP_KEEP` and
+     `[backup].cold_retention` → `COLD_BACKUP_KEEP` in both
+     stack scripts (Hunt already reads `cold_retention`; arc
+     still hardcodes both; use the existing `grep -oP` pattern
+     already used for `log_days` / `log_max_mb`).
+   - `[posters].poll_s` → `POLL_INTERVAL` and `[posters].
+     ca_wait_s` → `CA_WAIT` in `bluesky_poster.py`,
+     `mastodon_poster.py`, `facebook_poster.py` on both stacks
+     (six files total). Read via `_SITE.data["posters"]` which
+     is already merged from `DEFAULTS`, so a missing cfg
+     section still resolves to the current 15 / 120 values.
+
+### Pinned, not started — YouTube auto-publish
+
+Goal: auto-publish narration MP4s to
+[@rossnesbitt4852](https://www.youtube.com/@rossnesbitt4852),
+with `vid.arc-codex.com` as the primary destination and YouTube
+as the mirror.
+
+Blockers:
+- **Google Cloud OAuth consent** — must be done by Ross in a
+  browser (a headless flow can't consent for the first time).
+  Nothing else starts until this lands.
+- **Quota vs volume** — YouTube Data API's upload cost is
+  ~1,600 units per upload against the default 10k/day quota →
+  ~6 uploads/day. The narration pipeline is producing ~120/day
+  right now. **A curation rule is required** before this can
+  ship — auto-publishing everything overruns the quota inside
+  an hour.
+
+Scope notes:
+- **Does NOT require moving LightBox.** Before building any new
+  Arc→YouTube path, check what Arc→LightBox ingest already
+  exists — the audio/video plumbing may already have a
+  half-built shelf here worth reusing.
+- Primary destination is `vid.arc-codex.com` — YouTube is the
+  syndication endpoint, not the canonical store.
+
+### Repo state at end of session
+
+Both stacks pushed, both remotes at parity with local HEAD.
+
+- **Arc (`main`):** at `13c453d`. Working tree dirty on
+  `arc.cfg` (`cycle_minutes 0 → 29`) — hand-knob per the
+  `cycle-minutes-is-a-hand-knob` memory rule, NOT committed;
+  and one untracked webm ("Ghost in the Machine …") that's
+  browser-download scratch, NOT to be committed.
+- **Hunt (`fix/translate-failure-visibility`):** at `d09e6c4`.
+  Working tree dirty on `huntaegis.cfg` (`cycle_minutes 103 →
+  31`) — same hand-knob rule, NOT committed; plus untracked
+  runtime output (`frontend/public/uploads/scraped/`, two
+  scraped hero JPGs, `nohup.out`) — all runtime scratch, NOT
+  to be committed.
+
+Nothing spawned by the model is still running.
