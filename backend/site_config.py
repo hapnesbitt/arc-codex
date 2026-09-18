@@ -75,7 +75,7 @@ DEFAULTS = {
         "analysis_max_chars": 100_000,
         "analysis_garbage_chars": 250_000,
         "character_feed_poll_s": 20,
-        "character_analysis_wait_s": 120,
+        "character_analysis_wait_s": 480,
         "character_analysis_poll_s": 10,
         "character_retry_backoff_s": 600,
         "character_giveup_days": 7,
