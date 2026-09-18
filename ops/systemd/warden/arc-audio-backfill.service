@@ -22,6 +22,17 @@ Environment=AUDIO_KOKORO_PYTHON=/home/ross/.venv/bin/python
 # has restrict + command="/usr/bin/rrsync -wo …" in resolute's authorized_keys.
 Environment=ARC_AUDIO_SYNC_DEST=ross@192.168.1.198:.
 Environment=ARC_AUDIO_SYNC_SSH_KEY=%h/.ssh/arc_audio_sync_ed25519
+# Route broadcast-script generation at warden's OWN local Ollama, not the
+# stack default (spectre :189). 2026-09-18: spectre's num_parallel=2 slots
+# were saturated by pre_analyze's concurrency-of-8, so every warden call to
+# 189/api/generate queued indefinitely and timed out at the 900s read
+# limit — measured live 2026-09-17 with zero ✓ narrations produced in the
+# first ~16 minutes after the newest-first redesign shipped. Warden has
+# 22 GiB RAM, gemma4:e2b already pulled locally, load < 0.1 idle; a
+# trivial /api/generate returns from a cold-model load in ~7.6s. Removes
+# both the queue contention and the network hop.
+Environment=BROADCAST_OLLAMA_HOST=http://localhost:11434
+Environment=BROADCAST_OLLAMA_MODEL=gemma4:e2b
 ExecStart=/home/www/arc_stack/backend/venv/bin/python /home/www/arc_stack/backend/audio_backfill.py
 # Same restart discipline as spectre's unit:
 #   Restart=always because the daemon's docstring explicitly designs for it

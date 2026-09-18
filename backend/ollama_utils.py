@@ -78,11 +78,15 @@ if _local_only_mode() and os.environ.get("OLLAMA_CLOUD_MODEL"):
 # findings — unlike analysis, it doesn't need gemma4:e2b's size. Both unset
 # by default so every other call_ollama_local_only() caller (analyzer.py,
 # prompt_to_article.py, scribe.py's sentinel/counter-analyst passes) is
-# unaffected. Set on spectre to route narration script-writing to warden
-# instead of the M1, which was otherwise absorbing 100% of this load on top
-# of everything else (M1 measured at 89% swap used 2026-09-11).
-BROADCAST_OLLAMA_HOST  = os.environ.get("BROADCAST_OLLAMA_HOST")   # e.g. http://192.168.1.190:11434
-BROADCAST_OLLAMA_MODEL = os.environ.get("BROADCAST_OLLAMA_MODEL")  # e.g. qwen2.5:1.5b
+# unaffected. Current use (2026-09-18): set on warden's audio-backfill
+# unit to loop back to localhost:11434 with gemma4:e2b — spectre's shared
+# num_parallel=2 slots were saturated by pre_analyze's concurrency-of-8,
+# so every warden→spectre broadcast-script call queued indefinitely and
+# timed out at 900s. Local-loopback removes both the queue and the
+# network hop; the daemon has 22 GiB RAM to spare and gemma4:e2b already
+# pulled. See ops/systemd/warden/arc-audio-backfill.service.
+BROADCAST_OLLAMA_HOST  = os.environ.get("BROADCAST_OLLAMA_HOST")   # e.g. http://localhost:11434
+BROADCAST_OLLAMA_MODEL = os.environ.get("BROADCAST_OLLAMA_MODEL")  # e.g. gemma4:e2b
 
 TRANSLATION_LOCK_KEY      = "translation:active"
 TRANSLATION_LOCK_MAX_WAIT = 60  # seconds to wait before proceeding anyway
@@ -381,12 +385,16 @@ def call_ollama_local_only(prompt_text: str, timeout: int = 900, *,
 
     host/model: override the configured local host/model for THIS call only.
     Used by run_broadcast_script to route to BROADCAST_OLLAMA_HOST/MODEL
-    (e.g. warden + qwen2.5:1.5b) instead of the M1 + OLLAMA_LOCAL_FALLBACK.
-    When given: no ollama_client primary/fallback host failover (a single
-    attempt against the given host — consistent with this function's
-    "one local model, one attempt" contract) and no gemma4-family
-    spec-following options applied (those are scoped to the gemma4 family;
-    an override is presumed to be a different, non-thinking model).
+    (e.g. warden + gemma4:e2b) instead of the default host +
+    OLLAMA_LOCAL_FALLBACK. When given: no ollama_client primary/fallback
+    host failover (a single attempt against the given host — consistent
+    with this function's "one local model, one attempt" contract).
+    Spec-following options (think=false, num_ctx, num_predict) are
+    applied whenever the EFFECTIVE model is gemma-family, whether it
+    came from the default or from an override — a gemma-family model
+    that hasn't had think=false set will exhaust num_predict inside the
+    hidden thinking phase and return an empty body with
+    done_reason=length.
 
     num_predict: hard output-token ceiling for THIS call only, applied
     after (and overriding) whatever _apply_spec_following_options set —
@@ -426,7 +434,18 @@ def call_ollama_local_only(prompt_text: str, timeout: int = 900, *,
             payload = {"model": attempt_model, "prompt": prompt_text, "stream": False}
             if not is_local_available(local_host):
                 raise OllamaTransportError(f"health check failed for {local_host}")
-            if model is None:
+            # Spec-following options are needed whenever the EFFECTIVE model
+            # is gemma-family, regardless of whether it came from the default
+            # (model is None) or from an env override. The old gate here
+            # ("if model is None") presumed any override was a non-thinking
+            # model like qwen2.5:1.5b — true when the override was added
+            # 2026-09-11, but wrong now that warden's audio-backfill unit
+            # routes broadcast-script through gemma4:e2b on localhost.
+            # Skipping think=False on a thinking model exhausts num_predict
+            # inside the (hidden) thinking phase and returns 200 with an
+            # empty body / done_reason=length — the exact "🔥 Local model
+            # EMPTY (done_reason=length)" symptom observed 2026-09-18.
+            if attempt_model and attempt_model.split(':', 1)[0].startswith('gemma'):
                 _apply_spec_following_options(payload)
             if num_predict is not None:
                 payload.setdefault("options", {})["num_predict"] = num_predict

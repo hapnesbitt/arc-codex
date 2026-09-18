@@ -62,12 +62,15 @@ DEFAULT_IMAGE_URL = CATEGORY_IMAGES['general']
 # Language detection: ISO code -> English name. Duplicated from scribe.py
 # rather than imported from it (see this file's own isolation header comment
 # above) — same languages.json, same normalization, kept independently so a
-# scribe.py break can't take manual_publisher.py down with it. Was the one
-# field manual uploads never carried: source_lang was omitted from
-# article_data entirely, so every manually-published article's language
-# defaulted to "English" wherever the frontend reads a missing source_lang
-# (see IntelligenceCard.tsx / TranslateButton.tsx) — a foreign-language
-# manual upload would silently skip the reader's translate-on-load path.
+# scribe.py break can't take manual_publisher.py down with it. Set on
+# every published article via detect_language(article_text) below (see
+# the article_data assembly at ~line 504); a foreign-language manual
+# upload lands with the correct source_lang and the reader's translate-
+# on-load path fires as it does for scribe-ingested articles. Historical
+# note: before this landed, source_lang was omitted from article_data
+# entirely and every manual upload defaulted to English wherever the
+# frontend read a missing source_lang (IntelligenceCard.tsx,
+# TranslateButton.tsx).
 _ISO_TO_NAME_PATH = os.path.join(BASE_DIR, 'languages.json')
 with open(_ISO_TO_NAME_PATH, 'r', encoding='utf-8') as _f:
     _LANG_LIST = json.load(_f)
