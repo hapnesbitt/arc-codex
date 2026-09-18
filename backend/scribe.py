@@ -2453,6 +2453,18 @@ def main():
     socket.setdefaulttimeout(FEED_TIMEOUT_SECONDS)
     recently_published = deque(maxlen=RECENTLY_PUBLISHED_MEMORY)
 
+    def refresh_heartbeat():
+        """Publish process liveness. Also called once per minute during the
+        idle-sleep loops below so a long CYCLE_MINUTES doesn't outlast the
+        heartbeat TTL — corpus_exporter/mailer would otherwise read the key
+        as absent (interpreted as "wedged") midway through a normal wait."""
+        try:
+            r.setex(site.redis_key('scribe:last_cycle'),
+                    _liveness_ttl_seconds(CYCLE_MINUTES),
+                    str(int(time.time())))
+        except Exception:
+            pass
+
     cycle_count = 0
 
     while True:
@@ -2464,12 +2476,7 @@ def main():
             # TTL derives from CYCLE_MINUTES so a wedged scribe reads as
             # key-absent instead of eventually staying absent because the TTL
             # is shorter than the cadence (see _liveness_ttl_seconds docstring).
-            try:
-                r.setex(site.redis_key('scribe:last_cycle'),
-                        _liveness_ttl_seconds(CYCLE_MINUTES),
-                        str(int(time.time())))
-            except Exception:
-                pass
+            refresh_heartbeat()
 
             # --- PRIORITY QUEUE FIRST ---
             # User-submitted URLs, prompts, and manual text are always processed
@@ -2479,8 +2486,10 @@ def main():
                 logger.info(f"⚡ Processed {priority_count} priority item(s) — skipping RSS cycle so M1 is free")
                 logger.info(f"💤 Priority cycle complete. Sleeping {CYCLE_MINUTES} minutes ...")
                 scribe_ops.set_status('idle')
-                for _ in range(CYCLE_MINUTES * 60):
+                for idle_second in range(CYCLE_MINUTES * 60):
                     time.sleep(1)
+                    if (idle_second + 1) % 60 == 0:
+                        refresh_heartbeat()
                     if r.llen(REDIS_PRIORITY_QUEUE_KEY) > 0:
                         break
                 continue
@@ -2639,8 +2648,10 @@ def main():
 
             logger.info(f"💤 Cycle complete. Sleeping {CYCLE_MINUTES} minutes ...")
             scribe_ops.mark_success()
-            for _ in range(CYCLE_MINUTES * 60):
+            for idle_second in range(CYCLE_MINUTES * 60):
                 time.sleep(1)
+                if (idle_second + 1) % 60 == 0:
+                    refresh_heartbeat()
                 if r.llen(REDIS_PRIORITY_QUEUE_KEY) > 0:
                     break
 
@@ -2648,8 +2659,10 @@ def main():
             logger.error(f"MAIN LOOP ERROR: {e}", exc_info=True)
             scribe_ops.mark_failure('main_loop')
             # Error recovery — half cycle, then resume
-            for _ in range((CYCLE_MINUTES // 2) * 60):
+            for idle_second in range((CYCLE_MINUTES // 2) * 60):
                 time.sleep(1)
+                if (idle_second + 1) % 60 == 0:
+                    refresh_heartbeat()
                 if r.llen(REDIS_PRIORITY_QUEUE_KEY) > 0:
                     break
 
