@@ -71,7 +71,7 @@ DEFAULTS = {
         "ca_timeout_s": 900,
         "background_workers": 2,
         "analyzer_pop_s": 5,
-        "analysis_hold_ttl_s": 600,
+        "analysis_hold_ttl_s": 1500,
         "analysis_max_chars": 100_000,
         "analysis_garbage_chars": 250_000,
         "character_feed_poll_s": 20,
