@@ -6,6 +6,27 @@ a refactor.** Nothing here has been reconciled; the point is to answer
 "if I re-cloned Arc to Hunt tomorrow, what would I have to put back, and
 what would I be glad to lose?"
 
+**2026-09-18 addendum — correctness column.** Diff without direction is
+half a signal: knowing two files differ tells you nothing about which
+side is right. This revision classifies every meaningfully-diffed file
+so future work can act on the audit instead of just reading it. The
+prompt for this pass came from the analysis_hold_ttl_s incident —
+Hunt had measured a p95 inference beat the 600s dedup-hold TTL and
+raised the .cfg override to 1500s; Arc ran the same failure blind for
+weeks and only noticed on 2026-09-17 (commit 020ccf2). The whole point
+of a shared-repo relationship is to prevent that; a diff report that
+doesn't say who's right doesn't.
+
+**Correctness legend** (used in every table below, and in the section-A
+bullets where applicable):
+
+| Tag | Meaning |
+|---|---|
+| **ARC** | Arc's version is the one to keep; Hunt should adopt it. |
+| **HUNT** | Hunt's version is the one to keep; Arc should adopt it. |
+| **BOTH** | Genuine product / deployment difference. Do not reconcile. |
+| **UNKNOWN** | Needs measurement, a policy decision, or a re-review before either side moves. |
+
 Scope: everything under `/home/www/arc_stack` and
 `/home/www/huntaegis_stack` except `node_modules`, `venv`,
 `__pycache__`, `.git`, `.pytest_cache`, `.next`, `logs`, `pids`,
@@ -46,6 +67,92 @@ of which 118 differ. Full raw lists and byte-level diffs are in
   `caddy_exporter.py` (docstring says "for Arc/Huntaegis" but only
   Arc runs it), `escalation.py`, `image_rehost.py`, and the
   `ops/systemd/`, `docs/`, `provision.sh`, per-stack watchdog units.
+
+---
+
+## Correctness at a glance
+
+Counts are over the meaningfully-classified files below (46 rows across
+tables B.1, B.2, C, plus the seven cross-stack items in A.3 and the
+sibling-script drift in D). "Deliberate content" files (sources.json,
+directives.json, package-lock.json, XML generated sitemaps, per-machine
+allow-list) are excluded from the tally — nothing to reconcile there
+even in principle.
+
+| Class | Count | Where they live |
+|---|---|---|
+| **BOTH** — genuine product/deployment difference | 22 | Most of B.1, all product-surface entries in A.1/A.2, arc_config vs huntaegis.cfg. |
+| **ARC** — Hunt should adopt Arc | 17 | Almost all of B.2, three of the four "shared" utilities in C, `net_safety.py`, `playwright_tier3.py`, `escalation.py` extraction. |
+| **HUNT** — Arc should adopt Hunt | 4 | `scribe.refresh_heartbeat` during idle intervals (b64fc82), Hunt's test coverage additions, `ollama_client.py`'s env-derived default pattern, `manual_publisher.py`'s babel dependency (self-contained image). |
+| **UNKNOWN** — needs measurement or a decision | 6 | `auth.py` (does Hunt want it?), `arc_benchmark.py` (is Hunt's copy dead?), `ollama_client.py` transport-primitive semantics (Hunt safer, Arc more expressive), `site_config.py` per-key drift, prompts.yaml per-site tuning polish, per-stack cfg gunicorn worker sizing. |
+
+### Top ten to act on
+
+Ordered by combined impact (real-cost drift) × ease. Every entry ships
+with a **why-now**: what breaks silently if the current state is left.
+
+1. **`character_builder.py` — ARC.** Hunt's council path lacks the
+   `_council_payload` helper's mandatory `think=False`. On a thinking
+   model that flag decides between a 24s reply and a 76s empty response
+   (the Z230 measurement in Arc's docstring). Hunt is silently running
+   the pre-fix shape — same class of bug as the analyzer local-path
+   fix in `ollama_utils._apply_spec_following_options`. Also missing:
+   per-character `model:` override, cloud-vs-local routing through
+   `ollama_client`, domain-registry integration.
+2. **`ollama_utils.py` — ARC.** Hunt's copy has `is_cloud_reachable`
+   (mirrored in July) but no `OllamaTransportError` /
+   `OllamaNoResponseError` distinction, no `BROADCAST_OLLAMA_HOST/MODEL`
+   env overrides (harmless on Hunt — no narration path), no
+   `call_ollama_with_fallback(format_schema=…, temperature=…, models=…, num_ctx=…)`
+   signature. Arc's exception taxonomy is why Arc's cloud breaker can
+   tell "spectre firewall gap" from "content rejection" and Hunt's
+   can't. 154 content lines of Arc-forward fixes.
+3. **`site_config.py [pipeline].analysis_hold_ttl_s` default — ARC.**
+   Hunt's DEFAULT is still 600s in `site_config.py:74`; Hunt's
+   `huntaegis.cfg` overrides to 1500s (the operator fix). Arc bumped
+   the default to 1500 on 2026-09-17 (020ccf2). Functionally moot on
+   both stacks today because the cfg wins, but a Hunt cfg parse failure
+   would silently expose the old bug. Two-line change: bump the
+   default and drop the rationale comment.
+4. **`net_safety.py` — ARC.** Extract Hunt's inline
+   `_resolves_to_private_ip` + `_SSRFBlocked` from `scribe.py:610` into
+   a `net_safety.py` module mirroring Arc's. Arc's module has drifted
+   forward from Hunt's inline copy; a re-clone from Arc closes both
+   the extraction and the drift in one file.
+5. **`fetch_utils.py` + `playwright_tier3.py` — ARC.** Hunt still runs
+   the 180-line inline tier-2/3 body with no per-fetch context
+   isolation, no fd-safe teardown, no process-tree kill on timeout, no
+   zombie killer. Cost is intermittent Playwright zombies on Hunt's
+   scribe that Arc's extraction cured. Lift-and-shift plus a
+   `fetch_with_anti_bot_handling` shim.
+6. **`analyzer.py` — ARC.** Arc's cloud circuit breaker + M1-retirement
+   branch (2026-07-01 policy) are absent from Hunt's shape. Also Arc's
+   analyzer has broader cloud escalation gating (via `escalation.py`,
+   which Hunt lacks). 316 diff lines total; strip Plantorium-adjacent
+   lines and the deltas are analyzer-internal.
+7. **`scribe.refresh_heartbeat` during idle intervals — HUNT.** Hunt's
+   commit b64fc82 (2026-07-22) refreshes the scribe heartbeat while the
+   loop is idle between cycles. Arc's scribe has `refresh_heartbeat`
+   uses only inside the fetch loop — grep on Arc's scribe.py for that
+   symbol returns zero hits. Practical cost on Arc: the health check
+   flaps stale during long quiet windows even though scribe is alive.
+   Small port, high signal.
+8. **`auth.py` — UNKNOWN.** Ship as-is or delete from CLAUDE.md's
+   shared-utilities line. Hunt's `main.py` has no `init_auth`, no
+   Flask-Limiter setup, and no shared-DB-5 login flow. Either that's
+   intentional (Hunt runs no comment moderation or the moderation
+   endpoints are hidden behind Caddy → decision) or Hunt has been
+   drifting unauthenticated for months (real gap). Not classifiable
+   from the tree alone; needs a Ross call.
+9. **`mailer.py` (drift-only, ~281 lines after branding) — ARC.**
+   Arc-side digest / opt-in / retry logic Hunt never absorbed. The
+   only file in the top-10 whose drift is large enough that the
+   safest port is per-hunk rather than wholesale.
+10. **`cleanup.py` — ARC.** Arc absorbed image-days retention into
+    `site_config` (2026-07 series); Hunt still hardcodes the same
+    values inline. 127 diff lines, mechanical to port. Cleanup /
+    retention semantics are close enough between stacks that this is
+    a straight substitution.
 
 ---
 
@@ -171,18 +278,30 @@ Hunt would want too but doesn't have (or Hunt-side that Arc lacks):
   inline copy `_resolves_to_private_ip` in `scribe.py:610` (with its
   own local `_SSRFBlocked` exception class) that has drifted from
   Arc's module. Extract Hunt's copy to a module named `net_safety.py`
-  and drop the inline duplicates.
+  and drop the inline duplicates. **Correctness: ARC.**
 - `backend/auth.py` — 741-line auth blueprint that the current CLAUDE.md
   claims is shared with Hunt. It isn't there at all. Hunt has no
-  Flask-Limiter, no shared-DB-5 login. See section C.
+  Flask-Limiter, no shared-DB-5 login. See section C. **Correctness:
+  UNKNOWN — Ross decision.**
 - `backend/playwright_tier3.py` — dedicated Tier-3 fetch module.
   Hunt still has the pre-extraction fat version of the same logic
-  inline in `fetch_utils.py`. See C.
+  inline in `fetch_utils.py`. See C. **Correctness: ARC.**
+- `backend/escalation.py` — cloud escalation gate module. Arc's
+  analyzer imports `resolve_character_model` and `record_cloud_call`
+  from here; Hunt's analyzer has neither. **Correctness: ARC** (if
+  Hunt's escalation policy is meant to match Arc's) — otherwise
+  **BOTH** and CLAUDE.md should note that Hunt runs no escalation
+  gating. Hunt currently has no such policy documented, so this is
+  UNKNOWN today; classify after decision.
+- `backend/image_rehost.py` — Arc's image rehost module. Hunt has
+  `backfill_images.py` which serves a similar-but-not-same purpose.
+  **Correctness: UNKNOWN** — needs a small side-by-side to say
+  whether Hunt's backfill supersedes Arc's rehost or is a subset.
 
 **Hunt → would want on Arc:**
 - `backend/tests/test_mailer.py`, `test_scribe_captcha.py`,
   `test_sources_loader.py` — decent regression coverage; Arc's test
-  suite would benefit.
+  suite would benefit. **Correctness: HUNT.**
 
 ---
 
@@ -197,26 +316,26 @@ Full sorted list at
 
 These SHOULD differ. The diff is real product configuration.
 
-| File | Nature of divergence |
-|---|---|
-| `arc_config.yaml` vs `huntaegis.cfg` layer | Brand, port (5005/5006), DB (0/1), Solr core (`feeds`/`feeds_huntaegis`). Both use the schema-v2 loader now. |
-| `backend/rss_feed.py` (16 diff lines) | "Arc Codex" ↔ "HapEnews", `arc-codex.com` ↔ `whirled-news.barrel-of-knowledge.info`, `arc-codex-{aid}` ↔ `hapenews-{aid}` GUID prefix. Pure branding. |
-| `backend/mailer.py` (401 diff lines) | Mixed — branding is deliberate, but this size is too large for branding alone (see B.2). |
-| `backend/bluesky_poster.py` (9 diff lines) | Branding + default image URL. Deliberate. |
-| `backend/mastodon_poster.py` (1 diff line) | Effectively identical after branding — the "good" mirror. |
-| `backend/facebook_poster.py` (84 diff lines) | Branding + account handles + one small structural difference in log-setup. Mostly deliberate. |
-| `frontend/lib/cardConfig.ts` (25 diff lines) | siteName, baseUrlFallback, videoDomainFallback, feature toggles per site (Hunt disables `readingScore`, etc.). Deliberate. |
-| `frontend/public/sw.js` (18 diff lines) | Only the CACHE_NAME prefix (`arc-v1` / `hunt-v1`) and doc-comment references to `arc.sh`/`huntaegis.sh`. Deliberate. |
-| All `frontend/app/api/*/route.ts` handlers with tiny diffs | Only the port default in `BACKEND_INTERNAL_URL ?? "http://localhost:5005"` vs `5006`. Deliberate — but see D.1: the fact that this appears in 8 files rather than one shared constant is a within-stack duplication problem, not an Arc-vs-Hunt one. |
-| `Dockerfile.frontend` (67 diff lines) | Mostly the SW_CACHE_STAMP sed for arc-v1/hunt-v1, plus a few build-time env differences. Mostly deliberate. |
-| `docker-compose.yml` (138 diff lines) | Ports, container names, volume paths, hostnames. Mostly deliberate; the diff is bigger than it needs to be because port/hostname strings are embedded rather than templated. |
-| `backend/sources.json` (2,594 diff lines) | Different feed lists. Deliberate (Arc = general news, Hunt = cybersecurity). |
-| `backend/directives.json` (1,685 diff lines) | Different taxonomies. Deliberate. |
-| `backend/prompts.yaml` (134 diff lines) | Some prompt phrasing tuned per site (Hunt is more security-tone). Partly deliberate; a few "prompt polish only on Arc" lines look like missed mirroring — worth a dedicated pass someday but not in scope here. |
-| `frontend/public/{sitemap,rss,news-sitemap}.xml` (1-line "diffs") | Generated content — the diff is the whole document. Ignore. |
-| `frontend/package-lock.json` (5,523 diff lines) | Slightly different `package.json` (Hunt has partytown, react-share differences) → whole lock differs. Deliberate consequence of a small deliberate difference. |
-| About pages (`frontend/app/about/*/page.tsx`, ~200-900 diff lines each) | Copy per site. Deliberate content, though these have drifted structurally too (the layout scaffolding could be shared but currently isn't; see D.2). |
-| Top-level `.claude/settings.local.json` (652 diff lines) | Per-machine allow-list state, expected to drift. Ignore. |
+| File | Nature of divergence | Correctness |
+|---|---|---|
+| `arc_config.yaml` vs `huntaegis.cfg` layer | Brand, port (5005/5006), DB (0/1), Solr core (`feeds`/`feeds_huntaegis`). Both use the schema-v2 loader now. | **BOTH** |
+| `backend/rss_feed.py` (16 diff lines) | "Arc Codex" ↔ "HapEnews", `arc-codex.com` ↔ `whirled-news.barrel-of-knowledge.info`, `arc-codex-{aid}` ↔ `hapenews-{aid}` GUID prefix. Pure branding. | **BOTH** |
+| `backend/mailer.py` (401 diff lines) | Mixed — branding is deliberate, but this size is too large for branding alone (see B.2). | see B.2 |
+| `backend/bluesky_poster.py` (9 diff lines) | Branding + default image URL. Deliberate. | **BOTH** |
+| `backend/mastodon_poster.py` (1 diff line) | Effectively identical after branding — the "good" mirror. | **BOTH** |
+| `backend/facebook_poster.py` (84 diff lines) | Branding + account handles + one small structural difference in log-setup. Mostly deliberate. | **BOTH** (the log-setup drift is a candidate for `log_utils` extraction — see D.4) |
+| `frontend/lib/cardConfig.ts` (25 diff lines) | siteName, baseUrlFallback, videoDomainFallback, feature toggles per site (Hunt disables `readingScore`, etc.). Deliberate. | **BOTH** |
+| `frontend/public/sw.js` (18 diff lines) | Only the CACHE_NAME prefix (`arc-v1` / `hunt-v1`) and doc-comment references to `arc.sh`/`huntaegis.sh`. Deliberate. | **BOTH** |
+| All `frontend/app/api/*/route.ts` handlers with tiny diffs | Only the port default in `BACKEND_INTERNAL_URL ?? "http://localhost:5005"` vs `5006`. Deliberate — but see D.1: the fact that this appears in 8 files rather than one shared constant is a within-stack duplication problem, not an Arc-vs-Hunt one. | **BOTH** (per pair); duplication is the real defect |
+| `Dockerfile.frontend` (67 diff lines) | Mostly the SW_CACHE_STAMP sed for arc-v1/hunt-v1, plus a few build-time env differences. Mostly deliberate. | **BOTH** |
+| `docker-compose.yml` (138 diff lines) | Ports, container names, volume paths, hostnames. Mostly deliberate; the diff is bigger than it needs to be because port/hostname strings are embedded rather than templated. | **BOTH** |
+| `backend/sources.json` (2,594 diff lines) | Different feed lists. Deliberate (Arc = general news, Hunt = cybersecurity). | **BOTH** (content) |
+| `backend/directives.json` (1,685 diff lines) | Different taxonomies. Deliberate. | **BOTH** (content) |
+| `backend/prompts.yaml` (134 diff lines) | Some prompt phrasing tuned per site (Hunt is more security-tone). Partly deliberate; a few "prompt polish only on Arc" lines look like missed mirroring — worth a dedicated pass someday but not in scope here. | **UNKNOWN** — needs a per-hunk pass to split "tone tuning" from "unmirrored polish" |
+| `frontend/public/{sitemap,rss,news-sitemap}.xml` (1-line "diffs") | Generated content — the diff is the whole document. Ignore. | **BOTH** (generated) |
+| `frontend/package-lock.json` (5,523 diff lines) | Slightly different `package.json` (Hunt has partytown, react-share differences) → whole lock differs. Deliberate consequence of a small deliberate difference. | **BOTH** (generated) |
+| About pages (`frontend/app/about/*/page.tsx`, ~200-900 diff lines each) | Copy per site. Deliberate content, though these have drifted structurally too (the layout scaffolding could be shared but currently isn't; see D.2). | **BOTH** (copy) |
+| Top-level `.claude/settings.local.json` (652 diff lines) | Per-machine allow-list state, expected to drift. Ignore. | **BOTH** (per-machine) |
 
 ### B.2. Drift — big files, mostly missed mirroring
 
@@ -224,29 +343,29 @@ These are the files where the diff is large enough that a single feature
 or fix landed on one side and never crossed to the other. Ordered by
 diff impact:
 
-| File | Diff lines | Verdict |
-|---|---|---|
-| `backend/main.py` | 1,734 | Arc has ~1,144 more content lines. Includes wiki, plants, quiz, library endpoints — deliberate. But even after subtracting product endpoints, there are Arc-side fixes (rate-limit shape, request-id logging, sitemap batching) that are worth mirroring. Realistically Arc's main.py is the source of truth and Hunt should copy delta by delta. |
-| `backend/scribe.py` | 1,590 | Arc has ~552 more content lines. Similar shape: Arc has audio/reporter/library/plants logic that Hunt doesn't (deliberate), but also stronger scribe internals (retry accounting, feed liveness TTL, retention delegation) that Hunt still runs the older version of. |
-| `backend/kasmir7.py` | 763 | Both have this file; Arc has Plantorium (`/api/plants` + QR generation), Hunt doesn't. Most of the diff is Plantorium. Deliberate. |
-| `backend/character_builder.py` | 197 | Refactor + council host wiring that landed on Arc; Hunt hasn't caught up. Drift. |
-| `backend/analyzer.py` | 316 | Cloud circuit breaker + M1-retirement branch on Arc; Hunt has an older shape. Drift. |
-| `backend/cleanup.py` | 127 | Arc absorbed image-days into `site_config`; Hunt still hardcodes. Drift. |
-| `backend/arc_benchmark.py` | 541 | Both have it — Arc's is the actively maintained one. Hunt's copy is stale. Ambiguous; both may need it or one may be dead. |
-| `backend/mailer.py` | 401 | Branding accounts for ~120 lines; the rest is Arc-side digest / opt-in / retry logic. Drift. |
-| `backend/manual_publisher.py` | 61 | Deliberate: Hunt uses `babel` for language names (self-contained image); Arc reads `backend/languages.json`. Small — good state. Also the port default (`5005`/`5006`). |
-| `backend/api_client.py` | 36 | Both stacks did the same consolidation independently on different dates (Arc: 2026-08-27; Hunt: 2026-09-10). Code is materially the same; comments have drifted. Fine. |
-| `backend/ollama_client.py` | 30 | Small feature deltas. Should be reconciled. |
-| `backend/site_config.py` | 30 | Slight difference in `DEFAULTS`. Ambiguous — some of it is deliberate per-site policy that should have moved into the cfg instead of into the loader. |
-| `backend/tests/test_smoke.py` | 186 | Arc's is much richer. Drift; port the coverage. |
-| `ops/RUNBOOK.md` | 3,554 | Arc's is 182 KB, Hunt's is 15 KB. Deliberate (Hunt's runbook is a stub pointing back at Arc's for shared procedures). |
-| `CLAUDE.md` | 308 | Different personalities of each stack — Hunt's is minimal, Arc's is comprehensive. Deliberate but Hunt's is arguably too thin. |
-| `characters.yaml` | 620 | Different character sets per site. Deliberate. |
-| `watchdog.sh` | 126 | Same shape, different service lists. Deliberate + some drift. |
-| `frontend/components/IntelligenceCard.tsx` | 128 | Almost identical structure; drift is small enhancements (icons, torch button destination). Should be mirrored. |
-| `frontend/components/FeedClient.tsx` | 110 | Small drift. |
-| `frontend/components/TranslateButton.tsx` | 168 | Small drift. |
-| `frontend/components/UserMenu.tsx` | 59 | Small drift. |
+| File | Diff lines | Verdict | Correctness |
+|---|---|---|---|
+| `backend/main.py` | 1,734 | Arc has ~1,144 more content lines. Includes wiki, plants, quiz, library endpoints — deliberate. But even after subtracting product endpoints, there are Arc-side fixes (rate-limit shape, request-id logging, sitemap batching) that are worth mirroring. Realistically Arc's main.py is the source of truth and Hunt should copy delta by delta. | **ARC** (for the shared endpoints); **BOTH** (for the product-surface endpoints Arc adds) |
+| `backend/scribe.py` | 1,590 | Arc has ~552 more content lines. Similar shape: Arc has audio/reporter/library/plants logic that Hunt doesn't (deliberate), but also stronger scribe internals (retry accounting, feed liveness TTL, retention delegation) that Hunt still runs the older version of. | **ARC** for the internals; **BOTH** for audio/reporter/library/plants; **HUNT** for `refresh_heartbeat` during idle intervals (b64fc82) — this single fix is only on Hunt and Arc's scribe.py has no matching call sites |
+| `backend/kasmir7.py` | 763 | Both have this file; Arc has Plantorium (`/api/plants` + QR generation), Hunt doesn't. Most of the diff is Plantorium. Deliberate. | **BOTH** (product) |
+| `backend/character_builder.py` | 197 | Refactor + council host wiring that landed on Arc; Hunt hasn't caught up. Drift. Includes the mandatory `think=False` centralization in `_council_payload` — the thinking-model bug where a missed flag returns an empty response after burning the full `num_predict` budget. | **ARC** (highest-cost drift in this table — see top 10 #1) |
+| `backend/analyzer.py` | 316 | Cloud circuit breaker + M1-retirement branch on Arc; Hunt has an older shape. Drift. | **ARC** |
+| `backend/cleanup.py` | 127 | Arc absorbed image-days into `site_config`; Hunt still hardcodes. Drift. | **ARC** |
+| `backend/arc_benchmark.py` | 541 | Both have it — Arc's is the actively maintained one. Hunt's copy is stale. Ambiguous; both may need it or one may be dead. | **UNKNOWN** — likely delete Hunt's copy, but confirm no Hunt-side script imports it |
+| `backend/mailer.py` | 401 | Branding accounts for ~120 lines; the rest is Arc-side digest / opt-in / retry logic. Drift. | **ARC** (for the drift portion) + **BOTH** (branding) |
+| `backend/manual_publisher.py` | 61 | Deliberate: Hunt uses `babel` for language names (self-contained image); Arc reads `backend/languages.json`. Small — good state. Also the port default (`5005`/`5006`). | **HUNT** on the language-name approach (fewer moving parts, no JSON to keep updated); **BOTH** on port |
+| `backend/api_client.py` | 36 | Both stacks did the same consolidation independently on different dates (Arc: 2026-08-27; Hunt: 2026-09-10). Code is materially the same; comments have drifted. Fine. | **BOTH** (code) — comments are trivially reconcilable, low priority |
+| `backend/ollama_client.py` | 30 | Small feature deltas. Should be reconciled. Arc's `DEFAULT_PRIMARY = "http://JIM_TAILSCALE_IP:11434"` is a placeholder; Hunt derives from `os.environ.get("OLLAMA_URL", …)`. | **UNKNOWN** — Hunt's env-derived-default pattern is safer (no placeholder that must be overridden) but the specific defaults must differ per deployment. Recommend porting Hunt's `os.environ.get(...)` pattern to Arc, keeping Arc's failover semantics. |
+| `backend/site_config.py` | 30 | Slight difference in `DEFAULTS`. Ambiguous — some of it is deliberate per-site policy that should have moved into the cfg instead of into the loader. Confirmed drift: Hunt's `[pipeline].analysis_hold_ttl_s` default is still 600 (Arc raised to 1500 on 020ccf2). | **ARC** for `analysis_hold_ttl_s` default; **UNKNOWN** per-key otherwise |
+| `backend/tests/test_smoke.py` | 186 | Arc's is much richer. Drift; port the coverage. | **ARC** |
+| `ops/RUNBOOK.md` | 3,554 | Arc's is 182 KB, Hunt's is 15 KB. Deliberate (Hunt's runbook is a stub pointing back at Arc's for shared procedures). | **BOTH** |
+| `CLAUDE.md` | 308 | Different personalities of each stack — Hunt's is minimal, Arc's is comprehensive. Deliberate but Hunt's is arguably too thin. | **BOTH** — Hunt's thinness is a documented choice, though the "shared utilities" line needs the correction called out in section C either way |
+| `characters.yaml` | 620 | Different character sets per site. Deliberate. | **BOTH** (content) |
+| `watchdog.sh` | 126 | Same shape, different service lists. Deliberate + some drift. | **BOTH** (service list); **ARC** for the shape enhancements Hunt hasn't picked up |
+| `frontend/components/IntelligenceCard.tsx` | 128 | Almost identical structure; drift is small enhancements (icons, torch button destination). Should be mirrored. | **ARC** |
+| `frontend/components/FeedClient.tsx` | 110 | Small drift. | **ARC** |
+| `frontend/components/TranslateButton.tsx` | 168 | Small drift. | **ARC** |
+| `frontend/components/UserMenu.tsx` | 59 | Small drift. | **ARC** |
 
 ### B.3. Config files with intentional operator tune (leave alone)
 
@@ -265,12 +384,12 @@ CLAUDE.md says:
 
 Actual state as of 2026-09-16:
 
-| File | Arc lines | Hunt lines | Diff (content) | Verdict |
-|---|---|---|---|---|
-| `auth.py` | 741 | — | — | **MISSING on Hunt.** The Hunt `main.py` has no `from auth import init_auth` call and no Flask-Limiter setup. This means the CLAUDE.md statement "shared with huntaegis" is false and has been false for however long Hunt has been running without central auth. Two possibilities: (1) Hunt doesn't want NextAuth/Flask-Limiter — deliberate — in which case CLAUDE.md needs to say so; (2) Hunt has drifted off the shared path and is running unauthenticated moderation endpoints — a real gap. Ross should decide. |
-| `ollama_utils.py` | 436 | 291 | 205 lines | Heavy drift. Arc-forward: `OllamaTransportError` and `OllamaNoResponseError` exception taxonomy (introduced 2026-09-12 after a spectre firewall gap), `is_cloud_reachable()` pre-flight (introduced 2026-07-07 after the M1 outage burned 2,755 doomed escalations), `BROADCAST_OLLAMA_HOST/MODEL` support for the 2026-09-11 narration split, richer `call_ollama_with_fallback` signature (`format_schema`, `temperature`, `models`, `num_ctx`), richer `call_ollama_local_only` (`host`, `model`, `num_predict` per-call overrides), `num_ctx` cap now 16384. Hunt has none of it. **This is unambiguous missed-mirroring drift.** The core call semantics still work on Hunt, but Hunt's narration will silently absorb load on the wrong host and its cloud breaker won't distinguish "not reachable" from "429". |
-| `fetch_utils.py` | 290 | 355 | 119 lines | Structural drift. Arc extracted the Playwright Tier-2/3 body into `playwright_tier3.py` (fd-safe context-per-fetch, radeon exile, process-tree kill-on-timeout, zombie killer) and left `fetch_utils.fetch_with_anti_bot_handling` as an 80-line stub that delegates. Hunt still has the original ~180-line inline body with `context.add_init_script`, `page.goto`, per-attempt teardown, and no `enable_tier3` flag. Behaviorally similar; operationally worse (no zombie protection, no single-serialized browser). Missed mirroring. |
-| `stream_utils.py` | 86 | 84 | 18 lines | Comment-only drift. Arc's docstrings mention `quiz_generator` (which is Arc-only) and the 2026-07-18 trim rationale; Hunt's still references the pre-trim 41k-entry snapshot. Code is identical. Fine. |
+| File | Arc lines | Hunt lines | Diff (content) | Verdict | Correctness |
+|---|---|---|---|---|---|
+| `auth.py` | 741 | — | — | **MISSING on Hunt.** The Hunt `main.py` has no `from auth import init_auth` call and no Flask-Limiter setup. This means the CLAUDE.md statement "shared with huntaegis" is false and has been false for however long Hunt has been running without central auth. Two possibilities: (1) Hunt doesn't want NextAuth/Flask-Limiter — deliberate — in which case CLAUDE.md needs to say so; (2) Hunt has drifted off the shared path and is running unauthenticated moderation endpoints — a real gap. Ross should decide. | **UNKNOWN** — cannot classify from the tree alone; the tree just tells you Hunt has no auth blueprint. Whether that's right depends on what Hunt's moderation posture is meant to be. |
+| `ollama_utils.py` | 436 (now 511) | 291 (now 357) | 205 lines (now larger) | Heavy drift. Arc-forward: `OllamaTransportError` and `OllamaNoResponseError` exception taxonomy (introduced 2026-09-12 after a spectre firewall gap), `is_cloud_reachable()` pre-flight (introduced 2026-07-07 after the M1 outage burned 2,755 doomed escalations — this one DID land on Hunt in July), `BROADCAST_OLLAMA_HOST/MODEL` support for the 2026-09-11 narration split, richer `call_ollama_with_fallback` signature (`format_schema`, `temperature`, `models`, `num_ctx`), richer `call_ollama_local_only` (`host`, `model`, `num_predict` per-call overrides), `num_ctx` cap now 16384. Hunt has some of it (is_cloud_reachable, num_ctx=8192 for comment replies) but not the exception taxonomy or the broadcast env overrides. **This is unambiguous missed-mirroring drift for what's missing.** The core call semantics still work on Hunt, but Hunt's cloud breaker can't distinguish "not reachable" from "content rejection". The BROADCAST_OLLAMA_* additions are Arc-narration-specific and are BOTH-correct (Hunt has no narration path). | **ARC** (exception taxonomy, richer call signatures); **BOTH** (BROADCAST_OLLAMA_* — narration is Arc-only) |
+| `fetch_utils.py` | 290 | 355 | 119 lines | Structural drift. Arc extracted the Playwright Tier-2/3 body into `playwright_tier3.py` (fd-safe context-per-fetch, radeon exile, process-tree kill-on-timeout, zombie killer) and left `fetch_utils.fetch_with_anti_bot_handling` as an 80-line stub that delegates. Hunt still has the original ~180-line inline body with `context.add_init_script`, `page.goto`, per-attempt teardown, and no `enable_tier3` flag. Behaviorally similar; operationally worse (no zombie protection, no single-serialized browser). Missed mirroring. | **ARC** |
+| `stream_utils.py` | 86 | 84 | 18 lines | Comment-only drift. Arc's docstrings mention `quiz_generator` (which is Arc-only) and the 2026-07-18 trim rationale; Hunt's still references the pre-trim 41k-entry snapshot. Code is identical. Fine. | **BOTH** (code identical); **ARC** (Arc's comment is accurate to today's trimmed snapshot; Hunt's comment refers to a pre-trim state that no longer exists). |
 
 **Bottom line:** the CLAUDE.md invariant is broken 3 of 4 ways. Either
 mirror the Arc changes to Hunt and re-assert the invariant, or delete
