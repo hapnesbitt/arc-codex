@@ -476,3 +476,155 @@ Memory records added:
     section above).
   - "LightBox relocation report" — done; recommendation is stay.
   - "`huntaegis-{default,manual}.jpg` missing" — done this pass.
+
+---
+
+## Addendum — pipeline-timing pass (evening)
+
+### Age cap removed on audio_backfill (`fa2c273`)
+
+The 2026-08-27 sliding-window design was measured live 2026-09-17
+to be burying **981 silent+analyzed+English articles** behind the
+6h age filter alone, with no metric to notice. `arc:stats:aged_out_
+unanalyzed` (retired in this commit) only counted the unanalyzed
+bucket; the larger silent-but-analyzed loss had no metric at all.
+
+Ross's rationale, carried verbatim into the module docstring so
+nobody re-narrows it in six months: **"a big show, prefer recent,
+take older over nothing."** The window is now an ordering, not a
+filter. Every pass: `ZREVRANGE 'feed' 0 -1`, narrate the newest
+silent+analyzed candidate that isn't over its retry budget. Fresh
+arrivals still win; older backlog is served during lulls.
+
+Warden's expected behavior under this: **runs continuously** rather
+than idling. At ~5/hr off-peak + ~20 narrations in the 14:00-19:00
+peak-throttled window, that's ~115/day drain against ~130/day
+narratable arrivals — near-steady state, backlog holds roughly
+flat. No article is ever silent purely by age.
+
+**Downstream:** newsradio's recent list will grow to a week of
+stories rather than the six hours the sliding-window era shipped
+with. If the station's front page gets unwieldy, the lever is a
+**presentation cap in `build_show.py` (~100 items)**, NOT a
+narration cap. Narration stays uncapped — that's exactly what
+this change protected.
+
+Related retired symbols (Redis + code): `arc:stats:aged_out_
+unanalyzed`, `arc:audio:noted_unanalyzed_ids` SET, `_tally_aged_
+out_unanalyzed()`, `NOTED_UNANALYZED_SET`, `AGED_OUT_UNANALYZED_
+COUNTER`, `window_hours()`. Any leftover Redis keys with those
+names are dead but harmless.
+
+### Retry TTL rebased (`fa2c273`)
+
+`record_narration_failure` used to size its per-article TTL off
+`backfill_window_ceiling_hours + 1h margin`. Under no-cap that
+basis is gone; replaced with fixed `AUDIO_RETRY_TTL_SECONDS =
+30 days`. Long enough for a real infrastructure change (Kokoro
+upgrade, model swap) to have happened, short enough that a
+permanently-unwinnable article doesn't retry more than ~12
+times/year.
+
+### Analyzer / character_builder timing (`b643154`, `e177487`, `020ccf2`)
+
+Two config-only bumps, both from the same measurement pass over
+`logs/analyzer.log`:
+
+- **`character_analysis_wait_s` 120 → 480** on both Arc (`b643154`)
+  and Hunt (`e177487`, on `fix/translate-failure-visibility`).
+  Analyzer 7-day p90 is 428s (n=1502), local_full 445s. The old
+  120s was parking on nearly every article and eating retry
+  cycles. 480s clears p90 with margin, stays below p95 (522s) so
+  pathological tails still park.
+
+- **`analysis_hold_ttl_s` Arc 600 → 1500** (`020ccf2`). Matches
+  Hunt's earlier bump, whose in-file comment reads "measured p95
+  inference 613s beat the 600s default (flag expired mid-job
+  ~1-in-20)." Arc's own 7d p95 is 522s and p99 is 758s → ~5% of
+  jobs were losing the analyzer flag mid-job here too. Same
+  1500s value used, matched rationale in comments so the two
+  stacks stay aligned.
+
+**Restart footprint:** `analyzer.py` and `character_builder.py`
+both read their timing constants at import (`ANALYSIS_WAIT`,
+`ANALYSIS_HOLD_TTL`), so a restart was needed for the new
+values to be live. All four services (Arc analyzer + character_
+builder, Hunt analyzer + character_builder) restarted this pass
+and confirmed green via `arc.sh status` / `huntaegis.sh status`.
+
+### Parity lesson — the one worth carrying
+
+**Hunt had already measured and fixed the TTL bug on
+`analysis_hold_ttl_s`. Arc didn't know.** The two stacks
+maintain intentional operational differences (DB, ports, brand
+strings) but also carry a lot of shared pipeline invariants
+where identical values are meant to hold — and today it took an
+unrelated symptom (`character_builder` parking on every article)
+to surface that Arc had never inherited a fix Hunt made weeks
+ago.
+
+Action item for whatever the next fleet-doc pass looks like:
+**the arc↔hunt delta document should flag which side of each
+difference is CORRECT**, not just that a difference exists. A
+delta of "Arc has X = 600, Hunt has X = 1500" without a mark on
+which value survived measurement is a bug in the process, not
+just a note.
+
+### Later, not now — operator-knob audit + admin panel
+
+Two related follow-ups Ross flagged, both **DEFERRED**:
+
+1. **Audit every operator knob still living in code rather than
+   `.cfg`.** Some values that behave like tunables are still
+   hardcoded module constants (POLL_SECONDS in audio_backfill,
+   BROADCAST_MAX_CHARS in scribe, various retry counters, etc.);
+   others in `.cfg` are dead — historical baseline noted:
+   **40 of 82 arc.cfg keys were dead as of August**.
+2. **Webmin-style admin panel on :10000** to expose the survivor
+   set. Must distinguish knobs read **per-cycle** (safe to
+   hot-edit, take effect on next cycle) from knobs read
+   **at import** (require a service restart, same as tonight's
+   `analyzer` / `character_builder`).
+
+These aren't ready to build; capturing scope so the next pass
+starts from a known baseline instead of re-discovering it.
+
+### Known permanently-unfetchable sources
+
+Two sources return the same-byte CAPTCHA boilerplate on every
+fetch and will never yield real article text:
+
+- **`dialogue.earth`** — 1,721 chars every time
+- **`policinginstitute.org`** — 1,173 chars every time
+
+Both are below `SOURCE_MIN_CHARS = 1500` (partially — dialogue.earth
+is right at the boundary and does slip through occasionally, then
+fails audio narration on emptiness). Worth adding to a permanent
+source-side skiplist once one exists; for now they self-drop via
+the SOURCE_MIN_CHARS gate for `policinginstitute` and by the
+audio-side floor for `dialogue.earth`.
+
+### `threads_poster` — still never run once
+
+Standing entry — carrying it forward. `threads_poster.py` (or
+whatever it's currently called) has been sitting in the tree
+without ever having been launched in production. If it's meant
+to stay, run it once and prove it works; if not, retire it. Not
+a tonight problem.
+
+### Warden narration daemon — post-restart status
+
+**On the newest-first code (`fa2c273`) since 20:33 tonight.**
+Zero `✓` narrations in the first ~16 minutes; not a stale-mutex
+problem (the initial `3094:*` holder cleared naturally via the
+45s lease TTL as designed). The actual blocker: **broadcast-script
+calls to Ollama at `192.168.1.189:11434` are hanging 15 minutes
+and timing out** with `Read timed out. (read timeout=900)`. The
+same Ollama host answers `/api/tags` in 2ms from resolute, so
+the failure is either warden-side connectivity or model-slot
+contention with the analyzer sharing 189 — separate from the
+audio redesign and out of scope tonight.
+
+Log line to grep on next session: `📡 UNREACHABLE — broadcast
+script host unreachable: gemma4:e2b @ http://192.168.1.189:11434
+unreachable`.
