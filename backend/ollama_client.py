@@ -32,14 +32,15 @@
 #   (inference is slow by design) — we do NOT fail over on it.
 #
 # Config (resolution order: JSON config file > environment > built-in default)
-#   OLLAMA_PRIMARY      primary base URL      (default: http://JIM_TAILSCALE_IP:11434 placeholder)
-#   OLLAMA_FALLBACK     fallback base URL     (default: http://192.168.1.185:11434  the M1)
-#   OLLAMA_CLOUD_HOST   host for -cloud models (default: the resolved fallback / M1)
+#   OLLAMA_PRIMARY      primary base URL       (default: OLLAMA_URL, else literal)
+#   OLLAMA_FALLBACK     fallback base URL      (default: the resolved primary → inert wrapper)
+#   OLLAMA_URL          fallback source for DEFAULT_PRIMARY when the two above are unset
+#   OLLAMA_CLOUD_HOST   host for -cloud models (default: the resolved fallback)
 #   OLLAMA_CONFIG_FILE  optional JSON override path (default: <thisdir>/ollama_endpoints.json)
 #     JSON shape: {"primary": "...", "fallback": "...", "cloud": "..."}  (all keys optional)
 #
-# Cutover day = change OLLAMA_PRIMARY (one line in .env or ollama_endpoints.json) to
-# Jim's Tailscale IP and restart services. No code edit.
+# Cutover = change OLLAMA_PRIMARY (one line in .env or ollama_endpoints.json)
+# and restart services. No code edit.
 
 import os
 import json as _json
@@ -56,8 +57,22 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # ── Built-in defaults ────────────────────────────────────────────────────────
-DEFAULT_PRIMARY  = "http://JIM_TAILSCALE_IP:11434"   # placeholder — set via env/config
-DEFAULT_FALLBACK = "http://192.168.1.185:11434"      # the M1
+# Derive from OLLAMA_URL / OLLAMA_FALLBACK so a bare .env (no OLLAMA_PRIMARY
+# or OLLAMA_FALLBACK line set) doesn't degrade to the retired-M1 literal or a
+# never-set placeholder. When both env vars are unset entirely, primary ==
+# fallback and this wrapper is INERT — a plain POST to the single host, no
+# host failover, byte-identical to the pre-wrapper requests.post shape.
+# Provisioning a distinct OLLAMA_FALLBACK turns on host failover without a
+# code change. Cutover to a new primary is a one-line OLLAMA_PRIMARY (or
+# OLLAMA_URL) edit.
+#
+# The literal below is a last-resort fallback for when OLLAMA_URL is unset
+# entirely — keep it in sync with OLLAMA_URL's current value in backend/.env
+# so a missing .env line degrades to the right host instead of silently
+# pointing at a dead one. Ported from huntaegis_stack/backend/ollama_client.py
+# where an earlier drift (2026-09-05 to 2026-09-07) proved the point.
+DEFAULT_PRIMARY  = os.environ.get("OLLAMA_URL",      "http://192.168.1.189:11434")
+DEFAULT_FALLBACK = os.environ.get("OLLAMA_FALLBACK", DEFAULT_PRIMARY)
 
 CONNECT_TIMEOUT      = 3.0     # seconds — fast fail to primary, then fail over
 DEFAULT_READ_TIMEOUT = 300.0   # seconds — inference is slow; never fail over on this
