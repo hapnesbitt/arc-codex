@@ -44,6 +44,7 @@ from ollama_utils import (
     BROADCAST_OLLAMA_HOST, BROADCAST_OLLAMA_MODEL,
     OllamaTransportError, OllamaNoResponseError,
 )
+import translation
 from retention import run_retention_pass
 from operational_state import ScribeOperationalState, run_heartbeat_loop
 from fetch_utils import sanitize_active_content
@@ -2261,11 +2262,41 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
     # consumer that skips render-time escaping stays safe (2026-07-09 fix).
     sanitized_body = sanitize_active_content(article.get('article_text', ''))
 
+    # Shape A.1 ingest translation (2026-09-18): non-English article →
+    # translate title + body to English once, here, so every downstream
+    # consumer (analyzer, character_builder, audio_backfill) sees English.
+    # On success: source_lang stays as-detected (immutable audit trail),
+    # translated_ok is set, and the STORED title/body fields are the
+    # English text. On failure: nothing changes — article publishes in
+    # its source language and audio_backfill's residual gate leaves it
+    # unnarratable, same as today. Translation route: warden's Ollama via
+    # TRANSLATION_OLLAMA_HOST — spectre is the analyzer's home and
+    # already saturated, cloud is weekly-capped and this is bulk. See
+    # translation.translate_at_ingest for the full rationale.
+    source_lang = detect_language(article.get('article_text', ''))
+    working_title = article.get('title', '')
+    translated_ok = False
+    if source_lang != 'English':
+        result = translation.translate_at_ingest(working_title, sanitized_body, source_lang)
+        if result is not None:
+            eng_title, eng_body = result
+            working_title = eng_title
+            sanitized_body = sanitize_active_content(eng_body)  # re-sanitize the translated body
+            translated_ok = True
+        else:
+            # Failure logged inside translate_at_ingest with the source_lang;
+            # add the article_id here so the pair is greppable together for
+            # a possible manual retry pass later.
+            logger.warning(
+                f"🌐 Ingest translation failed for {article_id} "
+                f"(source_lang={source_lang}) — publishing untranslated; unnarratable")
+
     publish_payload = {
         k: v for k, v in article.items()
         if k not in ['article_text', 'article_hash', 'dossier', 'filename', 'processing_path', 'origin', 'html_content', 'source_category']
     }
     publish_payload.update({
+        'title': working_title,
         'original_text': sanitized_body,
         'id': article_id,
         'timestamp': datetime.now(timezone.utc).isoformat(),
@@ -2275,7 +2306,8 @@ def publish_and_prepare_comments(target, recently_published, api_client, is_prio
             directive_name=directive.get('name', ''),
             source_category=article.get('source_category', '')
         ),
-        'source_lang': detect_language(article.get('article_text', '')),
+        'source_lang': source_lang,
+        'translated_ok': '1' if translated_ok else '',
         'blue_team_analysis': '',
         'red_team_analysis': '',
         'purple_team_analysis': '',

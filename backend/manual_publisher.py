@@ -21,6 +21,7 @@ from stream_utils import publish_analysis, get_redis_connection, ensure_stream_g
 from ollama_utils import call_ollama_with_fallback, OLLAMA_CLOUD_MODEL, OLLAMA_LOCAL_FALLBACK
 from fetch_utils import sanitize_active_content
 from api_client import APIClient
+import translation
 from langdetect import detect, DetectorFactory, LangDetectException
 import yaml
 from datetime import datetime, timezone
@@ -494,17 +495,41 @@ def process_manual_upload(filepath, api_client):
         
         logger.info(f"  Category: {category} → image: {image_url[:80]}")
         
+        # Shape A.1 ingest translation (2026-09-18): mirrors scribe.py's
+        # publish-time translation. See translation.translate_at_ingest for
+        # the full rationale; briefly, a non-English article gets its title
+        # and body translated to English once at ingest so every downstream
+        # consumer sees English. Failure preserves the source-language
+        # content and leaves translated_ok unset — Shape A.1
+        # strict-improvement / no-new-loss.
+        sanitized_body_for_publish = sanitize_active_content(article_text)
+        source_lang = detect_language(article_text)
+        working_title = title
+        translated_ok = False
+        if source_lang != 'English':
+            result = translation.translate_at_ingest(working_title, sanitized_body_for_publish, source_lang)
+            if result is not None:
+                eng_title, eng_body = result
+                working_title = eng_title
+                sanitized_body_for_publish = sanitize_active_content(eng_body)
+                translated_ok = True
+            else:
+                logger.warning(
+                    f"🌐 Ingest translation failed for {article_hash} "
+                    f"(source_lang={source_lang}) — publishing untranslated; unnarratable")
+
         article_data = {
             "id": article_hash,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "Manual Upload",
-            "title": title,
+            "title": working_title,
             "url": _SITE.article_url(article_hash),
             "sourceUrl": source_url,
             "imageUrl": image_url,
             "dossier": json.dumps(dossier),
-            "original_text": sanitize_active_content(article_text),
-            "source_lang": detect_language(article_text),
+            "original_text": sanitized_body_for_publish,
+            "source_lang": source_lang,
+            "translated_ok": '1' if translated_ok else '',
             "directive": metadata.get('category', 'Manual Publish'),
             "category": category,
             "blue_team_analysis": "",

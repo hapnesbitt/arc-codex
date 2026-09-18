@@ -88,6 +88,25 @@ if _local_only_mode() and os.environ.get("OLLAMA_CLOUD_MODEL"):
 BROADCAST_OLLAMA_HOST  = os.environ.get("BROADCAST_OLLAMA_HOST")   # e.g. http://localhost:11434
 BROADCAST_OLLAMA_MODEL = os.environ.get("BROADCAST_OLLAMA_MODEL")  # e.g. gemma4:e2b
 
+# Dedicated host/model for translation.translate_at_ingest only (2026-09-18).
+# Symmetric to BROADCAST_OLLAMA_* above and for the same reason: the ingest-
+# time non-English → English translation Shape A wants a host that is
+# neither the shared analyzer host (spectre :189 — saturated by
+# pre_analyze's concurrency-of-8 against num_parallel=2) nor cloud (weekly
+# cap protection — bulk background work is exactly what
+# escalation.weekly_cap = 1500 guards). Set on resolute's scribe/
+# manual_publisher .env to point at warden's dedicated Ollama over LAN
+# (typical: http://192.168.1.190:11434 + gemma4:e2b). Left unset when
+# ingest-time translation is not wanted; scribe/manual_publisher then
+# publish foreign-language articles untranslated as before, and
+# audio_backfill's residual language gate leaves them unnarratable —
+# strict-improvement / no-new-loss shape (Shape A.1). User-facing
+# translation.py routes still use call_ollama_with_fallback's
+# cloud → local cascade for reader quality; this override is scoped to
+# the ingest path only.
+TRANSLATION_OLLAMA_HOST  = os.environ.get("TRANSLATION_OLLAMA_HOST")   # e.g. http://192.168.1.190:11434
+TRANSLATION_OLLAMA_MODEL = os.environ.get("TRANSLATION_OLLAMA_MODEL")  # e.g. gemma4:e2b
+
 TRANSLATION_LOCK_KEY      = "translation:active"
 TRANSLATION_LOCK_MAX_WAIT = 60  # seconds to wait before proceeding anyway
 LOCAL_HEALTHCHECK_TIMEOUT = 2.0

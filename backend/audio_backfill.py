@@ -507,13 +507,23 @@ def find_newest_silent(r: redis.Redis, skip: set,
     pipe = r.pipeline()
     for aid in ids:
         pipe.hmget(f"article:{aid}",
-                   ['audio_url', 'source_lang', 'original_text', *_ANALYSIS_FIELDS])
+                   ['audio_url', 'source_lang', 'translated_ok', 'original_text', *_ANALYSIS_FIELDS])
     rows = pipe.execute()
 
-    for aid, (audio_url, lang, body, red, blue, purple) in zip(ids, rows):
+    for aid, (audio_url, lang, translated_ok, body, red, blue, purple) in zip(ids, rows):
         if audio_url:
             continue
-        if (lang or 'English') != 'English':
+        # Language gate (Shape A.1, 2026-09-18): the article's stored
+        # text must be English — either natively so (source_lang ==
+        # 'English') or via successful ingest-time translation
+        # (translated_ok == '1'). The old form (source_lang == 'English'
+        # only) marked every foreign article permanently ineligible; now
+        # scribe/manual_publisher.py translate at ingest via
+        # translation.translate_at_ingest, and successful translations
+        # come through this gate as narratable. Failed translations leave
+        # translated_ok unset and stay unnarratable — same as before,
+        # strict improvement.
+        if (lang or 'English') != 'English' and translated_ok != '1':
             continue
         body = (body or '').strip()
         if len(body) < scribe.SOURCE_MIN_CHARS:

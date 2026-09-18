@@ -29,8 +29,13 @@ from dotenv import load_dotenv
 load_dotenv()
 from ollama_utils import (
     call_ollama_with_fallback,
+    call_ollama_local_only,
     OLLAMA_CLOUD_MODEL,
     OLLAMA_LOCAL_FALLBACK,
+    TRANSLATION_OLLAMA_HOST,
+    TRANSLATION_OLLAMA_MODEL,
+    OllamaTransportError,
+    OllamaNoResponseError,
     is_cloud_available,
     is_cloud_reachable,
 )
@@ -248,6 +253,113 @@ def _call_translation_model_library(text: str, language: str, source_lang: str =
             model_used, dur_ms, language, len(text),
         )
     return resp_text
+
+
+# ---------------------------------------------------------------------------
+# Ingest-time translation (Shape A.1 — forward-only, 2026-09-18)
+# ---------------------------------------------------------------------------
+# Non-English articles get their title and body translated to English AT
+# INGEST, once, so downstream (analyzer, character_builder, audio_backfill,
+# frontend) sees English throughout. Distinct from the on-demand
+# reader-facing translation above:
+#
+#   - This path is LOCAL-ONLY. It never touches the weekly-capped cloud
+#     model — bulk background work is what the cap is designed to protect.
+#   - Route is TRANSLATION_OLLAMA_HOST / TRANSLATION_OLLAMA_MODEL from env,
+#     symmetric to BROADCAST_OLLAMA_HOST — see the comment on those in
+#     ollama_utils.py. Unset means "no ingest translation configured";
+#     scribe/manual_publisher then publish the article untranslated (see
+#     Shape A.1 rationale below) and audio_backfill's residual gate leaves
+#     it unnarratable — same as today's behavior for foreign articles.
+#   - No backfill. If an existing 94-article legacy population wants
+#     translation, it's a trivial one-off loop against source_lang !=
+#     English calling into this helper — not automated, only if someone
+#     explicitly asks (2026-09-18 decision, Ross).
+#
+# Shape A.1 on failure: preserve the source-language content, do NOT set
+# `translated_ok`. The article publishes in its source language, exactly
+# as before Shape A landed. Chosen over A.2 (drop-on-failure) because
+# translation lands on hosts that have been contended twice this month
+# and a timeout is not a reason to permanently discard a story Arc
+# fetched successfully. Strict-improvement / no-new-loss shape.
+
+_INGEST_TITLE_TIMEOUT_S  = 120
+_INGEST_BODY_TIMEOUT_S   = 600
+
+
+def translate_at_ingest(title: str, body: str, source_lang: str) -> tuple[str, str] | None:
+    """Translate `title` and `body` from `source_lang` to English via the
+    TRANSLATION_OLLAMA_HOST / TRANSLATION_OLLAMA_MODEL env override.
+
+    Returns (english_title, english_body) on full success — both non-empty
+    after strip. Returns None on any failure (transport, empty response,
+    override unset, empty result). Failure is ATOMIC: a successful title
+    with a failed body returns None. Caller (scribe/manual_publisher) then
+    publishes the article in its original language and leaves
+    `translated_ok` unset; a future retry (if we ever add one) has the
+    full text to work from.
+
+    All content-level and infrastructure failures land here as None with a
+    log line at INFO/WARNING level tagged 🌐 — no exceptions leak out to
+    the caller. Ingest must never fail because translation failed.
+    """
+    if not (TRANSLATION_OLLAMA_HOST and TRANSLATION_OLLAMA_MODEL):
+        # No ingest translation configured — silent for the common case
+        # where a stack hasn't set up the env, noisy would be wrong.
+        return None
+    if not (title and body and source_lang):
+        return None
+    if source_lang.strip().lower() == "english":
+        # Caller should have gated on this; nothing to translate.
+        return None
+
+    def _one(text: str, timeout: int, label: str) -> str | None:
+        prompt = _build_translation_prompt(text, "English", source_lang)
+        try:
+            resp, dur_ms, model_used = call_ollama_local_only(
+                prompt, timeout=timeout,
+                host=TRANSLATION_OLLAMA_HOST,
+                model=TRANSLATION_OLLAMA_MODEL,
+            )
+        except OllamaTransportError as e:
+            logger.warning(
+                "🌐 Ingest translation TRANSPORT failure (%s field, source_lang=%s): %s",
+                label, source_lang, e,
+            )
+            return None
+        except OllamaNoResponseError as e:
+            logger.warning(
+                "🌐 Ingest translation NO-RESPONSE (%s field, source_lang=%s): %s",
+                label, source_lang, e,
+            )
+            return None
+        except Exception as e:
+            logger.warning(
+                "🌐 Ingest translation UNEXPECTED failure (%s field, source_lang=%s): %s",
+                label, source_lang, e,
+            )
+            return None
+        out = (resp or "").strip()
+        if not out:
+            logger.warning(
+                "🌐 Ingest translation empty response (%s field, source_lang=%s, %.0fms via %s)",
+                label, source_lang, dur_ms, model_used,
+            )
+            return None
+        return out
+
+    eng_title = _one(title, _INGEST_TITLE_TIMEOUT_S, "title")
+    if eng_title is None:
+        return None
+    eng_body = _one(body, _INGEST_BODY_TIMEOUT_S, "body")
+    if eng_body is None:
+        return None
+
+    logger.info(
+        "🌐 Ingest translation OK (source_lang=%s → English, title %d→%d chars, body %d→%d chars)",
+        source_lang, len(title), len(eng_title), len(body), len(eng_body),
+    )
+    return eng_title, eng_body
 
 
 # ---------------------------------------------------------------------------
