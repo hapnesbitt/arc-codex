@@ -407,22 +407,32 @@ _CAPTCHA_TEXT_BOILERPLATE = re.compile(
 def _extracted_looks_like_captcha_boilerplate(article_text, html_content):
     """Return (True, reason) if extract is CAPTCHA boilerplate; else (False, None).
 
-    Two independent checks — either fires:
-      1. HTML page has a CAPTCHA marker AND extracted text is under the
-         MIN_ARTICLE_CHARS_CAPTCHA floor. Real articles served with a
-         CAPTCHA banner (e.g. science.org medical coverage at 6,000+
-         chars) clear the floor and are kept.
-      2. Extracted text ITSELF contains checkpoint-boilerplate prose,
-         regardless of length. Catches cases where the HTML stripped its
-         markers or where extraction over-grabbed the challenge text.
+    Two independent checks — either fires. Both require an HTML-level CAPTCHA
+    marker so a legitimate article that *names* checkpoint phrases in its own
+    prose ("cloudflare ray id", "ddos protection by cloudflare", "verify you
+    are a human", "checking your browser") is not silently dropped at
+    ingestion. Tech and security reporting quotes these phrases routinely; the
+    prior shape fired the text regex without the HTML precondition and
+    rejected on-topic articles that never touched a real CAPTCHA page.
+      1. HTML has a CAPTCHA marker AND extract is under MIN_ARTICLE_CHARS_CAPTCHA.
+         Real articles served with a CAPTCHA banner (e.g. science.org medical
+         coverage at 6,000+ chars) clear the floor and are kept.
+      2. HTML has a CAPTCHA marker AND extract itself contains checkpoint prose.
+         Catches over-grab cases where extraction pulled the challenge text
+         alongside body text.
+    Arc runs playwright_tier3, so a false positive here is often recoverable
+    via retry — but the gate runs before tier-3 selection, so pinning both
+    branches to the HTML precondition still matters.
     """
     text_lower = article_text.lower()
     html_lower = (html_content or "").lower()
     has_captcha_html = any(m in html_lower for m in _CAPTCHA_HTML_MARKERS)
-    if has_captcha_html and len(article_text) < MIN_ARTICLE_CHARS_CAPTCHA:
+    if not has_captcha_html:
+        return (False, None)
+    if len(article_text) < MIN_ARTICLE_CHARS_CAPTCHA:
         return (True, f"captcha_boilerplate ({len(article_text)} chars, CAPTCHA in HTML)")
     if _CAPTCHA_TEXT_BOILERPLATE.search(text_lower):
-        return (True, "captcha_boilerplate (checkpoint prose in extract)")
+        return (True, "captcha_boilerplate (checkpoint prose + CAPTCHA in HTML)")
     return (False, None)
 
 
